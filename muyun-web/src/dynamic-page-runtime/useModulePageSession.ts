@@ -1,3 +1,4 @@
+import { isRecordSaveRejection } from './recordSaveFeedback';
 import { recordPresentationLabel } from '@muyun/web-core';
 import { usePageDataChangeHandler } from '../platform-admin-runtime/pageRealtime';
 import { displayModuleRuntime, useLanguageContext, presentationLabel } from '@muyun/web-core';
@@ -554,6 +555,14 @@ export function useModulePageSession(
   const mainFormValid = ref(true);
   const relationDraftValid = ref(true);
   const formValidationRequestKey = ref(0);
+  const recordSaveError = shallowRef<AppError>();
+  watch(
+    [editingRecord, formSessionKey],
+    () => {
+      recordSaveError.value = undefined;
+    },
+    { deep: true, flush: 'sync' },
+  );
   const localEditFormValid = ref(true);
   const recordOnlyAuthorizing = ref(false);
   let recordOnlySession = 0;
@@ -4146,12 +4155,14 @@ export function useModulePageSession(
   }
 
   async function saveRecord(actionKey = 'save') {
+    recordSaveError.value = undefined;
     if (recordSaveNeedsCheck.value) return checkRecordSave();
     try {
       const record = await prepareRecordSave();
       if (record) await submitPreparedRecord(record, editorMode.value, actionKey);
     } catch (cause) {
-      presentPlatformError(cause, { source: 'module-action', phase: 'action', language });
+      if (!recordSaveError.value)
+        presentPlatformError(cause, { source: 'module-action', phase: 'action', language });
     }
   }
 
@@ -4168,6 +4179,8 @@ export function useModulePageSession(
           '已有保存尚未核实，请先查询结果',
         ),
       );
+    // Assistant confirmation and page save enter the same mutation path.
+    recordSaveError.value = undefined;
     const scope = recordSaveScope.value;
     const snapshot = JSON.stringify(record);
     const session = formSessionKey.value;
@@ -4213,6 +4226,9 @@ export function useModulePageSession(
           ? context.crud.update(id, record, requestId ? { requestId } : undefined)
           : context.crud.insert(record, requestId ? { requestId } : undefined)
       ).catch((cause: unknown) => {
+        if (isCurrent() && cause instanceof AppError && isRecordSaveRejection(cause)) {
+          recordSaveError.value = cause;
+        }
         if (
           requestId &&
           cause instanceof AppError &&
@@ -4222,7 +4238,7 @@ export function useModulePageSession(
             unresolvedRecordSaveRejected = true;
             clearRecordSaveReference(requestId!);
           }
-          throw new OperationRejectedError(cause.message);
+          throw new OperationRejectedError(cause.message, { cause });
         }
         throw cause;
       });
@@ -5399,6 +5415,7 @@ export function useModulePageSession(
     bindNavigatorQueryController,
     bindTreeQueryController,
     formValidationRequestKey,
+    recordSaveError,
     referencePickerConfigs,
     runtimeUiDescriptor,
     executableDetailRelations,

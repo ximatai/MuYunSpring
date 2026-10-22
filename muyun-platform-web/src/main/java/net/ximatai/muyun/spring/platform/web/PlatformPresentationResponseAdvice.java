@@ -58,7 +58,10 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
                 parameter.getContainingClass() == ModuleFieldOptionWebController.class ||
                 parameter.getContainingClass() == ApplicationConstructionPlanWebController.class ||
                 parameter.getContainingClass() == PlatformBusinessRuleGovernanceWebController.class ||
-                ModuleMetadataCapabilitySnapshot.class.isAssignableFrom(parameter.getParameterType());
+                ModuleMetadataCapabilitySnapshot.class.isAssignableFrom(parameter.getParameterType()) ||
+                MetadataModelChangeSetPreview.class.isAssignableFrom(parameter.getParameterType()) ||
+                MetadataRelationChangeSetPreview.class.isAssignableFrom(parameter.getParameterType()) ||
+                MetadataModelChangeSetPublishResult.class.isAssignableFrom(parameter.getParameterType());
     }
     @Override public Object beforeBodyWrite(Object body, MethodParameter parameter, MediaType contentType,
             Class<? extends HttpMessageConverter<?>> converter, ServerHttpRequest request, ServerHttpResponse response) { return project(body); }
@@ -104,7 +107,20 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
         return output;
     }
     private void collect(Object value, String path, List<Slot> slots) {
-        if (value instanceof WorkflowSubmitStatusView status) {
+        if (value instanceof MetadataModelChangeSetPreview preview) {
+            collect(preview.relationPreviews(), path + "/relationPreviews", slots);
+            collect(preview.warnings(), path + "/warnings", slots);
+            collect(preview.errors(), path + "/errors", slots);
+        } else if (value instanceof MetadataRelationChangeSetPreview preview) {
+            collect(preview.warnings(), path + "/warnings", slots);
+            collect(preview.errors(), path + "/errors", slots);
+        } else if (value instanceof MetadataModelChangeSetPublishResult result) {
+            collect(result.validatedPreview(), path + "/validatedPreview", slots);
+            collect(result.snapshots(), path + "/snapshots", slots);
+        } else if (value instanceof MetadataChangeSetValidationIssue issue) {
+            if (issue.textSource() != null && issue.textSource().sourceKind() == TextReference.SourceKind.CODE)
+                slots.add(new Slot(path, "message", issue.textSource(), issue.messageArgs(), false, true));
+        } else if (value instanceof WorkflowSubmitStatusView status) {
             if (status.errorMessageSource() != null)
                 slots.add(new Slot(path, "errorMessage", status.errorMessageSource(), status.errorMessageArgs(), false, true));
         } else if (value instanceof PlatformRecordActionAvailability availability) {

@@ -30,6 +30,7 @@ const props = defineProps<{
   mode: 'create' | 'edit' | 'view';
   formSessionKey: number;
   validationRequestKey?: number;
+  serverErrors?: Readonly<Record<string, string>>;
   optionContext: ModuleContext<QueryListRecord>;
   fileTransferContext: ModuleContext<QueryListRecord>;
   pickerConfigs: Record<string, RecordFormFieldPickerConfig>;
@@ -120,6 +121,7 @@ watch(
       :context-for="contextFor"
     />
     <RecordFormFields
+      :server-errors="serverErrors"
       :mode="mode"
       :record="record"
       :fields="fields"

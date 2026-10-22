@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.common.content.ContentPolicy;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordProtocolFields;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
@@ -102,11 +103,13 @@ public class MetadataRelationChangeSetPreviewService {
         List<MetadataChangeSetValidationIssue> errors = new ArrayList<>();
         Metadata metadata = context.metadata();
         if (metadata.getCapabilityDeclarations() == null) {
-            warnings.add(new MetadataChangeSetValidationIssue(MetadataChangeSetValidationIssue.Severity.WARNING,
-                    "LEGACY_CAPABILITY_INFERENCE", "capabilities", "当前能力由既有字段推导；首次发布将转为元数据声明。"));
+            warnings.add(MetadataChangeSetValidationIssue.declared(MetadataChangeSetValidationIssue.Severity.WARNING,
+                    "LEGACY_CAPABILITY_INFERENCE", "capabilities", TextReference.code(
+                    "platform.metadata.diagnostic.legacy-capability-inference", "当前能力由既有字段推导；首次发布将转为元数据声明。"), Map.of()));
         }
         if (!java.util.Objects.equals(command.expectedMetadataVersion(), metadata.getVersion())) {
-            error(errors, "STALE_METADATA_VERSION", "metadata", "元数据版本已变化，请重新载入后预检。");
+            error(errors, "STALE_METADATA_VERSION", "metadata",
+                    TextReference.code("platform.metadata.diagnostic.stale-metadata-version", "元数据版本已变化，请重新载入后预检。"));
         }
 
         List<MetadataField> savedFields = fieldService.list(Criteria.of().eq("metadataId", metadata.getId()), ALL);
@@ -136,7 +139,8 @@ public class MetadataRelationChangeSetPreviewService {
         EnumSet<EntityCapability> proposed = current.isEmpty() ? EnumSet.noneOf(EntityCapability.class) : EnumSet.copyOf(current);
         if (selections == null || selections.isEmpty()) return proposed;
         if (context.relation().getRelationRole() != RelationRole.MAIN) {
-            error(errors, "CHILD_CAPABILITY_UNSUPPORTED", "capabilities", "子元数据不能变更模块能力。");
+            error(errors, "CHILD_CAPABILITY_UNSUPPORTED", "capabilities",
+                    TextReference.code("platform.metadata.diagnostic.child-capability-unsupported", "子元数据不能变更模块能力。"));
             return proposed;
         }
         boolean changed = false;
@@ -144,12 +148,14 @@ public class MetadataRelationChangeSetPreviewService {
         for (Map.Entry<EntityCapability, Boolean> entry : selections.entrySet()) {
             EntityCapability capability = entry.getKey();
             if (!MetadataCapabilityCatalog.isMutableInFirstRelease(capability)) {
-                error(errors, "CAPABILITY_NOT_MUTABLE", String.valueOf(capability), "当前能力不支持动态声明。");
+                error(errors, "CAPABILITY_NOT_MUTABLE", String.valueOf(capability),
+                    TextReference.code("platform.metadata.diagnostic.capability-not-mutable", "当前能力不支持动态声明。"));
                 continue;
             }
             boolean enabled = Boolean.TRUE.equals(entry.getValue());
             if (!enabled && current.contains(capability)) {
-                error(errors, "NON_ADDITIVE_CAPABILITY", capability.name(), "首批发布仅支持启用能力，不能禁用或移除字段。");
+                error(errors, "NON_ADDITIVE_CAPABILITY", capability.name(),
+                    TextReference.code("platform.metadata.diagnostic.non-additive-capability", "首批发布仅支持启用能力，不能禁用或移除字段。"));
                 continue;
             }
             if (enabled && !current.contains(capability)) {
@@ -162,13 +168,15 @@ public class MetadataRelationChangeSetPreviewService {
         }
         if (Boolean.TRUE.equals(selections.get(EntityCapability.TREE))
                 && Boolean.FALSE.equals(selections.get(EntityCapability.SORT))) {
-            error(errors, "CAPABILITY_DEPENDENCY", "TREE", "树能力依赖排序能力，不能同时关闭排序。");
+            error(errors, "CAPABILITY_DEPENDENCY", "TREE",
+                    TextReference.code("platform.metadata.diagnostic.capability-dependency", "树能力依赖排序能力，不能同时关闭排序。"));
         }
         if (proposed.contains(EntityCapability.TREE)) proposed.add(EntityCapability.SORT);
         boolean usedAsChild = relationService.count(Criteria.of().eq("metadataId", context.metadata().getId())
                 .eq("relationRole", RelationRole.CHILD)) > 0;
         if ((changed && usedAsChild) || (structureChanged && metadataHasChildUsage(context.metadata().getId()))) {
-            error(errors, "CHILD_RELATION_BLOCK", "capabilities", "元数据参与子关系时，不能变更结构能力。");
+            error(errors, "CHILD_RELATION_BLOCK", "capabilities",
+                    TextReference.code("platform.metadata.diagnostic.child-relation-block", "元数据参与子关系时，不能变更结构能力。"));
         }
         return proposed;
     }
@@ -183,7 +191,8 @@ public class MetadataRelationChangeSetPreviewService {
         Set<String> touched = new HashSet<>();
         for (MetadataFieldChangeSetDraft draft : drafts) {
             if (draft == null || draft.operation() == null) {
-                error(errors, "INVALID_FIELD_DRAFT", "fields", "字段草稿缺少操作类型。");
+                error(errors, "INVALID_FIELD_DRAFT", "fields",
+                    TextReference.code("platform.metadata.diagnostic.invalid-field-draft", "字段草稿缺少操作类型。"));
                 continue;
             }
             String key = draft.fieldId();
@@ -202,22 +211,25 @@ public class MetadataRelationChangeSetPreviewService {
         MetadataField field = draft.field();
         if (!validateDraftField(field, "new", errors)) return;
         if (Boolean.TRUE.equals(field.getSystemManaged()) || field.getFieldOwnership() == MetadataFieldOwnership.STANDARD) {
-            error(errors, "PROTECTED_FIELD", field.getFieldName(), "新增字段不能声明为平台或系统托管字段。");
+            error(errors, "PROTECTED_FIELD", field.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.new-field-managed", "新增字段不能声明为平台或系统托管字段。"));
             return;
         }
         if (MetadataCapabilityCatalog.designContract().declarableCapabilities().metadataFields().stream()
                 .anyMatch(contribution -> same(contribution.fieldName(), field.getFieldName())
                         || same(contribution.columnName(), field.getColumnName()))) {
             error(errors, "CAPABILITY_FIELD_CONFLICT", field.getFieldName(),
-                    "该字段或物理列由基础能力管理，请选择对应能力，不要创建同名业务字段。");
+                    TextReference.code("platform.metadata.diagnostic.capability-field-conflict", "该字段或物理列由基础能力管理，请选择对应能力，不要创建同名业务字段。"));
             return;
         }
         if (fields.values().stream().anyMatch(existing -> same(existing.getFieldName(), field.getFieldName()))) {
-            error(errors, "DUPLICATE_FIELD_NAME", field.getFieldName(), "字段名在最终元数据结构中重复。");
+            error(errors, "DUPLICATE_FIELD_NAME", field.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.duplicate-field-name", "字段名在最终元数据结构中重复。"));
             return;
         }
         if (fields.values().stream().anyMatch(existing -> same(existing.getColumnName(), field.getColumnName()))) {
-            error(errors, "DUPLICATE_COLUMN_NAME", field.getColumnName(), "物理列名在最终元数据结构中重复。");
+            error(errors, "DUPLICATE_COLUMN_NAME", field.getColumnName(),
+                    TextReference.code("platform.metadata.diagnostic.duplicate-column-name", "物理列名在最终元数据结构中重复。"));
             return;
         }
         MetadataField normalized = newBusinessField(field);
@@ -239,20 +251,23 @@ public class MetadataRelationChangeSetPreviewService {
                              Set<String> touched, String fieldId) {
         MetadataField existing = fields.get(fieldId);
         if (fieldId == null || existing == null || !touched.add(fieldId)) {
-            error(errors, "INVALID_FIELD_UPDATE", String.valueOf(fieldId), "字段修改必须唯一地指向已存在字段。");
+            error(errors, "INVALID_FIELD_UPDATE", String.valueOf(fieldId),
+                    TextReference.code("platform.metadata.diagnostic.invalid-field-update", "字段修改必须唯一地指向已存在字段。"));
             return;
         }
         if (protectedField(existing, context.relation())) {
-            error(errors, "PROTECTED_FIELD", existing.getFieldName(), "受保护字段不能在编辑会话中修改。");
+            error(errors, "PROTECTED_FIELD", existing.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.protected-field-update", "受保护字段不能在编辑会话中修改。"));
             return;
         }
         if (legacyPropertyLocked(existing, context.relation())) {
             error(errors, "LEGACY_FIELD_PROPERTY_LOCKED", existing.getFieldName(),
-                    "字段仍使用旧模块字段引用或字典配置，迁移前不能通过新编排链路修改。");
+                    TextReference.code("platform.metadata.diagnostic.legacy-field-property-locked", "字段仍使用旧模块字段引用或字典配置，迁移前不能通过新编排链路修改。"));
             return;
         }
         if (!java.util.Objects.equals(draft.expectedFieldVersion(), existing.getVersion())) {
-            error(errors, "STALE_FIELD_VERSION", existing.getFieldName(), "字段版本已变化，请重新载入后预检。");
+            error(errors, "STALE_FIELD_VERSION", existing.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.stale-field-version", "字段版本已变化，请重新载入后预检。"));
             return;
         }
         MetadataField field = draft.field();
@@ -264,13 +279,13 @@ public class MetadataRelationChangeSetPreviewService {
                 || !same(existing.getFieldRole(), field.getFieldRole())
                 || !same(existing.getSystemManaged(), field.getSystemManaged())) {
             error(errors, "NON_ADDITIVE_FIELD_MUTATION", existing.getFieldName(),
-                    "首批发布仅允许修改业务展示和约束属性，不能修改字段结构、归属或平台管理属性。");
+                    TextReference.code("platform.metadata.diagnostic.non-additive-field-mutation", "首批发布仅允许修改业务展示和约束属性，不能修改字段结构、归属或平台管理属性。"));
             return;
         }
         try {
             fieldService.validateConfigurationFieldChange(existing, overlayBusinessAttributes(existing, field));
         } catch (RuntimeException exception) {
-            error(errors, "FIELD_CONFIGURATION_IN_USE", existing.getFieldName(), exception.getMessage());
+            error(errors, "FIELD_CONFIGURATION_IN_USE", existing.getFieldName(), exception);
             return;
         }
         if (!same(existing.getFieldSpecAlias(), field.getFieldSpecAlias())
@@ -298,21 +313,22 @@ public class MetadataRelationChangeSetPreviewService {
         try {
             if (referenceConfigService != null) referenceConfigService.validateAffectFieldChange(existing, overlayBusinessAttributes(existing, proposed));
         } catch (RuntimeException exception) {
-            error(errors, "INVALID_REFERENCE_AFFECT_TYPE", existing.getFieldName(), exception.getMessage());
+            error(errors, "INVALID_REFERENCE_AFFECT_TYPE", existing.getFieldName(), exception);
             return false;
         }
         if (recordService == null) {
             error(errors, "FIELD_SPEC_CHANGE_UNAVAILABLE", existing.getFieldName(),
-                    "当前环境未配置数据预检，不能修改存储字段规格。");
+                    TextReference.code("platform.metadata.diagnostic.field-spec-change-unavailable", "当前环境未配置数据预检，不能修改存储字段规格。"));
             return false;
         }
         long records = recordService.schemaGovernanceFacts().countPhysicalRecords(context.relation().getModuleAlias(), context.metadata().getAlias(),
                 Criteria.of());
         if (records == 0 || fieldSpecService.allowsDataSafeTarget(
                 existing.getFieldSpecAlias(), proposed.getFieldSpecAlias())) return true;
-        error(errors, "FIELD_SPEC_CHANGE_WITH_DATA", existing.getFieldName(),
-                "字段“" + existing.getTitle() + "”已有 " + records
-                        + " 条业务数据；目标字段规格不在当前规格声明的数据安全转换范围内。");
+        errors.add(MetadataChangeSetValidationIssue.declared(MetadataChangeSetValidationIssue.Severity.ERROR,
+                "FIELD_SPEC_CHANGE_WITH_DATA", existing.getFieldName(), TextReference.code(
+                "platform.metadata.diagnostic.field-spec-change-with-data", "字段“{title}”已有 {count} 条业务数据；目标字段规格不在当前规格声明的数据安全转换范围内。"),
+                Map.of("title", String.valueOf(existing.getTitle()), "count", records)));
         return false;
     }
 
@@ -323,15 +339,16 @@ public class MetadataRelationChangeSetPreviewService {
         if (!addsRequired && !addsUnique) return true;
         if (recordService == null) {
             error(errors, "FIELD_CONSTRAINT_CHANGE_UNAVAILABLE", existing.getFieldName(),
-                    "当前环境未配置数据预检，不能收紧字段约束。");
+                    TextReference.code("platform.metadata.diagnostic.field-constraint-change-unavailable", "当前环境未配置数据预检，不能收紧字段约束。"));
             return false;
         }
         long records = recordService.schemaGovernanceFacts().countPhysicalRecords(
                 context.relation().getModuleAlias(), context.metadata().getAlias(), Criteria.of());
         if (records == 0) return true;
-        error(errors, "FIELD_CONSTRAINT_CHANGE_WITH_DATA", existing.getFieldName(),
-                "字段“" + existing.getTitle() + "”已有 " + records
-                        + " 条业务数据；当前发布链不能证明存量值满足新增的必填或唯一约束。");
+        errors.add(MetadataChangeSetValidationIssue.declared(MetadataChangeSetValidationIssue.Severity.ERROR,
+                "FIELD_CONSTRAINT_CHANGE_WITH_DATA", existing.getFieldName(), TextReference.code(
+                "platform.metadata.diagnostic.field-constraint-change-with-data", "字段“{title}”已有 {count} 条业务数据；当前发布链不能证明存量值满足新增的必填或唯一约束。"),
+                Map.of("title", String.valueOf(existing.getTitle()), "count", records)));
         return false;
     }
 
@@ -340,13 +357,16 @@ public class MetadataRelationChangeSetPreviewService {
                              Set<String> touched, String fieldId) {
         MetadataField existing = fields.get(fieldId);
         if (fieldId == null || existing == null || !touched.add(fieldId)) {
-            error(errors, "INVALID_FIELD_DELETE", String.valueOf(fieldId), "字段删除必须唯一地指向已存在字段。");
+            error(errors, "INVALID_FIELD_DELETE", String.valueOf(fieldId),
+                    TextReference.code("platform.metadata.diagnostic.invalid-field-delete", "字段删除必须唯一地指向已存在字段。"));
             return;
         }
         if (protectedField(existing, context.relation())) {
-            error(errors, "PROTECTED_FIELD", existing.getFieldName(), "受保护字段不能在编辑会话中删除。");
+            error(errors, "PROTECTED_FIELD", existing.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.protected-field-delete", "受保护字段不能在编辑会话中删除。"));
         }
-        error(errors, "NON_ADDITIVE_FIELD_DELETE", existing.getFieldName(), "首批发布不支持删除字段或删除物理列。");
+        error(errors, "NON_ADDITIVE_FIELD_DELETE", existing.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.non-additive-field-delete", "首批发布不支持删除字段或删除物理列。"));
         impacts.add(new MetadataChangeSetFieldImpact("DELETE", existing.getFieldName(), existing.getColumnName(),
                 protectedField(existing, context.relation()), "删除草稿不会被发布。"));
     }
@@ -364,7 +384,8 @@ public class MetadataRelationChangeSetPreviewService {
         for (ModuleMetadataCapabilityFieldContribution contribution : MetadataCapabilityCatalog.plan(capabilities).metadataFields()) {
             if (names.contains(contribution.fieldName()) && columns.contains(contribution.columnName())) continue;
             if (names.contains(contribution.fieldName()) || columns.contains(contribution.columnName())) {
-                error(errors, "CAPABILITY_FIELD_CONFLICT", contribution.fieldName(), "能力派生字段与业务字段或物理列冲突。");
+                error(errors, "CAPABILITY_FIELD_CONFLICT", contribution.fieldName(),
+                    TextReference.code("platform.metadata.diagnostic.derived-field-conflict", "能力派生字段与业务字段或物理列冲突。"));
                 continue;
             }
             impacts.add(new MetadataChangeSetFieldImpact("ADD", contribution.fieldName(), contribution.columnName(), true,
@@ -434,8 +455,10 @@ public class MetadataRelationChangeSetPreviewService {
         Set<String> names = new HashSet<>();
         Set<String> columns = new HashSet<>();
         for (MetadataField field : fields) {
-            if (!names.add(field.getFieldName())) error(errors, "DUPLICATE_FIELD_NAME", field.getFieldName(), "字段名在最终元数据结构中重复。");
-            if (!columns.add(field.getColumnName())) error(errors, "DUPLICATE_COLUMN_NAME", field.getColumnName(), "物理列名在最终元数据结构中重复。");
+            if (!names.add(field.getFieldName())) error(errors, "DUPLICATE_FIELD_NAME", field.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.duplicate-field-name", "字段名在最终元数据结构中重复。"));
+            if (!columns.add(field.getColumnName())) error(errors, "DUPLICATE_COLUMN_NAME", field.getColumnName(),
+                    TextReference.code("platform.metadata.diagnostic.duplicate-column-name", "物理列名在最终元数据结构中重复。"));
         }
     }
 
@@ -498,7 +521,7 @@ public class MetadataRelationChangeSetPreviewService {
             return binding == null ? null : new MetadataFieldPropertyChangeSetPlan(binding.kind(), binding.expectedBindingVersion(),
                     binding.referenceConfig(), binding.dictionaryConfig(), normalized);
         } catch (RuntimeException exception) {
-            error(errors, "INVALID_FIXED_DEFAULT", proposedField.getFieldName(), exception.getMessage());
+            error(errors, "INVALID_FIXED_DEFAULT", proposedField.getFieldName(), exception);
             return null;
         }
     }
@@ -511,12 +534,13 @@ public class MetadataRelationChangeSetPreviewService {
         if (draft == null) return null;
         MetadataFieldPropertyKind kind = draft.kind();
         if (kind == null) {
-            error(errors, "INVALID_FIELD_PROPERTY", proposedField.getFieldName(), "字段属性草稿缺少类型。");
+            error(errors, "INVALID_FIELD_PROPERTY", proposedField.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.invalid-field-property", "字段属性草稿缺少类型。"));
             return null;
         }
         if (kind == MetadataFieldPropertyKind.LEGACY_LOCKED) {
             error(errors, "LEGACY_FIELD_PROPERTY_LOCKED", proposedField.getFieldName(),
-                    "旧模块字段属性仅可读取，不能作为新编排草稿预检或发布。");
+                    TextReference.code("platform.metadata.diagnostic.legacy-property-readonly", "旧模块字段属性仅可读取，不能作为新编排草稿预检或发布。"));
             return null;
         }
         MetadataFieldReferenceConfig existingReference = existingField == null || referenceConfigService == null ? null
@@ -528,49 +552,58 @@ public class MetadataRelationChangeSetPreviewService {
         boolean hasReference = existingReference != null;
         boolean hasDictionary = existingDictionary != null && existingDictionary.hasDictionaryBinding();
         if (hasReference && hasDictionary) {
-            error(errors, "CONFLICTING_FIELD_PROPERTY", proposedField.getFieldName(), "字段同时存在引用和字典绑定，不能编排。");
+            error(errors, "CONFLICTING_FIELD_PROPERTY", proposedField.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.conflicting-field-property", "字段同时存在引用和字典绑定，不能编排。"));
             return null;
         }
         if (kind == MetadataFieldPropertyKind.BASIC) {
             if (draft.referenceConfig() != null || draft.dictionaryConfig() != null) {
-                error(errors, "INVALID_FIELD_PROPERTY", proposedField.getFieldName(), "普通字段不能携带引用或字典绑定。");
+                error(errors, "INVALID_FIELD_PROPERTY", proposedField.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.basic-field-has-binding", "普通字段不能携带引用或字典绑定。"));
                 return null;
             }
             if (hasReference || hasDictionary) {
-                error(errors, "NON_ADDITIVE_FIELD_PROPERTY", proposedField.getFieldName(), "当前发布不能移除既有字段属性绑定。");
+                error(errors, "NON_ADDITIVE_FIELD_PROPERTY", proposedField.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.non-additive-field-property", "当前发布不能移除既有字段属性绑定。"));
                 return null;
             }
             return new MetadataFieldPropertyChangeSetPlan(kind, draft.expectedBindingVersion(), null, null);
         }
         if (kind == MetadataFieldPropertyKind.MODULE_REFERENCE) {
             if (draft.referenceConfig() == null || draft.dictionaryConfig() != null) {
-                error(errors, "INVALID_FIELD_PROPERTY", proposedField.getFieldName(), "模块引用字段必须且只能携带引用绑定。");
+                error(errors, "INVALID_FIELD_PROPERTY", proposedField.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.reference-binding-required", "模块引用字段必须且只能携带引用绑定。"));
                 return null;
             }
             if (hasDictionary) {
-                error(errors, "CONFLICTING_FIELD_PROPERTY", proposedField.getFieldName(), "字典字段不能同时配置模块引用。");
+                error(errors, "CONFLICTING_FIELD_PROPERTY", proposedField.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.dictionary-has-reference", "字典字段不能同时配置模块引用。"));
                 return null;
             }
             MetadataFieldReferenceConfig reference = draft.referenceConfig().toConfig();
             if (!validateReferenceBinding(context, proposedField, reference, errors)) return null;
             if (!bindingVersionMatches(draft.expectedBindingVersion(), existingReference)) {
-                error(errors, "STALE_FIELD_PROPERTY_VERSION", proposedField.getFieldName(), "引用配置版本已变化，请重新载入后预检。");
+                error(errors, "STALE_FIELD_PROPERTY_VERSION", proposedField.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.stale-reference-version", "引用配置版本已变化，请重新载入后预检。"));
                 return null;
             }
             return new MetadataFieldPropertyChangeSetPlan(kind, draft.expectedBindingVersion(),
                     copyReference(reference), null);
         }
         if (draft.dictionaryConfig() == null || draft.referenceConfig() != null) {
-            error(errors, "INVALID_FIELD_PROPERTY", proposedField.getFieldName(), "数据字典字段必须且只能携带字典绑定。");
+            error(errors, "INVALID_FIELD_PROPERTY", proposedField.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.dictionary-binding-required", "数据字典字段必须且只能携带字典绑定。"));
             return null;
         }
         if (hasReference) {
-            error(errors, "CONFLICTING_FIELD_PROPERTY", proposedField.getFieldName(), "引用字段不能同时配置数据字典。");
+            error(errors, "CONFLICTING_FIELD_PROPERTY", proposedField.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.reference-has-dictionary", "引用字段不能同时配置数据字典。"));
             return null;
         }
         if (!validateDictionaryBinding(context, proposedField, draft.dictionaryConfig(), errors)) return null;
         if (!bindingVersionMatches(draft.expectedBindingVersion(), hasDictionary ? existingDictionary : null)) {
-            error(errors, "STALE_FIELD_PROPERTY_VERSION", proposedField.getFieldName(), "字典配置版本已变化，请重新载入后预检。");
+            error(errors, "STALE_FIELD_PROPERTY_VERSION", proposedField.getFieldName(),
+                    TextReference.code("platform.metadata.diagnostic.stale-dictionary-version", "字典配置版本已变化，请重新载入后预检。"));
             return null;
         }
         return new MetadataFieldPropertyChangeSetPlan(kind, draft.expectedBindingVersion(), null,
@@ -595,7 +628,7 @@ public class MetadataRelationChangeSetPreviewService {
             referenceConfigService.validateDraft(config, field, context.relation());
             return true;
         } catch (RuntimeException exception) {
-            error(errors, "INVALID_FIELD_PROPERTY", field.getFieldName(), exception.getMessage());
+            error(errors, "INVALID_FIELD_PROPERTY", field.getFieldName(), exception);
             return false;
         }
     }
@@ -611,7 +644,7 @@ public class MetadataRelationChangeSetPreviewService {
             fieldConfigService.validateDictionaryDraft(config, field);
             return true;
         } catch (RuntimeException exception) {
-            error(errors, "INVALID_FIELD_PROPERTY", field.getFieldName(), exception.getMessage());
+            error(errors, "INVALID_FIELD_PROPERTY", field.getFieldName(), exception);
             return false;
         }
     }
@@ -649,7 +682,8 @@ public class MetadataRelationChangeSetPreviewService {
 
     private boolean validateDraftField(MetadataField field, String subject, List<MetadataChangeSetValidationIssue> errors) {
         if (field == null) {
-            error(errors, "INVALID_FIELD_DRAFT", subject, "字段草稿不能为空。");
+            error(errors, "INVALID_FIELD_DRAFT", subject,
+                    TextReference.code("platform.metadata.diagnostic.empty-field-draft", "字段草稿不能为空。"));
             return false;
         }
         try {
@@ -672,7 +706,7 @@ public class MetadataRelationChangeSetPreviewService {
             }
             return true;
         } catch (RuntimeException exception) {
-            error(errors, "INVALID_FIELD_DRAFT", subject, exception.getMessage());
+            error(errors, "INVALID_FIELD_DRAFT", subject, exception);
             return false;
         }
     }
@@ -800,8 +834,13 @@ public class MetadataRelationChangeSetPreviewService {
         return result;
     }
 
-    private static void error(List<MetadataChangeSetValidationIssue> errors, String code, String subject, String message) {
-        errors.add(new MetadataChangeSetValidationIssue(MetadataChangeSetValidationIssue.Severity.ERROR, code, subject, message));
+    private static void error(List<MetadataChangeSetValidationIssue> errors, String code, String subject, TextReference source) {
+        errors.add(MetadataChangeSetValidationIssue.declared(MetadataChangeSetValidationIssue.Severity.ERROR,
+                code, subject, source, Map.of()));
+    }
+
+    private static void error(List<MetadataChangeSetValidationIssue> errors, String code, String subject, RuntimeException failure) {
+        errors.add(MetadataChangeSetValidationIssue.failure(code, subject, failure));
     }
 
     private static boolean same(Object first, Object second) {

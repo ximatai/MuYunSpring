@@ -3656,7 +3656,8 @@
       "platform.workflow-manager.publish-to-enable": "请进入编排发布流程后启用",
       "platform.workflow-config.enable-confirm": "启用此流程？",
       "platform.read-view.refresh": "刷新",
-      "platform.read-view.empty": "暂无符合条件的记录"
+      "platform.read-view.empty": "暂无符合条件的记录",
+      "platform.form.server-error-row": "{relation}第 {row} 行：{field}"
     }
   },
   "en": {
@@ -7317,7 +7318,8 @@
       "platform.workflow-manager.publish-to-enable": "Publish the workflow in the designer before enabling it",
       "platform.workflow-config.enable-confirm": "Enable this workflow?",
       "platform.read-view.refresh": "Refresh",
-      "platform.read-view.empty": "No matching records"
+      "platform.read-view.empty": "No matching records",
+      "platform.form.server-error-row": "{relation}, row {row}: {field}"
     }
   },
   "fr": {

@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
+import { userFacingErrorMessage, type AppError } from '@muyun/web-core';
+import { recordSaveFieldErrors } from './recordSaveFeedback';
 import { useLanguageContext } from '@muyun/web-core';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import {
@@ -28,7 +30,7 @@ const language = useLanguageContext();
 
 defineOptions({ name: 'ModulePageRecordContent' });
 
-defineProps<{
+const props = defineProps<{
   context: ModuleContext<QueryListRecord>;
   /** Neutral transport for reference target modules. */
   crossModuleHttp?: HttpClient;
@@ -41,6 +43,7 @@ defineProps<{
   validationRequestKey: number;
   pickerConfigs: Record<string, RecordFormFieldPickerConfig>;
   saving?: boolean;
+  saveError?: AppError;
   uiDescriptor?: ResolvedModuleUiDescriptor;
   relations: ResolvedDetailRelationDescriptor[];
   relationsAvailable: boolean;
@@ -70,6 +73,31 @@ const emit = defineEmits<{
   'workflow-changed': [];
 }>();
 
+const serverFieldErrors = computed(() => recordSaveFieldErrors(props.saveError, props.formFields, language));
+const saveErrorMessage = computed(() =>
+  props.saveError ? userFacingErrorMessage(props.saveError, language) : undefined,
+);
+const childErrorLocations = computed(
+  () =>
+    props.saveError?.targets.flatMap((target) => {
+      if (target.rowIndex == null || !target.relationAlias) return [];
+      const relation = props.relations.find(
+        (candidate) =>
+          candidate.code === target.relationAlias || candidate.embeddedField === target.relationAlias,
+      );
+      if (!relation) return [];
+      const field = relation.listProjection?.fields.find(
+        (candidate) => candidate.fieldName === target.fieldName,
+      );
+      return [
+        language.t('platform.form.server-error-row', '{relation}第 {row} 行：{field}', {
+          relation: relation.title,
+          row: target.rowIndex + 1,
+          field: field?.title ?? target.fieldName ?? '',
+        }),
+      ];
+    }) ?? [],
+);
 const workflowPanel = ref<{ mayLeave: () => Promise<boolean> }>();
 defineExpose({ mayLeave: () => workflowPanel.value?.mayLeave() ?? Promise.resolve(true) });
 
@@ -119,8 +147,16 @@ function updateChildren(
       <component :is="section.component" :context="detailSectionContext(record)" />
     </RecordDetailExtensionSection>
   </template>
+  <div v-if="mode !== 'view' && saveError" class="module-record-save-error" role="alert">
+    {{ saveErrorMessage }}
+    <ul v-if="childErrorLocations.length">
+      <li v-for="location in childErrorLocations" :key="location">{{ location }}</li>
+    </ul>
+    <small v-if="saveError.traceId">{{ saveError.traceId }}</small>
+  </div>
   <RecordFormSurface
-    v-else
+    v-if="mode !== 'view'"
+    :server-errors="serverFieldErrors"
     :record="record as RecordFormRecord"
     :fields="formFields"
     :mode="mode"
@@ -154,3 +190,15 @@ function updateChildren(
   />
   <RecordMetaSection v-if="mode !== 'create' && showSystemInfo" :record="record" show-sort-order />
 </template>
+
+<style scoped>
+.module-record-save-error {
+  color: var(--muyun-danger-base);
+  padding: 8px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.module-record-save-error small {
+  display: block;
+}
+</style>

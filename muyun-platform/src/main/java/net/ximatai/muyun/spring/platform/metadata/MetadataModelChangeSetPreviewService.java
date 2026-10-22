@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.metadata;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
@@ -112,16 +113,19 @@ public class MetadataModelChangeSetPreviewService {
         Set<String> seenMetadata = new HashSet<>();
         for (MetadataModelRelationChangeSetDraft draft : drafts) {
             if (draft == null || draft.relationId() == null || draft.relationId().isBlank() || !seenRelations.add(draft.relationId())) {
-                error(errors, "INVALID_RELATION_DRAFT", "relationDrafts", "每个既有元数据节点只能出现一次。");
+                error(errors, "INVALID_RELATION_DRAFT", "relationDrafts",
+                    TextReference.code("platform.metadata.diagnostic.invalid-relation-draft", "每个既有元数据节点只能出现一次。"));
                 continue;
             }
             ModuleMetadataRelation relation = relations.get(draft.relationId());
             if (relation == null) {
-                error(errors, "INVALID_RELATION_DRAFT", draft.relationId(), "元数据节点不属于当前模块。");
+                error(errors, "INVALID_RELATION_DRAFT", draft.relationId(),
+                    TextReference.code("platform.metadata.diagnostic.relation-outside-module", "元数据节点不属于当前模块。"));
                 continue;
             }
             if (!seenMetadata.add(relation.getMetadataId())) {
-                error(errors, "DUPLICATE_METADATA_DRAFT", draft.relationId(), "同一元数据不能在一个元数据草稿中由多个节点同时修改。");
+                error(errors, "DUPLICATE_METADATA_DRAFT", draft.relationId(),
+                    TextReference.code("platform.metadata.diagnostic.duplicate-metadata-draft", "同一元数据不能在一个元数据草稿中由多个节点同时修改。"));
                 continue;
             }
             MetadataRelationChangeSetPreview preview = relationPreviewService.preview(moduleAlias, relation.getId(),
@@ -147,12 +151,14 @@ public class MetadataModelChangeSetPreviewService {
             String parent = order == null ? null : order.parentMetadataId();
             String key = parentKey(parent);
             if (order == null || !seenParents.add(key)) {
-                error(errors, "INVALID_RELATION_ORDER", "relationOrders", "每组同级元数据只能提交一次排序。");
+                error(errors, "INVALID_RELATION_ORDER", "relationOrders",
+                    TextReference.code("platform.metadata.diagnostic.invalid-relation-order", "每组同级元数据只能提交一次排序。"));
                 continue;
             }
             List<ModuleMetadataRelation> expected = siblings.getOrDefault(key, List.of());
             if (!sameIds(order.relationIds(), expected.stream().map(ModuleMetadataRelation::getId).toList())) {
-                error(errors, "INVALID_RELATION_ORDER", String.valueOf(parent), "元数据排序必须覆盖同一父节点下的全部节点，且不能跨父节点移动。");
+                error(errors, "INVALID_RELATION_ORDER", String.valueOf(parent),
+                    TextReference.code("platform.metadata.diagnostic.incomplete-sibling-order", "元数据排序必须覆盖同一父节点下的全部节点，且不能跨父节点移动。"));
                 continue;
             }
             List<MetadataModelRelationOrderPlan.Entry> entries = new ArrayList<>();
@@ -182,22 +188,26 @@ public class MetadataModelChangeSetPreviewService {
         List<MetadataModelFieldOrderPlan> result = new ArrayList<>();
         for (MetadataModelFieldOrder order : orders) {
             if (order == null || order.relationId() == null || order.relationId().isBlank() || !seenRelations.add(order.relationId())) {
-                error(errors, "INVALID_FIELD_ORDER", "fieldOrders", "每个元数据节点只能提交一次字段排序。");
+                error(errors, "INVALID_FIELD_ORDER", "fieldOrders",
+                    TextReference.code("platform.metadata.diagnostic.invalid-field-order", "每个元数据节点只能提交一次字段排序。"));
                 continue;
             }
             ModuleMetadataRelation relation = relations.get(order.relationId());
             if (relation == null) {
-                error(errors, "INVALID_FIELD_ORDER", order.relationId(), "字段排序节点不属于当前模块。");
+                error(errors, "INVALID_FIELD_ORDER", order.relationId(),
+                    TextReference.code("platform.metadata.diagnostic.field-order-outside-module", "字段排序节点不属于当前模块。"));
                 continue;
             }
             List<MetadataField> fields = fieldService.list(Criteria.of().eq("metadataId", relation.getMetadataId()), ALL);
             List<MetadataField> movable = fields;
             if (!sameIds(order.fieldIds(), movable.stream().map(MetadataField::getId).toList())) {
-                error(errors, "INVALID_FIELD_ORDER", order.relationId(), "字段排序必须完整覆盖当前元数据的所有字段。");
+                error(errors, "INVALID_FIELD_ORDER", order.relationId(),
+                    TextReference.code("platform.metadata.diagnostic.incomplete-field-order", "字段排序必须完整覆盖当前元数据的所有字段。"));
                 continue;
             }
             if (order.fieldIds().stream().anyMatch(mutationFieldIds::contains)) {
-                error(errors, "FIELD_ORDER_CONFLICT", order.relationId(), "同一字段不能同时通过字段草稿和拖拽排序修改。");
+                error(errors, "FIELD_ORDER_CONFLICT", order.relationId(),
+                    TextReference.code("platform.metadata.diagnostic.field-order-conflict", "同一字段不能同时通过字段草稿和拖拽排序修改。"));
                 continue;
             }
             List<MetadataModelFieldOrderPlan.Entry> entries = new ArrayList<>();
@@ -251,8 +261,9 @@ public class MetadataModelChangeSetPreviewService {
         return parentMetadataId == null ? "<root>" : parentMetadataId;
     }
 
-    private static void error(List<MetadataChangeSetValidationIssue> errors, String code, String subject, String message) {
-        errors.add(new MetadataChangeSetValidationIssue(MetadataChangeSetValidationIssue.Severity.ERROR, code, subject, message));
+    private static void error(List<MetadataChangeSetValidationIssue> errors, String code, String subject, TextReference source) {
+        errors.add(MetadataChangeSetValidationIssue.declared(MetadataChangeSetValidationIssue.Severity.ERROR,
+                code, subject, source, Map.of()));
     }
 
     private static String sha256(String value) {

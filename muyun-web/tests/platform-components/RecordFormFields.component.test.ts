@@ -1878,3 +1878,28 @@ async function numberingDetails(wrapper: ReturnType<typeof mount>) {
   await flushPromises();
   return text;
 }
+
+it('displays server field rejection without changing draft values or local validity', async () => {
+  const record = { amount: 99 };
+  const wrapper = mount(RecordFormFields, {
+    props: {
+      mode: 'edit',
+      record,
+      fields: new Map<string, RecordFormFieldDescriptor>([
+        ['amount', { fieldRef: { fieldName: 'amount' }, label: '金额', valueType: 'INTEGER' }],
+      ]),
+      serverErrors: { amount: '金额超出允许范围' },
+    },
+  });
+  try {
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toBe('金额超出允许范围');
+    expect(record.amount).toBe(99);
+    expect(wrapper.emitted('update:field')).toBeUndefined();
+    await wrapper.setProps({ serverErrors: {} });
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(record.amount).toBe(99);
+  } finally {
+    wrapper.unmount();
+  }
+});

@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.code;
 
 import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum;
+import net.ximatai.muyun.spring.common.option.OptionValueCodeResolver;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
@@ -65,6 +67,10 @@ public class CodePreviewService {
         Map<String, Object> context = command.context() == null
                 ? new LinkedHashMap<>()
                 : new LinkedHashMap<>(command.context());
+        // Static models carry enum objects; forms carry option codes. Normalize only enums so
+        // every segment, formula and sequence-basis render consumes the same public option value.
+        context.replaceAll((source, sourceValue) -> sourceValue instanceof Enum<?> || sourceValue instanceof CodeTitleEnum
+                ? OptionValueCodeResolver.resolve(null, sourceValue) : sourceValue);
         LocalDateTime at = command.at() == null ? LocalDateTime.now(clock) : command.at();
         StringBuilder value = new StringBuilder();
         List<CodePreviewSegmentResult> renderedSegments = new ArrayList<>();

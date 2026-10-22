@@ -1,6 +1,9 @@
 package net.ximatai.muyun.spring.platform.code;
 
 import net.ximatai.muyun.spring.platform.code.fixture.*;
+import net.ximatai.muyun.spring.platform.code.fixture.StaticCodeRecord.DeviceType;
+import net.ximatai.muyun.database.core.orm.DatabaseValueConverter;
+import net.ximatai.muyun.spring.common.schema.PlatformDatabaseValueConverter;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
 import net.ximatai.muyun.spring.ability.*;
 import net.ximatai.muyun.spring.ability.code.*;
@@ -26,6 +29,7 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
     @Autowired CodeConfigurationService configuration;
     @Autowired CodeRuntimeFacade codes;
     @Autowired CodeBusinessFormService forms;
+    @Autowired CodePreviewService preview;
     @Autowired CodeOpsActionService ops;
     @Autowired CodeLedgerEntryService ledger;
     @Autowired CodeRecycleEntryService recycle;
@@ -415,6 +419,129 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
         }
     }
 
+    @Test void enumMappingMatchesFormPreviewTrialAndSaveWithIndependentBucketsAndRetainedCodes() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            var rule = saveDeviceRule("documentNo");
+            for (var type : List.of(DeviceType.MR_GLASSES, DeviceType.SAFETY_HELMET)) {
+                String expected = type == DeviceType.MR_GLASSES ? "GL-000001" : "HM-000001";
+                assertThat(preview.previewDraft(new PreviewCodeRuleCommand(rule,
+                        Map.of("deviceType", type), null, null, 1L)).value()).isEqualTo(expected);
+                for (int i = 0; i < 2; i++) {
+                    assertThat(forms.fields(MODULE, new CodeBusinessFormRequest("static_code",
+                            Map.of("subject", "draft", "deviceType", type.getCode()), null)))
+                            .filteredOn(state -> state.fieldName().equals("documentNo")).singleElement()
+                            .satisfies(state -> assertThat(state.preview()).isEqualTo(expected));
+                }
+                var record = device(type, "first"); service.insert(record);
+                assertThat(record.getDocumentNo()).isEqualTo(expected);
+                assertThat(service.select(record.getId()).getDeviceType()).isEqualTo(type);
+                assertThat(ledger.activeBindings(MODULE, "static_code", record.getId())).singleElement()
+                        .satisfies(entry -> assertThat(entry.getCodeValue()).isEqualTo(expected));
+                record.setDeviceType(type == DeviceType.MR_GLASSES
+                        ? DeviceType.SAFETY_HELMET : DeviceType.MR_GLASSES);
+                service.update(record);
+                assertThat(service.select(record.getId()).getDocumentNo()).isEqualTo(expected);
+            }
+            var glasses = device(DeviceType.MR_GLASSES, "second"); service.insert(glasses);
+            var helmet = device(DeviceType.SAFETY_HELMET, "second"); service.insert(helmet);
+            assertThat(glasses.getDocumentNo()).isEqualTo("GL-000002");
+            assertThat(helmet.getDocumentNo()).isEqualTo("HM-000002");
+        }
+    }
+
+    @Test void enumMappingFailuresRollBackBusinessSequenceAndOccupationBeforeRetry() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            var rule = saveDeviceRule("documentNo");
+            var invalid = device(DeviceType.MR_GLASSES, null);
+            assertThatThrownBy(() -> service.insert(invalid)).isInstanceOf(RuntimeException.class);
+            assertThat(invalid.getDocumentNo()).isNull();
+            assertThat(ledger.findByRuleAndValue(rule.getId(), "GL-000001")).isNull();
+            assertThatThrownBy(() -> service.insert(device(DeviceType.UNMAPPED, "unknown")))
+                    .hasMessageContaining("unmapped");
+            assertThatThrownBy(() -> service.insert(device(null, "missing"))).hasMessageContaining("deviceType");
+            invalid.setSubject("retry"); service.insert(invalid);
+            assertThat(invalid.getDocumentNo()).isEqualTo("GL-000001");
+            var helmet = device(DeviceType.SAFETY_HELMET, "valid"); service.insert(helmet);
+            assertThat(helmet.getDocumentNo()).isEqualTo("HM-000001");
+        }
+    }
+
+    @Test void explicitEnumIssuanceSharesWireBucketsAndRollsBackWithTheDomainAction() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            saveRule("documentNo", "DOC-"); saveDeviceRule("confirmationNo");
+            var record = device(DeviceType.MR_GLASSES, "explicit"); service.insert(record);
+            var command = CodeRuntimeCommand.builder(MODULE, "static_code", "confirmationNo")
+                    .sourceRecordId(record.getId()).context(Map.of("deviceType", record.getDeviceType())).build();
+            assertThat(codes.preview(command).value()).isEqualTo("GL-000001");
+            assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
+                assertThat(codes.issueAndBind(command).value()).isEqualTo("GL-000001");
+                throw new IllegalStateException("domain action failed");
+            })).hasMessageContaining("domain action failed");
+            assertThat(ledger.activeBindings(MODULE, "static_code", record.getId())).hasSize(1);
+            tx.executeWithoutResult(status -> {
+                record.setConfirmationNo(codes.issueAndBind(command).value()); service.update(record);
+                assertThat(codes.issueAndBind(command).value()).isEqualTo("GL-000001");
+            });
+            assertThat(service.select(record.getId()).getConfirmationNo()).isEqualTo("GL-000001");
+            var wire = CodeRuntimeCommand.builder(MODULE, "static_code", "confirmationNo")
+                    .context(Map.of("deviceType", "mr_glasses")).build();
+            assertThat(codes.preview(wire).value()).isEqualTo("GL-000002");
+            assertThat(codes.generateOnly(wire).value()).isEqualTo("GL-000002");
+            assertThat(codes.generateOnly(CodeRuntimeCommand.builder(MODULE, "static_code", "confirmationNo")
+                    .context(Map.of("deviceType", DeviceType.SAFETY_HELMET)).build()).value()).isEqualTo("HM-000001");
+        }
+    }
+
+    @Test void manualEnumCodesRetainUniquenessAndAdvanceOnlyTheirMatchingBucket() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            var rule = saveDeviceRule("documentNo"); rule.setMode(CodeMode.AUTO_WITH_MANUAL_EDIT); rules.saveRuleTree(rule);
+            var manual = device(DeviceType.MR_GLASSES, "manual");
+            manual.setDocumentNo("GL-000050"); service.insert(manual);
+            var duplicate = device(DeviceType.MR_GLASSES, "duplicate"); duplicate.setDocumentNo("GL-000050");
+            assertThatThrownBy(() -> service.insert(duplicate)).hasMessageContaining("already occupied");
+            var glasses = device(DeviceType.MR_GLASSES, "automatic"); service.insert(glasses);
+            var helmet = device(DeviceType.SAFETY_HELMET, "automatic"); service.insert(helmet);
+            assertThat(glasses.getDocumentNo()).isEqualTo("GL-000051");
+            assertThat(helmet.getDocumentNo()).isEqualTo("HM-000001");
+            assertThat(service.select(manual.getId()).getDocumentNo()).isEqualTo("GL-000050");
+        }
+    }
+
+    @Test void concurrentEnumBucketsAllocateUniqueSequentialValuesAndMatchingOccupations() throws Exception {
+        String tenant = UUID.randomUUID().toString();
+        try (var scope = TenantContext.use(tenant)) { saveDeviceRule("documentNo"); }
+        try (var executor = java.util.concurrent.Executors.newFixedThreadPool(4)) {
+            var tasks = new ArrayList<java.util.concurrent.Callable<String>>();
+            for (int i = 0; i < 12; i++) {
+                var type = i % 2 == 0 ? DeviceType.MR_GLASSES : DeviceType.SAFETY_HELMET;
+                tasks.add(() -> {
+                    try (var scope = TenantContext.use(tenant)) {
+                        var record = device(type, "concurrent"); service.insert(record);
+                        assertThat(ledger.activeBindings(MODULE, "static_code", record.getId())).singleElement()
+                                .satisfies(entry -> assertThat(entry.getCodeValue()).isEqualTo(record.getDocumentNo()));
+                        return record.getDocumentNo();
+                    }
+                });
+            }
+            var values = new ArrayList<String>();
+            for (var future : executor.invokeAll(tasks)) values.add(future.get());
+            var expected = new ArrayList<String>();
+            for (int i = 1; i <= 6; i++) { expected.add("GL-%06d".formatted(i)); expected.add("HM-%06d".formatted(i)); }
+            assertThat(values).containsExactlyInAnyOrderElementsOf(expected);
+        }
+    }
+
+    private StaticCodeRecord device(DeviceType type, String subject) {
+        var record = row(subject); record.setDeviceType(type); return record;
+    }
+
+    private CodeRule saveDeviceRule(String field) {
+        var rule = CodeRuleFixtures.deviceTypeMapping();
+        rule.setModuleAlias(MODULE); rule.setEntityAlias("static_code"); rule.setFieldName(field);
+        rule.setLinkedUpdate(false);
+        return rules.saveRuleTree(rule);
+    }
+
     private void aggregateRules() {
         var main = saveRule("documentNo", "DOC-"); main.setLinkedUpdate(true);
         var parentSource = codeSource("subject", 16); parentSource.setSeparator("-");
@@ -462,6 +589,9 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
     @org.springframework.boot.SpringBootConfiguration
     @Import(DynamicCodeCoordinatorRepositoryIT.TestApplication.class)
     static class Configuration {
+        @Bean DatabaseValueConverter databaseValueConverter() {
+            return new PlatformDatabaseValueConverter();
+        }
         @Bean FixtureService staticCodeService(StaticCodeDao dao, LineService lines) { return new FixtureService(dao, lines); }
         @Bean LineService lineService(StaticCodeLineDao dao) { return new LineService(dao); }
         @Bean CodeTargetCatalog codeTargets(ObjectProvider<CrudAbility<?>> services) { return new CodeTargetCatalog(services); }

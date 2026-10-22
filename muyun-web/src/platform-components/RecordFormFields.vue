@@ -85,6 +85,8 @@ const props = withDefaults(
     fileTransferContext?: ModuleContext<unknown>;
     formSessionKey?: string | number;
     validationRequestKey?: number;
+    /** Server rejections are display facts; the owning session clears them when its draft changes. */
+    serverErrors?: Readonly<Record<string, string>>;
     /** Stable DOM keys for a parent-owned layout transition; absent in ordinary form surfaces. */
     layoutTransitionPrefix?: string;
     disabled?: boolean;
@@ -111,6 +113,7 @@ const props = withDefaults(
     fileTransferContext: undefined,
     formSessionKey: undefined,
     validationRequestKey: 0,
+    serverErrors: undefined,
     layoutTransitionPrefix: undefined,
     disabled: false,
     showLabels: true,
@@ -703,6 +706,7 @@ function clearEditorFieldError(fieldName: string) {
 function editorFieldError(field: RecordFormFieldState) {
   return (
     translatedErrors(editorFieldErrors.value)[field.fieldName] ??
+    props.serverErrors?.[field.fieldName] ??
     (!field.readOnly &&
     field.visible &&
     (touchedFields.value[field.fieldName] || props.validationRequestKey > 0)

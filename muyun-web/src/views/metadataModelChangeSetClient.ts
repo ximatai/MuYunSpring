@@ -1,4 +1,10 @@
-import type { HttpClient } from '@muyun/web-core';
+import {
+  platformLanguageContext,
+  presentationLabel,
+  type LanguageContext,
+  type HttpClient,
+} from '@muyun/web-core';
+import type { TextPresentation, TextReference } from '@muyun/web-contracts';
 import type { MetadataModelChangeSetProposal } from './metadataModelEditSession';
 
 export type MetadataChangeSetIssue = {
@@ -6,7 +12,18 @@ export type MetadataChangeSetIssue = {
   code: string;
   subject: string;
   message: string;
+  textSource?: TextReference | null;
+  messageText?: TextPresentation | null;
+  messageArgs?: Record<string, unknown>;
 };
+
+/** Consume server-owned display resources; diagnostics without a verified projection retain their original. */
+export function metadataChangeSetIssueMessage(
+  issue: MetadataChangeSetIssue,
+  language: LanguageContext = platformLanguageContext,
+): string {
+  return presentationLabel(issue.message, issue.messageText ?? undefined, language);
+}
 
 export type MetadataChangeSetPreview = {
   proposalFingerprint: string;
