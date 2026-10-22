@@ -4,10 +4,29 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 // Types describe the public entry only; all executed SDK code comes from the rebuilt tarball.
 import type * as Consumer from '../../../src/consumer';
+import { createBusinessDirectoryReferenceProvider } from '../../../examples/business-web/src/fixtures/businessDirectoryReference';
 
 type ConsumerContract = Pick<
   typeof Consumer,
   | 'AppWorkbenchShell'
+  | 'ReadonlyRecordWorkspace'
+  | 'ReferencePicker'
+  | 'resolveRecordReadEntry'
+  | 'createMenuTab'
+  | 'getMenuNavigationTarget'
+  | 'resolvePageDescriptor'
+  | 'usePageDescriptor'
+  | 'usePageRoute'
+  | 'ManagementWorkspace'
+  | 'RecordQueryListSurface'
+  | 'RecordQueryListCell'
+  | 'RecordDetailPanel'
+  | 'RecordDetailFields'
+  | 'resolveRecordQueryListColumns'
+  | 'resolveRecordDetailFields'
+  | 'UiSelect'
+  | 'UiEmpty'
+  | 'UiError'
   | 'UiButton'
   | 'UiDropdown'
   | 'UiIcon'
@@ -411,6 +430,288 @@ it('ships host-owned topbar components with the shell navigation and reactive us
       },
     });
     expect(wrapper.find('button[aria-label="Business tools: second"]').exists()).toBe(true);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('published business surfaces reuse platform pagination, detail fields and refresh actions', async () => {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+  const wrapper = mount(sdk.ManagementWorkspace, {
+    props: { explorerCount: 0, detailSurface: true },
+    slots: {
+      default: () => [
+        Vue.h(sdk.RecordQueryListSurface, {
+          title: '业务列表',
+          columns: [{ key: 'title', title: '名称' }],
+          rows: [{ id: 'one', title: '一号记录' }],
+          pageable: true,
+          total: 21,
+          pageNum: 1,
+          pages: 2,
+          pageSize: 20,
+          pageSizeOptions: [20],
+          titleActionIcon: 'reload',
+          titleActionTitle: '刷新业务列表',
+        }),
+        Vue.h(
+          sdk.RecordDetailPanel,
+          { title: '一号记录' },
+          {
+            default: () =>
+              Vue.h(sdk.RecordDetailFields, {
+                record: { state: '已结束' },
+                fallback: { state: { label: '状态', readOnly: true } },
+              }),
+          },
+        ),
+      ],
+    },
+  });
+  await flushPromises();
+  expect(wrapper.text()).toContain('一号记录');
+  expect(wrapper.text()).toContain('已结束');
+  expect(wrapper.find('button[aria-label="下一页"]').exists()).toBe(true);
+  expect(wrapper.find('.record-detail-panel-region').exists()).toBe(true);
+  wrapper.unmount();
+});
+
+it('published custom lists reuse authorized reference titles, statuses and readings through standard cells', async () => {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+  const columns: Consumer.RecordQueryListColumn[] = [
+    {
+      key: 'ownerId',
+      title: '负责人',
+      titleField: 'ownerTitle',
+      reference: {
+        targetModuleAlias: 'example.person',
+        cardinality: 'ONE',
+      } as Consumer.RecordQueryListColumn['reference'],
+    },
+    { key: 'enabled', title: '状态', type: 'enabledStatus' },
+    { key: 'summary', title: '摘要' },
+  ];
+  const wrapper = mount(sdk.RecordQueryListSurface, {
+    props: {
+      columns,
+      rows: [
+        { id: 'one', ownerId: 'raw-owner', ownerTitle: '已授权负责人', enabled: false, summary: 'Original' },
+      ],
+    },
+    slots: {
+      cell: ({
+        column,
+        record,
+      }: {
+        column: Consumer.UiDataTableColumn;
+        record: Consumer.UiDataTableRecord;
+      }) =>
+        Vue.h(sdk.RecordQueryListCell, {
+          column: columns.find((item) => item.key === column.key)!,
+          record,
+          reading: column.key === 'summary' ? '阅读文本' : undefined,
+        }),
+    },
+  });
+  await flushPromises();
+  expect(wrapper.text()).toContain('已授权负责人');
+  expect(wrapper.text()).not.toContain('raw-owner');
+  expect(wrapper.text()).toContain('停用');
+  expect(wrapper.text()).not.toContain('false');
+  expect(wrapper.text()).toContain('阅读文本');
+  wrapper.unmount();
+});
+
+it('published presentation adapters consume compiled DSL labels and date controls without local fields', () => {
+  const descriptor = {
+    page: {
+      list: { fields: { fields: [{ fieldRef: { fieldName: 'title' }, label: '设备', width: '220px' }] } },
+      detail: {
+        display: {
+          fields: [
+            {
+              fieldRef: { fieldName: 'startedAt' },
+              label: '领用开始',
+              uiType: 'datetime',
+              readOnly: { constant: true },
+              fieldControl: {
+                alias: 'datetime',
+                rendererType: 'DATETIME',
+                valueShape: 'SCALAR',
+                properties: {},
+                bindings: [],
+              },
+            },
+          ],
+        },
+      },
+    },
+  } as unknown as Parameters<ConsumerContract['resolveRecordDetailFields']>[0];
+  expect(sdk.resolveRecordQueryListColumns(descriptor?.page?.list?.fields)).toMatchObject([
+    { key: 'title', title: '设备', width: '220px' },
+  ]);
+  expect(sdk.resolveRecordDetailFields(descriptor).get('startedAt')).toMatchObject({
+    label: '领用开始',
+    uiType: 'datetime',
+  });
+  expect(sdk.resolveRecordDetailFields(undefined).size).toBe(0);
+});
+
+it('published read workspace handles named views without a writable CRUD context', async () => {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+  const fields = [{ fieldRef: { fieldName: 'title' }, label: '事项' }];
+  const descriptor = {
+    page: {
+      list: { fields: { title: '只读队列', fields }, searchPlaceholder: '搜索' },
+      detail: { display: { fields } },
+    },
+  } as unknown as Consumer.ResolvedModuleUiDescriptor;
+  function source(viewCode: string): Consumer.RecordReadView {
+    return {
+      sourceId: 'example.queue',
+      querySchema: {
+        scopeName: 'example.queue',
+        criteriaComposition: 'TREE',
+        fields: [{ name: 'title', title: '事项', valueType: 'STRING', operators: ['EQ'], sortable: true }],
+        quickSearch: { enabled: true, fields: ['title'], fieldSchemas: [] },
+        externalCriteria: [],
+        defaultSorts: [],
+      },
+      viewCode,
+      scopeKey: 'tenant-a:user-a',
+      descriptor,
+      recordKey: (row: Record<string, unknown>) => `${row.origin}:${row.id}`,
+      query: vi.fn(async () => ({
+        records: [{ id: 'same', origin: 'call', title: viewCode }],
+        pageNum: 1,
+        pageSize: 20,
+        pages: 1,
+        total: 1,
+        totalKnown: true,
+      })),
+      detail: {
+        title: (row: Record<string, unknown>) => String(row.title),
+        load: async (row: Record<string, unknown>) => row,
+      },
+    };
+  }
+  const current = source('current');
+  const wrapper = mount(sdk.ReadonlyRecordWorkspace, {
+    props: { view: current },
+    attachTo: document.body,
+  });
+  try {
+    await flushPromises();
+    expect(wrapper.text()).toContain('current');
+    expect(current.query).toHaveBeenCalledTimes(1);
+    await wrapper.get('button[aria-label^="刷新"]').trigger('click');
+    await flushPromises();
+    expect(current.query).toHaveBeenCalledTimes(2);
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('高级筛选'))!
+      .trigger('click');
+    await wrapper.get('input[aria-label="事项"]').setValue('needle');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '应用条件')!
+      .trigger('click');
+    await flushPromises();
+    expect(current.query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ criteria: expect.objectContaining({ operator: 'AND' }) }),
+      expect.anything(),
+    );
+    await wrapper.setProps({ view: source('history') });
+    await flushPromises();
+    expect(wrapper.text()).toContain('history');
+    expect(wrapper.text()).not.toContain('current');
+    expect(wrapper.find('button[aria-label="新增"]').exists()).toBe(false);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('published named-entry contract preserves menu defaults across custom route mapping', () => {
+  const menu = {
+    id: 'use.history',
+    title: '交接记录',
+    moduleAlias: 'example.device_use',
+    entryType: 'module',
+    openMode: 'tab',
+    entryParamsJson: '{"view":"history"}',
+    defaultUiConfigId: 'history-ui',
+    defaultQueryTemplateId: 'history-query',
+  } as Consumer.MenuRecord;
+  const tab = sdk.createMenuTab(menu, sdk.getMenuNavigationTarget(menu)!);
+  expect(tab.pageDescriptor?.menuId).toBe(menu.id);
+  const page = sdk.resolvePageDescriptor(sdk.getMenuNavigationTarget(menu)!, {
+    businessModuleRoutes: { 'example.device_use': '/business/device-use' },
+  });
+  const entry = sdk.resolveRecordReadEntry({
+    moduleAlias: 'example.device_use',
+    viewCodes: ['current', 'history'],
+    page,
+  });
+  expect(entry).toMatchObject({
+    viewCode: 'history',
+    menuId: menu.id,
+    defaultUiConfigId: 'history-ui',
+    defaultQueryTemplateId: 'history-query',
+  });
+  expect(() =>
+    sdk.resolveRecordReadEntry({ moduleAlias: 'example.device_use', viewCodes: ['current'], page }),
+  ).toThrow('Unknown read view');
+});
+
+it('published picker resolves unseen history and prevents removed history being selected again', async () => {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+  const wrapper = mount(sdk.ReferencePicker, {
+    props: {
+      provider: createBusinessDirectoryReferenceProvider('all'),
+      multiple: true,
+      value: ['west-24', 'retired-service', 'hidden-service'],
+      pageSize: 10,
+    },
+  });
+  try {
+    await flushPromises();
+    expect(wrapper.emitted('selection-resolved')?.at(-1)?.[0]).toEqual([
+      expect.objectContaining({ id: 'west-24', title: '西部服务 24' }),
+      expect.objectContaining({ id: 'retired-service', disabled: true }),
+      expect.objectContaining({ id: 'hidden-service', unavailable: true }),
+    ]);
+    wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '');
+    await flushPromises();
+    const table = wrapper.findComponent({ name: 'UiDataTable' });
+    table.props('selection').onChange(['east-1']);
+    await flushPromises();
+    table.props('selection').onChange(['east-1', 'retired-service', 'hidden-service']);
+    wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+    expect(wrapper.emitted('update:value')?.at(-1)).toEqual([['east-1']]);
   } finally {
     wrapper.unmount();
   }

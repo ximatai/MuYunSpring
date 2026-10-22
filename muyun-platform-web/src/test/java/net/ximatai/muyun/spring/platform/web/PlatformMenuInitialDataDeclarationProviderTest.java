@@ -68,6 +68,73 @@ class PlatformMenuInitialDataDeclarationProviderTest {
     }
 
     @Test
+    void oneCanonicalModuleCanDeclareMultipleNamedEntriesWithoutDuplicateModulesOrActions() {
+        try (var context = context(NamedEntriesWeb.class)) {
+            var definitions = new StaticModuleDefinitionScanner(context).scan();
+            assertThat(definitions).hasSize(1);
+            assertThat(definitions.getFirst().actions()).extracting(action -> action.actionCode()).containsExactly("menu");
+            registerStaticModules(context);
+            initializePlatformMenus(context);
+            assertThat(menuService.select("read.current")).satisfies(menu -> {
+                assertThat(menu.getModuleAlias()).isEqualTo("platform.named_read");
+                assertThat(menu.getEntryParamsJson()).isEqualTo("{\"view\":\"current\"}");
+            });
+            assertThat(menuService.select("read.history").getEntryParamsJson()).isEqualTo("{\"view\":\"history\"}");
+            assertThat(new PlatformMenuInitialDataDeclarationProvider(menuService, context).declaredMenuIds())
+                    .containsExactlyInAnyOrder("read.current", "read.history");
+        }
+    }
+
+    @Test
+    void routeEntriesRetainBusinessViewParameters() {
+        try (var context = context(NamedRouteEntriesWeb.class)) {
+            registerStaticModules(context); initializePlatformMenus(context);
+            assertThat(menuService.select("read.route.current")).satisfies(menu -> {
+                assertThat(menu.getRoute()).isEqualTo("/platform/read");
+                assertThat(menu.getPageMode()).isNull();
+                assertThat(menu.getEntryParamsJson()).isEqualTo("{\"view\":\"current\"}");
+            });
+        }
+    }
+
+    @Test
+    void rejectsPresentationConfigurationThatTheDeclaredEntryCannotConsume() {
+        for (var type : List.of(RouteUiConfigWeb.class, RouteQueryConfigWeb.class, ExternalParamsWeb.class)) {
+            try (var context = context(type)) {
+                var provider = new PlatformMenuInitialDataDeclarationProvider(menuService, context);
+                assertThatThrownBy(provider::declarations).isInstanceOf(IllegalStateException.class);
+                assertThat(menuDao.query(Criteria.of(), PageRequest.of(1, 20))).isEmpty();
+            }
+        }
+    }
+
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class,
+            alias = "platform.route_ui", title = "Invalid route", route = "/platform/read")
+    @PlatformMenu(parent = PlatformMenuGroups.MODELING, defaultUiConfigId = "unused-ui")
+    static class RouteUiConfigWeb {}
+
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class,
+            alias = "platform.route_query", title = "Invalid route", route = "/platform/read")
+    @PlatformMenu(parent = PlatformMenuGroups.MODELING, defaultQueryTemplateId = "unused-query")
+    static class RouteQueryConfigWeb {}
+
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class,
+            alias = "platform.external_params", title = "Invalid external", externalUrl = "https://example.com")
+    @PlatformMenu(parent = PlatformMenuGroups.MODELING, entryParamsJson = "{\"view\":\"current\"}")
+    static class ExternalParamsWeb {}
+
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class,
+            alias = "platform.named_read", title = "Read views")
+    @PlatformMenu(id = "read.current", parent = PlatformMenuGroups.MODELING, title = "Current", entryParamsJson = "{\"view\":\"current\"}")
+    @PlatformMenu(id = "read.history", parent = PlatformMenuGroups.MODELING, title = "History", entryParamsJson = "{\"view\":\"history\"}")
+    static class NamedEntriesWeb {}
+
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class,
+            alias = "platform.named_route", title = "Read views", route = "/platform/read")
+    @PlatformMenu(id = "read.route.current", parent = PlatformMenuGroups.MODELING, entryParamsJson = "{\"view\":\"current\"}")
+    static class NamedRouteEntriesWeb {}
+
+    @Test
     void shouldRegisterPlatformAdminSchemeGroupsAndModuleMenus() {
         try (GenericApplicationContext context = context(PlatformModuleWeb.class, IamRoleWeb.class, HiddenModuleWeb.class)) {
             registerStaticModules(context);

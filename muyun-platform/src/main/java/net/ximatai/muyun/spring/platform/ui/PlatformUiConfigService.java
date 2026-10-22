@@ -99,6 +99,17 @@ public class PlatformUiConfigService extends AbstractAbilityService<PlatformUiCo
         }
     }
 
+    /** Resolves a page-consumption reference without granting access through the editing API. */
+    public PlatformUiConfig requireVisibleUiConfig(String id) {
+        PlatformUiConfig uiConfig = PlatformPageConfigReadScope.findVisible(this, id);
+        if (uiConfig == null) {
+            throw BusinessExceptions.warningText("platform.ui-config.not-found", TextReference.code(
+                    "platform.rejection.platform-ui-config.ui-config-requires-existing-config",
+                    "UI config requires existing config: {value1}"), Map.of("value1", String.valueOf(id)));
+        }
+        return uiConfig;
+    }
+
     public PlatformUiConfig requireUiConfig(String id) {
         PlatformUiConfig uiConfig = id == null || id.isBlank() ? null : select(id);
         if (uiConfig == null) {

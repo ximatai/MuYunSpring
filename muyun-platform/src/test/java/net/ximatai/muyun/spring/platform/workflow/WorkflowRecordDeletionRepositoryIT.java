@@ -270,7 +270,7 @@ class WorkflowRecordDeletionRepositoryIT extends PlatformPostgresIntegrationTest
             }
         });
         var template = new PlatformQueryTemplate(); template.setId("scoped-targets"); template.setModuleAlias(StaticBusiness.MODULE);
-        when(queryItems.compile(eq(template.getId()), anyMap())).thenReturn(Criteria.of().eq("id", hidden));
+        when(queryItems.compileVisiblePublished(eq(template.getId()), anyMap())).thenReturn(Criteria.of().eq("id", hidden));
         var relation = new RecordImpactRelation(); relation.setTargetRecordId(hidden);
         when(generatedRelations.listGeneratedTargets(eq("test.source"), eq("source"), eq(StaticBusiness.MODULE), eq("rule"), any(PageRequest.class)))
                 .thenReturn(List.of(relation));

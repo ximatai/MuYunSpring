@@ -8,6 +8,8 @@ import {
   type AppRealtimeOptions,
 } from '@ximatai/muyun-web-app';
 import BusinessCustomerView from './views/BusinessCustomerView.vue';
+import ReadonlyBusinessViewExample from './views/ReadonlyBusinessViewExample.vue';
+import CrossDirectoryReferenceExample from './views/CrossDirectoryReferenceExample.vue';
 import deployment from './locales/deployment.json';
 
 // Consumer applications pass their own runtime connection values instead of relying on
@@ -43,6 +45,8 @@ void http;
         <LanguageSelector />
       </header>
       <BusinessCustomerView />
+      <ReadonlyBusinessViewExample />
+      <CrossDirectoryReferenceExample />
     </main>
   </UiLanguageProvider>
 </template>

@@ -41,3 +41,9 @@
 `src/BusinessTopbarActions.vue` 展示自定义图标按钮外观和下拉菜单，并通过 `useWorkbenchNavigation().openRoute` 打开业务页面。示例中的客户路由需由消费 App 注册。该组件供工作台宿主接入，不挂在当前独立的引用组件演示页上。
 
 平台组合包公开 `UiDropdown`、`UiIcon` 及 `UiDropdownItem`、`UiIconName`，业务可复用平台交互，也可在插槽中使用自己的 Vue 组件、SVG 和样式。插槽提供随宿主会话更新的 `currentUser`（未登录时可能为空）；业务组件自行维护请求、显隐和菜单状态，并负责图标入口的可访问名称、键盘操作及窄屏适配。界面显隐不替代服务端授权。顶栏适合紧凑入口，较大内容应使用下拉浮层、弹窗或业务页面承载。
+
+## 只读业务视图
+
+`ReadonlyBusinessViewExample.vue` 展示只消费公开 `RecordReadView` 和 `ReadonlyRecordWorkspace` 的聚合读取与同源多视图，包含复合行身份、分页、搜索和标准自适应详情。数据及描述符均为确定性本地 fixture，不代表服务端授权验收；正式业务应绑定自己的已授权读取服务，并在身份或范围改变时更新 `scopeKey`。契约及菜单声明见[只读业务投影与同源多入口](../../../docs/frontend/READONLY_BUSINESS_VIEWS.md)。
+
+跨目录引用样板复用公开 `ReferencePickerProvider`，演示分页、未搜索历史 ID 回显、失效项和授权范围切换；本地数据仅验证交互契约，正式业务须在服务端校验来源与目标授权。

@@ -1646,7 +1646,7 @@ public class DynamicRecordWebController implements
         if (reference != null && hasText(queryTemplateId)) {
             requireLowCodeQueryServices();
             validateQueryTemplateBelongsToModule(reference.targetModuleAlias(), queryTemplateId);
-            templateCriteria = queryItemService.compile(queryTemplateId, request.externalQueryValues());
+            templateCriteria = queryItemService.compileVisiblePublished(queryTemplateId, request.externalQueryValues());
         }
         Criteria manualCriteria = criteria(reference.targetModuleAlias(), reference.targetEntityAlias(),
                 request.conditions());

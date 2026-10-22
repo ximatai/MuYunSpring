@@ -10,6 +10,7 @@ import { expect, it, vi } from 'vitest';
 import { AppError } from '@/web-core';
 import { missingReferencePickerDependencies } from '@/platform-components/referencePickerReadError';
 import ReferencePicker from '@/platform-components/ReferencePicker.vue';
+import { createBusinessDirectoryReferenceProvider } from '../../examples/business-web/src/fixtures/businessDirectoryReference';
 import type {
   ReferencePickerCandidate,
   ReferencePickerProvider,
@@ -1138,4 +1139,103 @@ it('changes business reading labels in an open picker while preserving search, s
   } finally {
     wrapper.unmount();
   }
+});
+
+it('supports cross-directory pagination while resolving unsearched, hidden and invalid historical IDs separately', async () => {
+  const source = createBusinessDirectoryReferenceProvider('all');
+  const searchPage = vi.fn(source.searchPage);
+  const resolve = vi.fn(source.resolve);
+  const initial = ['west-24', 'retired-service', 'hidden-service', 'deleted-service'];
+  const wrapper = mountPicker({
+    provider: { ...source, searchPage, resolve },
+    multiple: true,
+    pageSize: 10,
+    value: initial,
+  });
+  await flushPromises();
+  expect(searchPage).not.toHaveBeenCalled();
+  expect(resolve).toHaveBeenCalledWith(initial);
+  expect(wrapper.emitted('select')).toBeUndefined();
+  expect(wrapper.emitted('selection-resolved')?.at(-1)?.[0]).toEqual([
+    expect.objectContaining({ id: 'west-24', title: '西部服务 24' }),
+    expect.objectContaining({ id: 'retired-service', disabled: true }),
+    { id: 'hidden-service', title: 'hidden-service', unavailable: true },
+    { id: 'deleted-service', title: 'deleted-service', unavailable: true },
+  ]);
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '');
+  await flushPromises();
+  wrapper.findAllComponents({ name: 'UiTree' })[0]!.vm.$emit('select', { key: 'east' });
+  await flushPromises();
+  let table = wrapper.findComponent({ name: 'UiDataTable' });
+  expect(table.props('pagination').total).toBe(24);
+  table.props('pagination').onChange(2);
+  await flushPromises();
+  table = wrapper.findComponent({ name: 'UiDataTable' });
+  expect(table.props('rows')[0].id).toBe('east-11');
+  table.props('selection').onChange([...initial, 'east-11']);
+  wrapper.findAllComponents({ name: 'UiTree' })[0]!.vm.$emit('select', { key: 'west' });
+  await flushPromises();
+  table = wrapper.findComponent({ name: 'UiDataTable' });
+  expect(table.props('pagination').current).toBe(1);
+  expect(table.props('rows')[0].id).toBe('west-1');
+  table.props('selection').onChange([...table.props('selection').selectedRowKeys, 'west-1']);
+  wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+  expect(wrapper.emitted('update:value')).toEqual([[[...initial, 'east-11', 'west-1']]]);
+  expect((wrapper.emitted('select')?.[0]?.[0] as ReferencePickerCandidate[]).map(({ id }) => id)).toEqual([
+    ...initial,
+    'east-11',
+    'west-1',
+  ]);
+});
+
+it('retains history for display but rejects removed disabled and unavailable IDs when selected again', async () => {
+  const wrapper = mountPicker({
+    provider: createBusinessDirectoryReferenceProvider('all'),
+    multiple: true,
+    value: ['retired-service', 'hidden-service'],
+  });
+  await flushPromises();
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '');
+  await flushPromises();
+  const table = wrapper.findComponent({ name: 'UiDataTable' });
+  expect(table.props('selection').selectedRowKeys).toEqual(['retired-service', 'hidden-service']);
+  table.props('selection').onChange(['east-1']);
+  await flushPromises();
+  expect(table.props('selection').disabledOf({ id: 'retired-service' })).toBe(true);
+  expect(table.props('selection').disabledOf({ id: 'hidden-service' })).toBe(true);
+  table.props('selection').onChange(['east-1', 'retired-service', 'hidden-service']);
+  wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+  expect(wrapper.emitted('update:value')).toEqual([[['east-1']]]);
+});
+
+it('isolates historical titles, candidates and late responses when a retained provider changes authorization scope', async () => {
+  const oldPage = deferred<{ records: ReferencePickerCandidate[]; total: number }>();
+  const oldResolution = deferred<ReferencePickerCandidate[]>();
+  const currentSource = createBusinessDirectoryReferenceProvider('east');
+  const source = reactive(
+    provider({
+      identity: { ...currentSource.identity, authorizationScope: 'all' },
+      searchPage: vi.fn().mockReturnValueOnce(oldPage.promise).mockImplementation(currentSource.searchPage),
+      resolve: vi.fn().mockReturnValueOnce(oldResolution.promise).mockImplementation(currentSource.resolve),
+    }),
+  );
+  const wrapper = mountPicker({ provider: source, multiple: true, value: ['west-24'] });
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '');
+  await flushPromises();
+  source.identity.authorizationScope = 'east';
+  await flushPromises();
+  expect(wrapper.emitted('selection-resolved')?.at(-1)?.[0]).toEqual([
+    { id: 'west-24', title: 'west-24', unavailable: true },
+  ]);
+  const resolvedEvents = wrapper.emitted('selection-resolved')?.length;
+  oldPage.resolve({ records: [{ id: 'west-1', title: '旧授权候选' }], total: 1 });
+  oldResolution.resolve([{ id: 'west-24', title: '旧授权历史标题' }]);
+  await flushPromises();
+  expect(wrapper.emitted('selection-resolved')).toHaveLength(resolvedEvents!);
+  const table = wrapper.findComponent({ name: 'UiDataTable' });
+  expect(table.props('rows').every((row: { id: string }) => row.id.startsWith('east-'))).toBe(true);
+  table.props('selection').onChange(['west-24', 'west-1', 'east-1']);
+  wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+  expect(wrapper.emitted('update:value')).toEqual([[['west-24', 'east-1']]]);
+  expect(wrapper.text()).not.toContain('旧授权');
 });

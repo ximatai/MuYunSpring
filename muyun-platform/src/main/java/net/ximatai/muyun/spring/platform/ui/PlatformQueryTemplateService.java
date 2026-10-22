@@ -78,6 +78,17 @@ public class PlatformQueryTemplateService extends AbstractAbilityService<Platfor
         }
     }
 
+    /** Resolves a page-consumption reference without granting access through the editing API. */
+    public PlatformQueryTemplate requireVisibleQueryTemplate(String id) {
+        PlatformQueryTemplate template = PlatformPageConfigReadScope.findVisible(this, id);
+        if (template == null) {
+            throw BusinessExceptions.warningText("platform.query-template.not-found", TextReference.code(
+                    "platform.rejection.platform-query-template.query-template-requires-existing-config",
+                    "Query template requires existing config: {value1}"), Map.of("value1", String.valueOf(id)));
+        }
+        return template;
+    }
+
     public PlatformQueryTemplate requireQueryTemplate(String id) {
         PlatformQueryTemplate template = id == null || id.isBlank() ? null : select(id);
         if (template == null) {

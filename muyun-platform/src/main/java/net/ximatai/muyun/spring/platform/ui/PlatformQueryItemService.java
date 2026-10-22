@@ -15,6 +15,7 @@ import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.time.BusinessTimeContext;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.time.PlatformTimeService;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator;
@@ -158,6 +159,27 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
         PlatformQueryTemplate template = queryTemplateService.requireQueryTemplate(queryTemplateId);
         List<PlatformQueryItem> items = list(enabledCriteria(Criteria.of().eq("queryTemplateId", template.getId())),
                 ALL, Sort.asc(PlatformAbilityFields.SORT_FIELD));
+        return compileItems(items, externalValues);
+    }
+
+    /** Compiles published page-consumption configuration; ordinary compile remains scoped for authoring. */
+    public Criteria compileVisiblePublished(String queryTemplateId, Map<String, ?> externalValues) {
+        PlatformQueryTemplate template = queryTemplateService.requireVisibleQueryTemplate(queryTemplateId);
+        if (!Boolean.TRUE.equals(template.getEnabled()) || !Boolean.TRUE.equals(template.getPublished())) {
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-query-item.published-query-template-is-unavailable",
+                    "Published query template is unavailable: {value1}"), Map.of("value1", String.valueOf(queryTemplateId)));
+        }
+        List<PlatformQueryItem> items;
+        try (TenantContext.Scope ignored = TenantContext.system("Read published query template conditions")) {
+            items = list(enabledCriteria(Criteria.of().eq("queryTemplateId", template.getId())
+                            .eqNullable("tenantId", template.getTenantId())), ALL,
+                    Sort.asc(PlatformAbilityFields.SORT_FIELD));
+        }
+        return compileItems(items, externalValues);
+    }
+
+    private Criteria compileItems(List<PlatformQueryItem> items, Map<String, ?> externalValues) {
         Map<String, List<PlatformQueryItem>> childrenByParent = new HashMap<>();
         for (PlatformQueryItem item : items) {
             childrenByParent.computeIfAbsent(normalizeParentId(item.getParentId()), ignored -> new ArrayList<>()).add(item);

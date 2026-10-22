@@ -55,7 +55,7 @@ public class ModuleCompletionCheckService {
     public PlatformModuleTaskCheckDetail check(String moduleAlias, String recordId, PlatformTaskCheckBlock check) {
         PlatformQueryTemplate template = null;
         if (check.checkType() == PlatformTaskCheckType.QUERY_TEMPLATE) {
-            template = templates.select(check.queryTemplateId());
+            template = templates.requireVisibleQueryTemplate(check.queryTemplateId());
             if (template == null || !Boolean.TRUE.equals(template.getEnabled()) || !Boolean.TRUE.equals(template.getPublished()))
                 throw PlatformErrors.badRequestText(TextReference.code(
                         "platform.rejection.module-completion-check.the-completion-check-query-template-is-unavailable",
@@ -81,7 +81,7 @@ public class ModuleCompletionCheckService {
                             "完成项查询模板与已验证配置不一致: {value1}"), Map.of("value1", String.valueOf(check.queryTemplateId())));
                 Map<String, Object> values = new LinkedHashMap<>();
                 if (check.externalRecordIdKey() != null) values.put(check.externalRecordIdKey(), recordId);
-                count = count(template.getModuleAlias(), queries.compile(template.getId(), values));
+                count = count(template.getModuleAlias(), queries.compileVisiblePublished(template.getId(), values));
             }
             case GENERATED_RELATION -> {
                 var service = relations.orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(

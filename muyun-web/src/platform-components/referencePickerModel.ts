@@ -38,6 +38,7 @@ export interface ReferencePickerCandidate {
   /** The UI is displaying the persisted identifier because no business title was available. */
   identifierFallback?: boolean;
   subtitle?: string;
+  /** Displayable history may be retained, but cannot be newly selected when disabled. */
   disabled?: boolean;
   unavailable?: boolean;
   projections?: Readonly<Record<string, unknown>>;
@@ -102,7 +103,10 @@ export interface ReferencePickerProvider<
   loadTree?: (request: {
     scope: ReferencePickerBrowseScope;
   }) => Promise<ReferencePickerTreeNode<TCandidate>[]>;
-  /** Resolves persisted IDs under the source's authorized historical-display scope. */
+  /**
+   * Resolves persisted IDs under the source's authorized historical-display scope.
+   * Mark displayable but no longer selectable history as disabled; omit inaccessible or missing IDs.
+   */
   resolve(ids: ReferencePickerId[]): Promise<TCandidate[]>;
 }
 

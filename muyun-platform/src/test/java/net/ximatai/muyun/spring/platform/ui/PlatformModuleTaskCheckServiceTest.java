@@ -78,7 +78,7 @@ class PlatformModuleTaskCheckServiceTest {
                 }
                 """, List.of(template)));
         Criteria compiled = Criteria.of().eq("id", "customer-1");
-        when(queryItemService.compile(eq("q-ready"), any(Map.class))).thenReturn(compiled);
+        when(queryItemService.compileVisiblePublished(eq("q-ready"), any(Map.class))).thenReturn(compiled);
         when(recordService.mainEntityAlias("crm.customer")).thenReturn("customer");
         when(recordService.count("crm.customer", "customer", compiled)).thenReturn(0L);
 
@@ -93,7 +93,7 @@ class PlatformModuleTaskCheckServiceTest {
         assertThat(statuses.getFirst().status()).isEqualTo(PlatformTaskCompletionStatus.PENDING);
         assertThat(statuses.getFirst().passed()).isFalse();
         ArgumentCaptor<Map<String, Object>> values = ArgumentCaptor.forClass(Map.class);
-        verify(queryItemService).compile(eq("q-ready"), values.capture());
+        verify(queryItemService).compileVisiblePublished(eq("q-ready"), values.capture());
         assertThat(values.getValue()).containsEntry("recordId", "customer-1");
     }
 
@@ -128,7 +128,7 @@ class PlatformModuleTaskCheckServiceTest {
                 }
                 """, List.of(template)));
         Criteria compiled = Criteria.of().eq("customerId", "customer-1");
-        when(queryItemService.compile(eq("q-ready"), any(Map.class))).thenReturn(compiled);
+        when(queryItemService.compileVisiblePublished(eq("q-ready"), any(Map.class))).thenReturn(compiled);
         when(recordService.mainEntityAlias("crm.customer")).thenReturn("customer");
         when(recordService.mainEntityAlias("crm.contract")).thenReturn("contract");
         when(recordService.count("crm.customer", "customer", compiled)).thenReturn(2L);
@@ -208,7 +208,7 @@ class PlatformModuleTaskCheckServiceTest {
         PlatformQueryTemplate template = queryTemplate("q-ready", "crm.customer");
         when(snapshotService.snapshot("crm.customer")).thenReturn(snapshot("{}", List.of(template)));
         Criteria compiled = Criteria.of().eq("customerId", "customer-1");
-        when(queryItemService.compile(eq("q-ready"), any(Map.class))).thenReturn(compiled);
+        when(queryItemService.compileVisiblePublished(eq("q-ready"), any(Map.class))).thenReturn(compiled);
         when(recordService.mainEntityAlias("crm.customer")).thenReturn("customer");
         when(recordService.count("crm.customer", "customer", compiled)).thenReturn(1L);
         PlatformModuleTaskDefinitionRegistry registry = new PlatformModuleTaskDefinitionRegistry();
@@ -232,7 +232,7 @@ class PlatformModuleTaskCheckServiceTest {
         assertThat(task.guides()).hasSize(1);
         assertThat(task.guides().getFirst().guideType()).isEqualTo(PlatformModuleTaskGuideType.OPEN_FORM);
         ArgumentCaptor<Map<String, Object>> values = ArgumentCaptor.forClass(Map.class);
-        verify(queryItemService).compile(eq("q-ready"), values.capture());
+        verify(queryItemService).compileVisiblePublished(eq("q-ready"), values.capture());
         assertThat(values.getValue()).containsEntry("recordId", "customer-1");
     }
 
@@ -256,7 +256,7 @@ class PlatformModuleTaskCheckServiceTest {
                 }
                 """, List.of(template)));
         Criteria compiled = Criteria.of().eq("customerId", "customer-1");
-        when(queryItemService.compile(eq("q-ready"), any(Map.class))).thenReturn(compiled);
+        when(queryItemService.compileVisiblePublished(eq("q-ready"), any(Map.class))).thenReturn(compiled);
         when(recordService.mainEntityAlias("crm.customer")).thenReturn("customer");
         when(recordService.count("crm.customer", "customer", compiled)).thenReturn(1L);
         PlatformModuleTaskDefinitionRegistry registry = new PlatformModuleTaskDefinitionRegistry();
@@ -407,8 +407,8 @@ class PlatformModuleTaskCheckServiceTest {
         var checker = new net.ximatai.muyun.spring.platform.task.ModuleCompletionCheckService(records, queries, templates,
                 Optional.of(relations), abilities, (module, record) -> Map.of("id", record));
         var published = queryTemplate("q-contracts", "crm.contract");
-        when(templates.select("q-contracts")).thenReturn(published);
-        when(queries.compile(eq("q-contracts"), any(Map.class))).thenAnswer(invocation -> Criteria.of());
+        when(templates.requireVisibleQueryTemplate("q-contracts")).thenReturn(published);
+        when(queries.compileVisiblePublished(eq("q-contracts"), any(Map.class))).thenAnswer(invocation -> Criteria.of());
         when(snapshots.snapshot("crm.customer")).thenReturn(snapshot("""
                 {"blocks":[{"type":"taskPanel","key":"ready","checkType":"QUERY_TEMPLATE","queryTemplateId":"q-contracts"}]}
                 """, List.of(published)));
@@ -425,7 +425,7 @@ class PlatformModuleTaskCheckServiceTest {
             assertThat(generated.passed()).isFalse();
         }
         org.mockito.Mockito.verifyNoInteractions(records);
-        org.mockito.Mockito.verify(templates).select("q-contracts");
+        org.mockito.Mockito.verify(templates).requireVisibleQueryTemplate("q-contracts");
     }
 
     @Test

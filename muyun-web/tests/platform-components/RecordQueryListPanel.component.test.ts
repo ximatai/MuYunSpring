@@ -21,7 +21,12 @@ import type { RecordQueryListQueryController } from '@/platform-components/recor
 
 const originalStubs = config.global.stubs;
 beforeEach(() => {
-  config.global.stubs = { ...originalStubs, RecordQueryListSurface: false };
+  config.global.stubs = {
+    ...originalStubs,
+    RecordQueryListSurface: false,
+    RecordQueryControls: false,
+    RecordQueryFieldControls: false,
+  };
 });
 afterEach(() => {
   config.global.stubs = originalStubs;
@@ -271,13 +276,8 @@ describe('RecordQueryListPanel', () => {
     });
     expect(requests.at(-1)).toMatchObject({
       criteria: {
-        children: [
-          {
-            kind: 'GROUP',
-            operator: 'AND',
-            children: [{ fieldName: 'title', operator: 'EQ', values: ['Daily report'] }],
-          },
-        ],
+        operator: 'AND',
+        children: [{ fieldName: 'title', operator: 'EQ', values: ['Daily report'] }],
       },
       sorts: [{ field: 'title', desc: true }],
       page: { pageNum: 1 },
@@ -1293,7 +1293,7 @@ describe('RecordQueryListPanel', () => {
     wrapper.unmount();
   });
 
-  it('sends an advanced nested OR group inside the standard root AND criteria', async () => {
+  it('preserves a standalone nested OR group without adding a server-visible level', async () => {
     const requests: WebQueryRequest[] = [];
     const wrapper = shallowMount(RecordQueryListPanel, {
       props: {
@@ -1337,19 +1337,13 @@ describe('RecordQueryListPanel', () => {
     await vi.waitFor(() => expect(requests).toHaveLength(2));
     expect(requests.at(-1)?.criteria).toEqual({
       kind: 'GROUP',
-      operator: 'AND',
+      operator: 'OR',
       children: [
+        { kind: 'CONDITION', fieldName: 'status', operator: 'EQ', values: ['OPEN'] },
         {
           kind: 'GROUP',
-          operator: 'OR',
-          children: [
-            { kind: 'CONDITION', fieldName: 'status', operator: 'EQ', values: ['OPEN'] },
-            {
-              kind: 'GROUP',
-              operator: 'AND',
-              children: [{ kind: 'CONDITION', fieldName: 'priority', operator: 'EQ', values: ['HIGH'] }],
-            },
-          ],
+          operator: 'AND',
+          children: [{ kind: 'CONDITION', fieldName: 'priority', operator: 'EQ', values: ['HIGH'] }],
         },
       ],
     });
@@ -1852,4 +1846,52 @@ it('switches sourced query and persistent labels while retaining an unapplied co
   } finally {
     wrapper.unmount();
   }
+});
+
+it('rejects persistent changes that exceed the shared final query budget', async () => {
+  const requests: WebQueryRequest[] = [];
+  const wrapper = shallowMount(RecordQueryListPanel, {
+    global: { stubs: { ManagementPanelHeader: false } },
+    props: {
+      context: createContext({ id: 'one' }, requests),
+      title: 'Records',
+      querySchema: {
+        scopeName: 'demo.note',
+        quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+        fields: [
+          { name: 'title', valueType: 'STRING', operators: ['EQ'] },
+          {
+            name: 'state',
+            valueType: 'STRING',
+            operators: ['EQ'],
+            persistentControl: { id: 'state', title: '状态', operator: 'EQ', defaultValues: [] },
+          },
+        ],
+        externalCriteria: [],
+        defaultSorts: [],
+      },
+    },
+  });
+  await flushPromises();
+  (wrapper.vm as unknown as { toggleConditions(): void }).toggleConditions();
+  await flushPromises();
+  wrapper.getComponent({ name: 'QueryCriteriaComposer' }).vm.$emit('apply', {
+    kind: 'GROUP',
+    operator: 'AND',
+    children: Array.from({ length: 49 }, () => ({
+      kind: 'CONDITION',
+      fieldName: 'title',
+      operator: 'EQ',
+      values: ['needle'],
+    })),
+  });
+  await flushPromises();
+  const count = requests.length;
+  const controls = wrapper.getComponent({ name: 'RecordQueryFieldControls' });
+  controls.vm.$emit('update:values', 'state', ['OPEN']);
+  controls.vm.$emit('apply');
+  await flushPromises();
+  expect(requests).toHaveLength(count);
+  expect(requests.at(-1)?.criteria?.children).toHaveLength(49);
+  wrapper.unmount();
 });
