@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## 0.26.23 - 2026-10-23
+
 ### Added
 
 - 前端提供 `@ximatai/muyun-web-app/record-read` 子路径，在不加载 UI 和工作台注册的情况下消费记录读取会话及具名入口解析，支持 Vue effect scope 与 Node 测试；原根入口保持兼容。
