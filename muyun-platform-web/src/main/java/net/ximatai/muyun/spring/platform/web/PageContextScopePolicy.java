@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import jakarta.servlet.http.HttpServletRequest;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
+import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
@@ -22,10 +24,14 @@ import java.util.Objects;
  * <p>A navigator is not an authorization source. Its selected value is a page-workspace
  * context, supplied through the explicit {@value #CONTEXT_HEADER} request contract. The server
  * nevertheless owns the binding: it rejects an absent required selection, applies the selection
- * on create, and verifies the selected scope before reading or mutating an existing record.</p>
+ * on create, and verifies the selected scope before reading or mutating an existing record.
+ * Independent record requests may derive missing navigation values from an already authorized
+ * persisted record; explicit page selections and opaque selection policies remain enforced.</p>
  */
 public final class PageContextScopePolicy {
     public static final String CONTEXT_HEADER = "X-MuYun-Page-Context";
+    /** Record identity requests server-derived navigation; it never supplies authorization or field values. */
+    public static final String RECORD_CONTEXT_HEADER = "X-MuYun-Record-Context";
 
     private PageContextScopePolicy() {
     }
@@ -153,18 +159,90 @@ public final class PageContextScopePolicy {
     public static void requireRecordInScope(Object record, List<PageContextBindingDefinition> bindings,
                                             String moduleAlias, PlatformAction action,
                                             PageSelectionContextResolverRegistry selectionResolvers) {
-        Map<String, PageContextValue> scope = requiredScopeValues(bindings, moduleAlias, action, selectionResolvers);
+        Map<String, Object> scope = recordScopeValues(recordId(record), bindings, moduleAlias, action,
+                selectionResolvers, field -> recordValue(record, field));
         if (scope.isEmpty()) return;
-        BeanWrapper properties = properties(record);
         scope.forEach((field, expected) -> {
-            if (!properties.isReadableProperty(field)) {
-                throw new IllegalArgumentException("page record scope field is not readable: " + field);
-            }
-            if (!Objects.equals(properties.getPropertyValue(field), expected.value())) {
+            if (!Objects.equals(recordValue(record, field), expected)) {
                 throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED,
                         "Record does not belong to the current page scope: " + field);
             }
         });
+    }
+
+    /**
+     * Resolves navigation from an already authorized persisted record for independent detail requests.
+     * Explicit workspace values and opaque selection authorization retain their original semantics.
+     * Callers must perform action/data-scope/tenant access before supplying the record reader.
+     */
+    static Map<String, Object> recordScopeValues(String recordId,
+            List<PageContextBindingDefinition> bindings, String moduleAlias, PlatformAction action,
+            PageSelectionContextResolverRegistry selectionResolvers,
+            java.util.function.Function<String, Object> persistedField) {
+        if (bindings == null || bindings.isEmpty()) return Map.of();
+        boolean independent = independentRecordRequest(moduleAlias, recordId);
+        Map<String, Object> values = new LinkedHashMap<>();
+        for (PageContextBindingDefinition binding : bindings) {
+            PageContextValue value;
+            if (independent && binding.source() == PageContextSource.NAVIGATOR
+                    && contextValue(binding, requestContextValues()) == null) {
+                Object persisted = persistedField.apply(binding.targetKey());
+                if (persisted == null) throw missingScope(binding);
+                value = PageContextValue.of(persisted);
+            } else {
+                value = requiredAuthoritativeValue(binding, moduleAlias, action, selectionResolvers);
+            }
+            if (!value.present()) continue;
+            if (values.containsKey(binding.targetKey())
+                    && !Objects.equals(values.get(binding.targetKey()), value.value())) {
+                throw new IllegalStateException("conflicting page scope values for field: " + binding.targetKey());
+            }
+            values.put(binding.targetKey(), value.value());
+        }
+        return Collections.unmodifiableMap(values);
+    }
+
+    /** Stamps an update from persisted ownership, never from the incoming draft. */
+    public static <T> T applyForUpdate(T incoming, T persisted, List<PageContextBindingDefinition> bindings,
+            String moduleAlias, PlatformAction action, PageSelectionContextResolverRegistry selectionResolvers) {
+        if (bindings == null || bindings.isEmpty()) return incoming;
+        Map<String, Object> scope = recordScopeValues(recordId(persisted), bindings, moduleAlias, action,
+                selectionResolvers, field -> recordValue(persisted, field));
+        scope.forEach((field, value) -> {
+            if (incoming instanceof DynamicRecord dynamic
+                    && !StandardEntitySchema.fieldNames().contains(field)) dynamic.setValue(field, value);
+            else properties(incoming).setPropertyValue(field, value);
+        });
+        return incoming;
+    }
+
+    private static Object recordValue(Object record, String field) {
+        if (record instanceof DynamicRecord dynamic
+                && !StandardEntitySchema.fieldNames().contains(field)) return dynamic.getValue(field);
+        BeanWrapper properties = properties(record);
+        if (!properties.isReadableProperty(field))
+            throw new IllegalArgumentException("page record scope field is not readable: " + field);
+        return properties.getPropertyValue(field);
+    }
+
+    private static String recordId(Object record) {
+        if (record == null) return null;
+        BeanWrapper properties = properties(record);
+        return properties.isReadableProperty("id") && properties.getPropertyValue("id") != null
+                ? String.valueOf(properties.getPropertyValue("id")) : null;
+    }
+
+    private static boolean independentRecordRequest(String moduleAlias, String recordId) {
+        if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes)) return false;
+        String header = attributes.getRequest().getHeader(RECORD_CONTEXT_HEADER);
+        if (header == null || header.isBlank()) return false;
+        Map<String, Object> identity = PageContextRequestHeader.parse(header);
+        if (moduleAlias == null || recordId == null || !moduleAlias.equals(identity.get("moduleAlias"))
+                || !recordId.equals(identity.get("recordId")) || identity.size() != 2) {
+            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED,
+                    "Record context does not match the requested record");
+        }
+        return true;
     }
 
     /** Resolves mutation bindings without ever treating a browser value as an authority. */

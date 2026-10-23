@@ -151,7 +151,8 @@ class AssistantConversationServiceIT extends PlatformPostgresIntegrationTest {
         as("owner", "tenant", () -> {
             var json = new com.fasterxml.jackson.databind.ObjectMapper();
             var reference = json.createObjectNode().put("kind", "record-save").put("moduleAlias", "sales.order")
-                    .put("requestId", "original-request-123").put("tenantId", "tenant").put("menuId", "platform.menu.module.platform.application");
+                    .put("requestId", "original-request-123").put("tenantId", "tenant").put("menuId", "platform.menu.module.platform.application")
+                    .put("recordId", "record-1");
             reference.putObject("pageContext").put("application", "app-a");
             reference.putObject("pageSelection").put("kind", "organization").put("key", "department-a");
             var receipt = new AssistantConversationService.OperationReceipt("current-scope", reference);
@@ -164,6 +165,10 @@ class AssistantConversationServiceIT extends PlatformPostgresIntegrationTest {
             assertThatThrownBy(() -> service.save(id, "scope", new AssistantConversationService.Command(1, content)))
                     .hasMessageContaining("页面选择查询引用无效");
             ((com.fasterxml.jackson.databind.node.ObjectNode) reference.get("pageSelection")).remove("payload");
+            reference.put("recordId", "../outside");
+            assertThatThrownBy(() -> service.save(id, "scope", new AssistantConversationService.Command(1, content)))
+                    .hasMessageContaining("引用字段无效");
+            reference.put("recordId", "record-1");
             reference.put("payload", "must not persist");
             assertThatThrownBy(() -> service.save(id, "scope", new AssistantConversationService.Command(1, content)))
                     .hasMessageContaining("不能包含写入参数");

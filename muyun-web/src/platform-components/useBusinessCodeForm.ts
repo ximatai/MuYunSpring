@@ -106,6 +106,7 @@ export function useBusinessCodeForm(options: {
         error.value = '';
         return;
       }
+      error.value = '';
       loading.value = true;
       timer = setTimeout(() => {
         void load(version);
@@ -143,9 +144,18 @@ export function useBusinessCodeForm(options: {
       );
     return undefined;
   }
+  const errors = computed<Record<string, string>>(() => {
+    const errors: Record<string, string> = {};
+    for (const name of names.value) {
+      const message = errorOf(name);
+      if (message) errors[name] = message;
+    }
+    return errors;
+  });
   return {
     field,
     errorOf,
+    errors,
     policies,
     loading,
     error,

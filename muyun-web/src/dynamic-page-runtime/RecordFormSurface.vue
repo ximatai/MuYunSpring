@@ -42,7 +42,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:field': [fieldName: string, value: RecordFormFieldValue];
-  'validity-change': [validity: { valid: boolean }];
+  'validity-change': [validity: { valid: boolean; pending?: boolean }];
   'reference-display-change': [
     fieldName: string,
     candidates: readonly import('@muyun/platform-components').ReferencePickerCandidate[],
@@ -101,13 +101,19 @@ function imageUploadAdvisoryOf(fieldName: string) {
 }
 
 const descriptorValid = ref(true);
-function updateDescriptorValidity(validity: { valid: boolean }) {
+const descriptorPending = ref(false);
+function updateDescriptorValidity(validity: { valid: boolean; pending?: boolean }) {
   descriptorValid.value = validity.valid;
+  descriptorPending.value = validity.pending === true;
 }
 
 watch(
-  [descriptorValid, contributionValid],
-  () => emit('validity-change', { valid: descriptorValid.value && contributionValid.value }),
+  [descriptorValid, descriptorPending, contributionValid],
+  () =>
+    emit('validity-change', {
+      valid: descriptorValid.value && contributionValid.value,
+      ...(descriptorPending.value ? { pending: true } : {}),
+    }),
   { immediate: true },
 );
 </script>

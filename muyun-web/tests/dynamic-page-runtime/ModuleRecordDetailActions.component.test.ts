@@ -159,3 +159,35 @@ it('keeps the delete loading indicator on the delete button while locking its pe
     wrapper.unmount();
   }
 });
+
+it('shows a wait state for both standard and configured saves until form dependencies settle', async () => {
+  const wrapper = shallowMount(ModuleRecordDetailActions, {
+    props: {
+      context: { can: () => true } as unknown as ModuleContext<QueryListRecord>,
+      mode: 'edit',
+      formPending: true,
+      formActions: [{ key: 'placed-update', actionCode: 'update', title: '提交' }],
+    },
+  });
+  const actions = () =>
+    wrapper.findComponent({ name: 'RecordActionBar' }).props('actions') as {
+      key: string;
+      title: string;
+      loading?: boolean;
+      disabled?: boolean;
+    }[];
+  try {
+    expect(actions().filter((action) => action.key !== '__platform-cancel')).toEqual([
+      expect.objectContaining({ title: '正在准备表单…', loading: true, disabled: true }),
+      expect.objectContaining({ key: 'placed-update', loading: true, disabled: true }),
+    ]);
+    expect(actions().find((action) => action.key === '__platform-cancel')?.disabled).toBe(false);
+    await wrapper.setProps({ formPending: false });
+    expect(actions().find((action) => action.key === '__platform-save')).toMatchObject({
+      loading: false,
+      disabled: false,
+    });
+  } finally {
+    wrapper.unmount();
+  }
+});

@@ -6,6 +6,121 @@ import type { RecordFormFieldDescriptor } from '@/platform-components/recordForm
 import type { ModuleContext } from '@muyun/web-core';
 
 describe('RecordFormFields', () => {
+  it.each([true, false])(
+    'exposes policy refresh and retry with code field visibility %s and preserves the draft',
+    async (visible) => {
+      vi.useFakeTimers();
+      const pending: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = [];
+      const request = vi.fn(() => new Promise((resolve, reject) => pending.push({ resolve, reject })));
+      const record = { title: '未保存设备', deviceType: 'A' };
+      const fields = new Map<string, RecordFormFieldDescriptor>([
+        [
+          'documentNo',
+          {
+            fieldRef: { fieldName: 'documentNo' },
+            label: '编号',
+            readOnly: { constant: true },
+            visible: { constant: visible },
+            businessCode: { primary: true, trigger: 'SAVE' },
+          },
+        ],
+      ]);
+      const wrapper = mount(RecordFormFields, {
+        props: { fields, record, mode: 'create', optionContext: moduleContext('demo.device', request) },
+      });
+      try {
+        expect(wrapper.get('.record-form-policy-status').text()).toContain('正在读取编号策略');
+        expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({
+          valid: false,
+          pending: true,
+        });
+        await vi.advanceTimersByTimeAsync(121);
+        await wrapper.setProps({ record: { ...record, deviceType: 'B' } });
+        await vi.advanceTimersByTimeAsync(121);
+        expect(pending).toHaveLength(2);
+        pending[0]!.reject(new Error('过时的失败'));
+        await flushPromises();
+        expect(wrapper.get('.record-form-policy-status').attributes('role')).toBe('status');
+        expect(wrapper.text()).not.toContain('过时的失败');
+        pending[1]!.reject(new Error('编号策略暂不可用'));
+        await flushPromises();
+        expect(wrapper.get('.record-form-policy-status').attributes('role')).toBe('alert');
+        expect(wrapper.get('.record-form-policy-status').text()).toContain('编号策略暂不可用');
+        expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: false });
+        await wrapper.get('.record-form-policy-status button').trigger('click');
+        expect(wrapper.get('.record-form-policy-status').attributes('role')).toBe('status');
+        pending[2]!.resolve([
+          {
+            fieldName: 'documentNo',
+            mode: 'AUTO',
+            trigger: 'SAVE',
+            readOnly: true,
+            configured: true,
+            preview: 'B-001',
+          },
+        ]);
+        await flushPromises();
+        expect(wrapper.find('.record-form-policy-status').exists()).toBe(false);
+        expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+        expect(wrapper.props('record')).toEqual({ title: '未保存设备', deviceType: 'B' });
+        expect(wrapper.emitted('update:field')).toBeUndefined();
+      } finally {
+        wrapper.unmount();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each([false, true])(
+    'blocks hidden SAVE codes without an effective policy (omitted: %s) and retries without changing the draft',
+    async (omitted) => {
+      vi.useFakeTimers();
+      const fields = new Map<string, RecordFormFieldDescriptor>([
+        [
+          'documentNo',
+          {
+            fieldRef: { fieldName: 'documentNo' },
+            label: '编号',
+            visible: { constant: false },
+            businessCode: { primary: true, trigger: 'SAVE' },
+          },
+        ],
+      ]);
+      const policy = {
+        fieldName: 'documentNo',
+        mode: null,
+        trigger: 'SAVE',
+        readOnly: true,
+        configured: false,
+      };
+      const request = vi.fn().mockResolvedValue(omitted ? [] : [policy]);
+      const record = { title: '未保存设备' };
+      const wrapper = mount(RecordFormFields, {
+        props: { fields, record, mode: 'create', optionContext: moduleContext('demo.device', request) },
+      });
+      try {
+        await vi.advanceTimersByTimeAsync(121);
+        await flushPromises();
+        expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({
+          valid: false,
+          errors: { documentNo: expect.stringContaining('尚未配置有效的编号规则') },
+        });
+        expect(wrapper.get('.record-form-policy-status').attributes('role')).toBe('alert');
+        expect(wrapper.get('.record-form-policy-status').text()).toContain('尚未配置有效的编号规则');
+        request.mockResolvedValue([{ ...policy, mode: 'AUTO', configured: true, preview: 'DEV-001' }]);
+        await wrapper.get('.record-form-policy-status button').trigger('click');
+        await flushPromises();
+        expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true, errors: {} });
+        expect(wrapper.find('.record-form-policy-status').exists()).toBe(false);
+        expect(wrapper.props('record')).toEqual(record);
+        expect(wrapper.emitted('update:field')).toBeUndefined();
+      } finally {
+        wrapper.unmount();
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('shows an automatic candidate without submitting it and accepts real manual input', async () => {
     vi.useFakeTimers();
     const fields = new Map<string, RecordFormFieldDescriptor>([
@@ -138,9 +253,9 @@ describe('RecordFormFields', () => {
     }
   });
 
-  it.each([null, 'MANUAL'])(
-    'keeps an explicit field waiting for its business action with mode %s',
-    async (mode) => {
+  it.each([null, 'MANUAL'].flatMap((mode) => [true, false].map((visible) => ({ mode, visible }))))(
+    'keeps an explicit field waiting for its business action with mode $mode (visible: $visible)',
+    async ({ mode, visible }) => {
       vi.useFakeTimers();
       const fields = new Map<string, RecordFormFieldDescriptor>([
         [
@@ -148,6 +263,7 @@ describe('RecordFormFields', () => {
           {
             fieldRef: { fieldName: 'confirmationNo' },
             label: '确认号',
+            visible: { constant: visible },
             businessCode: { primary: false, trigger: 'EXPLICIT' },
             inputRequirements: { requiredOnInsert: true, requiredOnUpdate: true },
           },
@@ -169,7 +285,8 @@ describe('RecordFormFields', () => {
       try {
         await vi.advanceTimersByTimeAsync(121);
         await flushPromises();
-        expect(wrapper.text().match(/由业务操作生成编号/g)).toHaveLength(1);
+        if (visible) expect(wrapper.text().match(/由业务操作生成编号/g)).toHaveLength(1);
+        expect(wrapper.find('.record-form-policy-status').exists()).toBe(false);
         expect(wrapper.text()).not.toContain('请手工填写');
         expect(wrapper.find('input').exists()).toBe(false);
         expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
@@ -181,7 +298,7 @@ describe('RecordFormFields', () => {
     },
   );
 
-  it('keeps an existing code read-only and permits retained values after its rule expires', async () => {
+  it.each([true, false])('permits retained codes after their rule expires (visible: %s)', async (visible) => {
     vi.useFakeTimers();
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [
@@ -189,6 +306,7 @@ describe('RecordFormFields', () => {
         {
           fieldRef: { fieldName: 'documentNo' },
           label: '单号',
+          visible: { constant: visible },
           businessCode: { primary: true, trigger: 'SAVE' },
         },
       ],
@@ -214,13 +332,21 @@ describe('RecordFormFields', () => {
     try {
       await vi.advanceTimersByTimeAsync(121);
       await flushPromises();
-      expect(wrapper.text()).toContain('OLD-1');
+      if (visible) expect(wrapper.text()).toContain('OLD-1');
+      expect(wrapper.find('.record-form-policy-status').exists()).toBe(false);
       expect(wrapper.find('input').exists()).toBe(false);
       expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
       await wrapper.setProps({ record: {}, mode: 'create', formSessionKey: 'new' });
       await vi.advanceTimersByTimeAsync(121);
       await flushPromises();
       expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: false });
+      const callsBeforeView = request.mock.calls.length;
+      await wrapper.setProps({ mode: 'view' });
+      await vi.advanceTimersByTimeAsync(121);
+      await flushPromises();
+      expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+      expect(wrapper.find('.record-form-policy-status').exists()).toBe(false);
+      expect(request).toHaveBeenCalledTimes(callsBeforeView);
     } finally {
       wrapper.unmount();
       vi.useRealTimers();

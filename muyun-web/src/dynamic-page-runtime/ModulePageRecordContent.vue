@@ -57,7 +57,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:field': [fieldName: string, value: RecordFormFieldValue];
-  'validity-change': [validity: { valid: boolean }];
+  'validity-change': [validity: { valid: boolean; pending?: boolean }];
   'reference-display-change': [
     fieldName: string,
     candidates: readonly import('@muyun/platform-components').ReferencePickerCandidate[],

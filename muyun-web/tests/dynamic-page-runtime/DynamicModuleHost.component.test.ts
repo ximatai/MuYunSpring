@@ -133,6 +133,73 @@ describe('ModulePageHost', () => {
     }
   });
 
+  it('carries asynchronous form readiness to the save bar without submitting or losing the draft', async () => {
+    let writes = 0;
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url.endsWith('/context'))
+        return Response.json({
+          moduleAlias: 'demo.contract',
+          capabilities: [],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: { moduleAlias: 'demo.contract', page: page() },
+        });
+      if (request.url.endsWith('/demo.contract/insert')) {
+        writes += 1;
+        return Response.json({ id: 'saved', title: '设备草稿' });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'demo.contract', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /><slot name="detail" /></section>' },
+          RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
+          RecordModeDrawer: { template: '<section><slot name="form" /><slot name="operation" /></section>' },
+          ModulePageRecordContent: false,
+        },
+      },
+    });
+    try {
+      await flushPromises();
+      wrapper.findComponent({ name: 'RecordQueryListPanel' }).vm.$emit('action', { key: 'create' });
+      await flushPromises();
+      const session = wrapper
+        .findComponent({ name: 'ModulePageHostRuntime' })
+        .props('session') as ModulePageSessionView;
+      session.editingRecord!.title = '设备草稿';
+      const draft = session.editingRecord;
+      const form = wrapper.findComponent({ name: 'RecordFormSurface' });
+      form.vm.$emit('validity-change', { valid: true, pending: true });
+      await flushPromises();
+      expect(session.mainFormPending).toBe(true);
+      expect(wrapper.findComponent({ name: 'ModuleRecordDetailActions' }).props('formPending')).toBe(true);
+      await session.saveRecord();
+      expect(writes).toBe(0);
+      expect(session.editingRecord).toBe(draft);
+      form.vm.$emit('validity-change', { valid: false });
+      await flushPromises();
+      expect(session.mainFormPending).toBe(false);
+      expect(session.editingRecord!.title).toBe('设备草稿');
+      form.vm.$emit('validity-change', { valid: true });
+      await flushPromises();
+      await session.saveRecord();
+      expect(writes).toBe(1);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('preserves reading intent through the page-owned query adapter', async () => {
     const languages: Array<string | null> = [];
     globalThis.fetch = async (input, init) => {
@@ -4384,6 +4451,12 @@ describe('ModulePageHost', () => {
         await flushPromises();
         session.updateDraftFields([{ fieldName: 'title', value: '旧名称' }], 'assistant');
         await flushPromises();
+        session.updateMainFormValidity({ valid: true, pending: true });
+        expect((await session.reviewRecordDraft()).inputValid).toBe(false);
+        await expect(session.prepareAssistantSave()).rejects.toThrow('请完成表单校验');
+        await session.saveRecord();
+        expect(writes).toHaveLength(0);
+        session.updateMainFormValidity({ valid: true });
         const stale = await session.prepareAssistantSave();
         session.updateDraftFields(
           [

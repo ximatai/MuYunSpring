@@ -34,7 +34,7 @@ public final class RecordSaveRequestSupport {
         if (support == null) throw new IllegalStateException("Reliable record saves are unavailable");
         Map<String, String> headers = new TreeMap<>();
         for (String name : java.util.List.of("X-MuYun-Tenant-Id", "X-MuYun-Page-Context",
-                "X-MuYun-Page-Selection", "X-MuYun-Menu-Id")) {
+                "X-MuYun-Page-Selection", "X-MuYun-Menu-Id", PageContextScopePolicy.RECORD_CONTEXT_HEADER)) {
             String value = request.getHeader(name);
             if (value != null) headers.put(name, value);
         }

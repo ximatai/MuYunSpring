@@ -79,6 +79,7 @@ import net.ximatai.muyun.spring.platform.web.ModuleUiDescriptorCompiler;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
 import net.ximatai.muyun.spring.platform.web.NavigatorListQueryMode;
 import net.ximatai.muyun.spring.platform.web.PageContextBindingDefinition;
+import net.ximatai.muyun.spring.platform.web.PageContextScopePolicy;
 import net.ximatai.muyun.spring.platform.web.PageContextTarget;
 import net.ximatai.muyun.spring.platform.web.PageListDefinition;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
@@ -1774,6 +1775,37 @@ class DynamicRecordWebControllerTest {
                 .andExpect(jsonPath("$.records[0].values.code").value("C-001"));
 
         verifyNoInteractions(snapshotService);
+    }
+
+    @Test
+    void shouldResolveIndependentDetailScopeAfterReadingTheTargetAndRejectExplicitMismatch() throws Exception {
+        ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan(List.of(
+                PageContextBindingDefinition.navigatorList("contract", "code", NavigatorListQueryMode.REQUIRED_SCOPE)))));
+        MockMvc plannedMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
+                        .executionPlans(catalog).build())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
+                        CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
+        DynamicRecord record = new DynamicRecord(entity()).setValue("code", "C-001");
+        record.setId("contract-1");
+        when(mainEntity.select("contract-1")).thenReturn(record);
+        String identity = "{\"moduleAlias\":\"sales.contract\",\"recordId\":\"contract-1\"}";
+        plannedMvc.perform(get("/{moduleAlias}/view/contract-1", MODULE))
+                .andExpect(status().isBadRequest());
+        plannedMvc.perform(get("/{moduleAlias}/view/contract-1", MODULE)
+                        .header(PageContextScopePolicy.RECORD_CONTEXT_HEADER, identity))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.values.code").value("C-001"));
+        plannedMvc.perform(get("/{moduleAlias}/view/contract-1", MODULE)
+                        .header(PageContextScopePolicy.RECORD_CONTEXT_HEADER, identity)
+                        .header(PageContextScopePolicy.CONTEXT_HEADER, "{\"contract\":\"C-002\"}"))
+                .andExpect(status().isBadRequest());
+        when(mainEntity.select("contract-1")).thenReturn(null);
+        plannedMvc.perform(get("/{moduleAlias}/view/contract-1", MODULE)
+                        .header(PageContextScopePolicy.RECORD_CONTEXT_HEADER, identity))
+                .andExpect(status().isNotFound());
     }
 
     @Test

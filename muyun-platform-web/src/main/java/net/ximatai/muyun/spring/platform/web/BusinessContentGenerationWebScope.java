@@ -138,8 +138,8 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
         T owner = (T) content.requireOwner(web.service(), location);
         web.requireMenuEntryAction(PlatformAction.VIEW);
         web.requireMenuEntryRecord(PlatformAction.VIEW, owner);
-        PageContextScopePolicy.requireRecordValues(bindings, web.webScopeName(), PlatformAction.VIEW,
-                web.pageSelectionContextResolvers(), name -> value(owner, name));
+        PageContextScopePolicy.requireRecordInScope(owner, bindings, web.webScopeName(), PlatformAction.VIEW,
+                web.pageSelectionContextResolvers());
         return owner;
     }
 

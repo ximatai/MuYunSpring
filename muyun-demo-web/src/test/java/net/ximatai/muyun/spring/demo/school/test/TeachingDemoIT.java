@@ -985,8 +985,17 @@ public class TeachingDemoIT {
                 .andReturn().getResponse();
         assertThat(crossTenantOrganization.getStatus()).isEqualTo(200);
         assertThat(crossTenantOrganization.getContentAsString()).doesNotContain(otherEmployeeId);
+        String independentEmployeeContext = "{\"moduleAlias\":\"iam.employee\",\"recordId\":\"%s\"}"
+                .formatted(otherEmployeeId);
+        var independentEmployee = mvc.perform(get("/iam.employee/view/{id}", otherEmployeeId)
+                        .header(tenantHeader, otherTenant)
+                        .header("X-MuYun-Record-Context", independentEmployeeContext))
+                .andReturn().getResponse();
+        assertThat(independentEmployee.getStatus()).as(independentEmployee.getContentAsString()).isEqualTo(200);
+        assertThat(independentEmployee.getContentAsString()).contains(otherEmployeeId).contains(otherOrganizationId);
         var hiddenOtherEmployee = mvc.perform(get("/iam.employee/view/{id}", otherEmployeeId)
-                        .header(tenantHeader, DemoBootstrapTask.TENANT_ALIAS))
+                        .header(tenantHeader, DemoBootstrapTask.TENANT_ALIAS)
+                        .header("X-MuYun-Record-Context", independentEmployeeContext))
                 .andReturn().getResponse();
         assertThat(hiddenOtherEmployee.getStatus()).as(hiddenOtherEmployee.getContentAsString()).isEqualTo(404);
 
