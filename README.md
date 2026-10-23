@@ -115,6 +115,20 @@ dependencies {
 
 将 `<version>` 替换为 [Maven Central](https://central.sonatype.com/search?q=g%3Anet.ximatai.muyun.spring) 中需要使用的正式版本。再在业务应用配置自己的数据源、运行模式与初始管理员密码。开发环境可使用 `muyun.runtime.mode=development`；生产环境使用默认 `production`，并以严格 schema migration 策略治理变更。不要在公网或共享环境使用示例密码。
 
+当前平台 JSON 模块基于 Jackson 2。Spring Boot 4 消费应用应显式配置以下选项，使 MVC 在
+Jackson 2／3 同时存在时仍使用平台的枚举 code、动态记录及内容序列化契约；无需在各子模块排除
+Jackson 3 依赖。自行替换 MVC 转换器或 ObjectMapper 时须保留平台模块并验证 HTTP 往返。
+
+```yaml
+spring:
+  http:
+    converters:
+      preferred-json-mapper: jackson2
+```
+
+该选项只选择 HTTP 转换器，不把平台 JSON 模块迁移到 Jackson 3。接入边界与后续候选见
+[消费者接入边界](docs/platform/CONSUMER_INTEGRATION_BOUNDARIES.md)。
+
 平台的公开发布面、消费者验证和首发流程见[发布流程](docs/RELEASE_PROCESS.md)。
 
 ## 本地框架开发

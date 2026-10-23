@@ -35,6 +35,10 @@ writeFileSync(
       types: './dist/types/consumer/index.d.ts',
       exports: {
         '.': { types: './dist/types/consumer/index.d.ts', import: './dist/index.js' },
+        './record-read': {
+          types: './dist/types/consumer/recordRead.d.ts',
+          import: './dist/record-read.js',
+        },
         './style.css': './dist/index.css',
       },
       // Importing the runtime registers first-party page and workspace contributions.
@@ -83,7 +87,15 @@ await build({
   build: {
     emptyOutDir: true,
     outDir: join(stagingDirectory, 'dist'),
-    lib: { entry: consumerEntry, formats: ['es'], fileName: 'index' },
+    lib: {
+      entry: {
+        index: consumerEntry,
+        'record-read': join(webRoot, 'src', 'consumer', 'recordRead.ts'),
+      },
+      formats: ['es'],
+      fileName: (_format, entryName) => `${entryName}.js`,
+      cssFileName: 'index',
+    },
     rollupOptions: {
       external: (id) =>
         ['vue', 'ant-design-vue', '@ant-design/icons-vue', 'dayjs'].includes(id) ||

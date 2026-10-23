@@ -38,6 +38,9 @@
 
 ## 跨专题边界
 
+[消费者接入边界](CONSUMER_INTEGRATION_BOUNDARIES.md) 汇总正式依赖的 JSON 配置、系统模块访问、
+非 UI SDK 消费、发布资源、单例配置、通知恢复、授权关联查询和缓存可见性的接入口径与建设边界。
+
 模块引用从元数据、页面描述符到选择与只读组件的关系见 [模块引用与前端组件专项治理](topics/page/REFERENCE_COMPONENT_GOVERNANCE.md)，包含平台封装目标、字典独立边界和实施阶段。
 
 身份组织对象的统一选择交互、候选范围及阶段规划见 [身份组织对象选择专项治理](OBJECT_SELECTION_GOVERNANCE.md)，覆盖用户、职员、机构、部门与租户选择，以及日志检索的历史身份边界。

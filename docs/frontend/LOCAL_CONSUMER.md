@@ -8,6 +8,28 @@ MuYunSpring 前端提供两条本机接入路径：日常联调使用链接后�
 
 该包的 CSS 以显式子路径 `@ximatai/muyun-web-app/style.css` 交付。消费者必须在自己的入口导入它；包的 JavaScript 入口不隐式注入样式。这是未来 npm、SSR、按需构建和多应用共存时可审计的依赖契约。
 
+## 非 UI 记录读取与测试
+
+记录读取会话可通过 `@ximatai/muyun-web-app/record-read` 独立消费。该子路径只提供
+`useRecordReadSession`、`resolveRecordReadEntry` 及其类型，不加载 UI、样式或工作台注册；
+仍需 Vue peer dependency，不承诺整个 SDK 根入口可在 Node 或 SSR 中加载。
+
+```ts
+import { effectScope } from 'vue';
+import { useRecordReadSession, type RecordReadView } from '@ximatai/muyun-web-app/record-read';
+
+declare const view: RecordReadView;
+const scope = effectScope();
+const session = scope.run(() => useRecordReadSession({ view }));
+// view 是应用提供的 RecordReadView；测试结束后释放请求和 watcher。
+scope.stop();
+```
+
+纯逻辑测试使用 Vitest 的 Node 环境和 Vue `effectScope`，组件交互测试使用 jsdom；
+身份、租户或授权范围变化时更新 `scopeKey`，后端仍独立鉴权。不得通过截取发布包片段、
+执行内部打包代码或导入未公开的 `dist` 文件复用实现。消费者验证会在隔离安装的 tarball 上
+以原生 Node 导入该子路径并验证基本读取和作用域释放；身份切换及迟到响应由源码会话测试覆盖。
+
 ## 交付验证：tarball
 
 框架仓库内的 `examples/business-web` 是真实消费者：它只依赖 npm 上的公开包与 peer dependencies。执行以下命令会先构建当前源码的 tarball，再临时安装这个 tarball 并构建示例；不会修改示例的 `package.json` 或 lockfile。

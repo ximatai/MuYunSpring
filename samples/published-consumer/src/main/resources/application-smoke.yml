@@ -1,4 +1,7 @@
 spring:
+  http:
+    converters:
+      preferred-json-mapper: jackson2
   datasource:
     url: jdbc:postgresql://127.0.0.1:${MUYUN_CONSUMER_DB_PORT:54323}/muyun_consumer
     username: postgres
