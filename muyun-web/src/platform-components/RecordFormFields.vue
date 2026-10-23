@@ -155,6 +155,9 @@ const codeForms = useBusinessCodeForm({
   session: () => props.formSessionKey,
   language,
 });
+const codePolicyError = computed(() =>
+  codeForms.loading.value ? undefined : codeForms.error.value || Object.values(codeForms.errors.value)[0],
+);
 function codeHint(field: RecordFormFieldState) {
   if (field.businessCode?.trigger === 'EXPLICIT')
     return language.t('platform.form.code.explicit', '由业务操作生成编号');
@@ -214,10 +217,9 @@ const formValidity = computed<RecordFormValidity>(() => {
     ...requiredFieldErrors.value,
     ...translatedErrors(optionFieldErrors.value),
     ...translatedErrors(editorFieldErrors.value),
+    ...codeForms.errors.value,
   };
   for (const field of fieldStates.value) {
-    const codeError = codeForms.errorOf(field.fieldName);
-    if (codeError) errors[field.fieldName] = codeError;
     const constraintError =
       !field.readOnly && field.visible
         ? recordFormInputConstraintError(field, props.record[field.fieldName], language)
@@ -813,15 +815,15 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
 
 <template>
   <div
-    v-if="mode !== 'view' && (codeForms.loading.value || codeForms.error.value)"
+    v-if="mode !== 'view' && (codeForms.loading.value || codePolicyError)"
     class="record-form-policy-status"
-    :role="codeForms.error.value ? 'alert' : 'status'"
+    :role="codePolicyError ? 'alert' : 'status'"
     aria-live="polite"
   >
-    <span :class="{ 'record-form-field-error': codeForms.error.value }">{{
-      codeForms.error.value || language.t('platform.form.code.loading', '正在读取编号策略…')
+    <span :class="{ 'record-form-field-error': codePolicyError }">{{
+      codePolicyError || language.t('platform.form.code.loading', '正在读取编号策略…')
     }}</span>
-    <UiButton v-if="codeForms.error.value" type="link" @click="codeForms.retry()">
+    <UiButton v-if="codePolicyError" type="link" @click="codeForms.retry()">
       {{ language.t('platform.form.retry', '重试') }}
     </UiButton>
   </div>

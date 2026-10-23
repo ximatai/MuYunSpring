@@ -51,7 +51,9 @@ it.each([1004, 390])(
     try {
       await expect.poll(() => wrapper.text()).toContain('未配置编号规则');
       expect(wrapper.text()).not.toContain('主编码');
-      expect(wrapper.text()).not.toContain('请管理员');
+      const status = wrapper.get('.record-form-policy-status').element;
+      expect(status.textContent).toContain('请管理员');
+      await expect.element(page.elementLocator(status)).toBeVisible();
       expect(field.getBoundingClientRect().height).toBeLessThan(90);
       const height = field.getBoundingClientRect().height;
       const triggerBox = trigger.getBoundingClientRect();
@@ -62,10 +64,10 @@ it.each([1004, 390])(
 
       trigger.focus();
       await userEvent.keyboard('{Enter}');
-      await expect
-        .element(page.getByText('尚未配置有效的编号规则，请管理员在「模块管理 → 业务编码」中完成配置。'))
-        .toBeVisible();
+      await expect.poll(() => document.querySelector('.record-form-code-details')).not.toBeNull();
       const details = document.querySelector('.record-form-code-details')!;
+      await expect.element(page.elementLocator(details)).toBeVisible();
+      expect(details.textContent).toContain('尚未配置有效的编号规则');
       expect(details.textContent).toContain('主编码');
       expect(details.textContent).toContain('保存时生成编号');
       expect(details.getBoundingClientRect().right).toBeLessThanOrEqual(width);
@@ -74,9 +76,8 @@ it.each([1004, 390])(
       expect(wrapper.emitted('update:field')).toBeUndefined();
       expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: false });
       await page.getByRole('button', { name: '表单外部操作', exact: true }).click();
-      await expect
-        .element(page.getByText('尚未配置有效的编号规则，请管理员在「模块管理 → 业务编码」中完成配置。'))
-        .not.toBeVisible();
+      await expect.element(page.elementLocator(details)).not.toBeVisible();
+      await expect.element(page.elementLocator(status)).toBeVisible();
     } finally {
       wrapper.unmount();
       outside.remove();
