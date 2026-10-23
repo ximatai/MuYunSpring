@@ -69,7 +69,11 @@ export default mergeConfig(
             name: 'unit',
             environment: 'node',
             include: ['tests/**/*.test.ts'],
-            exclude: ['tests/**/*.component.test.ts', 'tests/**/*.browser.test.ts'],
+            exclude: [
+              'tests/**/*.component.test.ts',
+              'tests/**/*.browser.test.ts',
+              'tests/consumer/packaged/**',
+            ],
           },
         },
         {

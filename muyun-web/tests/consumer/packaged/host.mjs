@@ -1,4 +1,5 @@
 // This entry is built by the independently installed business consumer's Vite.
+export { useRecordReadSession } from '@ximatai/muyun-web-app/record-read';
 export {
   AppWorkbenchShell,
   ReadonlyRecordWorkspace,

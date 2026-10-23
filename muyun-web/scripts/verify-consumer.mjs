@@ -76,6 +76,7 @@ try {
     }
   }
   const contractFixtures = join(webRoot, 'tests', 'consumer', 'packaged');
+  cpSync(join(contractFixtures, 'recordRead.mjs'), join(temporaryExampleRoot, 'record-read-contract.mjs'));
   cpSync(join(contractFixtures, 'host.mjs'), join(temporaryExampleRoot, 'src', 'consumer-contract.ts'));
   cpSync(join(contractFixtures, 'vite.config.ts'), join(temporaryExampleRoot, 'vite.contract.config.ts'));
   execFileSync(process.execPath, [process.env.npm_execpath, 'run', 'build'], {
@@ -110,6 +111,7 @@ try {
       env: {
         ...process.env,
         MUYUN_CONSUMER_CONTRACT_BUNDLE: join(temporaryExampleRoot, 'contract-dist', 'consumer-contract.js'),
+        MUYUN_CONSUMER_PROJECT_ROOT: temporaryExampleRoot,
       },
       stdio: 'inherit',
     },

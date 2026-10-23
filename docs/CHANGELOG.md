@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+### Added
+
+- 前端提供 `@ximatai/muyun-web-app/record-read` 子路径，在不加载 UI 和工作台注册的情况下消费记录读取会话及具名入口解析，支持 Vue effect scope 与 Node 测试；原根入口保持兼容。
+
+### Compatibility
+
+- 明确 Spring Boot 4 消费应用须设置 `spring.http.converters.preferred-json-mapper=jackson2`，使两代 Jackson 共存时实际 HTTP 转换器采用平台 JSON 模块；可在消费验证后移除重复的 Jackson 3 依赖排除。该约束不表示平台已迁移 Jackson 3。
+
 ## 0.26.22 - 2026-10-23
 
 ### Added
