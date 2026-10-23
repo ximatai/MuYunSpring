@@ -84,6 +84,34 @@ class DataScopeWebTest {
     }
 
     @Test
+    void independentDetailsShouldRetainActionDataScopeBeforeResolvingNavigation() {
+        DataScopedCrudService service = org.mockito.Mockito.spy(new DataScopedCrudService());
+        CrudWeb<DataScopedRecord, DataScopedCrudService> controller = new CrudWeb<>() {
+            @Override public DataScopedCrudService service() { return service; }
+            @Override public List<PageContextBindingDefinition> recordScopeBindings() {
+                return List.of(PageContextBindingDefinition.navigatorList("organization", "title",
+                        NavigatorListQueryMode.REQUIRED_SCOPE));
+            }
+        };
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(PageContextScopePolicy.RECORD_CONTEXT_HEADER,
+                "{\"moduleAlias\":\"demo.dataScopedCrud\",\"recordId\":\"record-1\"}");
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(request));
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThat(controller.view("record-1").getTitle()).isEqualTo("View record-1");
+            assertThat(service.viewAction).isEqualTo(PlatformAction.VIEW);
+            assertThat(service.selectedIds).isEmpty();
+            var denied = new net.ximatai.muyun.spring.common.exception.PlatformException(
+                    net.ximatai.muyun.spring.common.exception.PlatformErrorCodes.ACCESS_DENIED, 403, "Not authorized");
+            org.mockito.Mockito.doThrow(denied).when(service).selectForAction(PlatformAction.VIEW, "record-1");
+            assertThatThrownBy(() -> controller.view("record-1")).isSameAs(denied);
+        } finally {
+            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
+    @Test
     void crudWebShouldRejectUnpagedQueryUnlessControllerOptsIn() {
         DataScopedCrudController controller = new DataScopedCrudController(new DataScopedCrudService());
 
@@ -312,6 +340,7 @@ class DataScopeWebTest {
         public DataScopedRecord selectForAction(PlatformAction action, String id) {
             viewAction = action;
             DataScopedRecord record = new DataScopedRecord();
+            record.setId(id);
             record.setTitle("View " + id);
             return record;
         }

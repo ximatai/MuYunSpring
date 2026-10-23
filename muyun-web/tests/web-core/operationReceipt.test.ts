@@ -138,3 +138,19 @@ it('queries the original child creation instead of guessing from a same-named re
     path: '/platform.module/sales.order/metadata-relations/main/child-metadata-creations/original-request-123',
   });
 });
+
+it('restores independent record identity only for authorized receipt reads', async () => {
+  const input = { ...reference, recordId: 'record-1' };
+  const request = vi.fn(async () => ({ committed: true, recordId: 'record-1' }));
+  expect(parseOperationReceiptReference(input)).toMatchObject({ recordId: 'record-1' });
+  await lookupOperationReceipt({ request } as never, input);
+  expect(request).toHaveBeenCalledWith(
+    expect.objectContaining({
+      headers: expect.objectContaining({
+        'X-MuYun-Record-Context': JSON.stringify({ moduleAlias: 'sales.order', recordId: 'record-1' }),
+      }),
+    }),
+  );
+  expect(() => parseOperationReceiptReference({ ...input, recordId: '../record' })).toThrow();
+  expect(() => parseOperationReceiptReference({ ...input, recordId: { tenantId: 'forged' } })).toThrow();
+});

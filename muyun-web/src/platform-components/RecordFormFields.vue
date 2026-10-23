@@ -63,6 +63,8 @@ const language = useLanguageContext();
 export interface RecordFormValidity {
   valid: boolean;
   errors: Record<string, string>;
+  /** An asynchronous form dependency is still being refreshed. */
+  pending?: boolean;
 }
 
 const props = withDefaults(
@@ -232,7 +234,11 @@ const formValidity = computed<RecordFormValidity>(() => {
         field.rendererDiagnostic ?? language.t('platform.form.unsupported', '该字段控件当前不可编辑');
     }
   }
-  return { valid: Object.keys(errors).length === 0, errors };
+  return {
+    valid: !codeForms.loading.value && !codeForms.error.value && Object.keys(errors).length === 0,
+    errors,
+    ...(codeForms.loading.value ? { pending: true } : {}),
+  };
 });
 
 onMounted(() => {
@@ -806,6 +812,19 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
 </script>
 
 <template>
+  <div
+    v-if="mode !== 'view' && (codeForms.loading.value || codeForms.error.value)"
+    class="record-form-policy-status"
+    :role="codeForms.error.value ? 'alert' : 'status'"
+    aria-live="polite"
+  >
+    <span :class="{ 'record-form-field-error': codeForms.error.value }">{{
+      codeForms.error.value || language.t('platform.form.code.loading', '正在读取编号策略…')
+    }}</span>
+    <UiButton v-if="codeForms.error.value" type="link" @click="codeForms.retry()">
+      {{ language.t('platform.form.retry', '重试') }}
+    </UiButton>
+  </div>
   <template v-for="(field, index) in fieldStates" :key="`${field.fieldName}:${formSessionKey ?? ''}`">
     <slot name="before-field" :field="field" />
     <template v-if="groupOf(field) && groupStartsAt(field, index)">
@@ -1269,6 +1288,10 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
 </template>
 
 <style scoped>
+.record-form-policy-status {
+  grid-column: 1 / -1;
+}
+
 .record-form-field-host {
   display: grid;
   align-content: start;

@@ -106,6 +106,7 @@ export function useBusinessCodeForm(options: {
         error.value = '';
         return;
       }
+      error.value = '';
       loading.value = true;
       timer = setTimeout(() => {
         void load(version);

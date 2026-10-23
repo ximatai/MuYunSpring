@@ -76,6 +76,13 @@ describe('record form surface', () => {
     await nextTick();
     expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([{ valid: false }]);
 
+    form.vm.$emit('validity-change', { valid: false, pending: true });
+    await nextTick();
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([{ valid: false, pending: true }]);
+    form.vm.$emit('validity-change', { valid: false });
+    await nextTick();
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([{ valid: false }]);
+
     form.vm.$emit('validity-change', { valid: true });
     await nextTick();
     expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([{ valid: true }]);

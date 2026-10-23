@@ -158,7 +158,7 @@ public class AssistantConversationService {
             receiptField(value, "revisionId", "[a-zA-Z0-9_-]{1,80}");
             receiptField(value, "contentDigest", "[a-f0-9]{64}");
         } else if ("record-save".equals(kind) || "child-metadata".equals(kind)) {
-            keys = "record-save".equals(kind) ? java.util.Set.of("kind", "moduleAlias", "requestId", "tenantId", "menuId", "pageContext", "pageSelection")
+            keys = "record-save".equals(kind) ? java.util.Set.of("kind", "moduleAlias", "requestId", "tenantId", "menuId", "pageContext", "pageSelection", "recordId")
                     : java.util.Set.of("kind", "moduleAlias", "requestId", "relationId");
             receiptField(value, "moduleAlias", "[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+");
             if (value.path("moduleAlias").asText().length() > 128) throw new IllegalArgumentException("操作模块标识过长");
@@ -168,6 +168,7 @@ public class AssistantConversationService {
             if (value.has("menuId")) receiptField(value, "menuId", "[a-zA-Z0-9_.:-]{1,128}");
         } else throw new IllegalArgumentException("不支持的操作查询引用");
         if ("record-save".equals(kind)) {
+            if (value.has("recordId")) receiptField(value, "recordId", "[a-zA-Z0-9_-]{1,80}");
             var context = value.get("pageContext");
             if (context != null) {
                 if (!context.isObject() || context.size() > 16) throw new IllegalArgumentException("页面查询范围无效");

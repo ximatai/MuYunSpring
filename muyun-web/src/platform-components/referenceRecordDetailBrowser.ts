@@ -2,6 +2,7 @@ import { computed, inject, provide, ref, type InjectionKey } from 'vue';
 import {
   createModuleContext,
   displayModuleRuntime,
+  withHttpHeaders,
   platformLanguageContext,
   type LanguageContext,
   type AppError,
@@ -78,7 +79,20 @@ export function createReferenceRecordDetailBrowser(
       // The target context receives the host's base session transport. It never inherits source
       // menu/page headers, but retains session and tenant headers supplied by the app.
       context = createModuleContext<QueryListRecord>({
-        http,
+        http: withHttpHeaders(
+          http,
+          () => ({
+            'X-MuYun-Record-Context':
+              active.value?.targetModuleAlias === targetModuleAlias
+                ? JSON.stringify({ moduleAlias: targetModuleAlias, recordId: active.value.recordId })
+                : undefined,
+          }),
+          // A nested target browser or receipt lookup may already carry its own record identity.
+          // Keep that identity rather than replacing it with the outer record's context.
+          (request) =>
+            request.path.startsWith(`/${encodeURIComponent(targetModuleAlias)}/`) &&
+            !Object.keys(request.headers ?? {}).some((key) => key.toLowerCase() === 'x-muyun-record-context'),
+        ),
         language,
         moduleAlias: targetModuleAlias,
         runtimeAccess: 'VIEW',

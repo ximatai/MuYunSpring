@@ -15,6 +15,7 @@ const props = withDefaults(
     record?: QueryListRecord;
     mode: 'create' | 'edit' | 'view';
     saving?: boolean;
+    formPending?: boolean;
     saveNeedsCheck?: boolean;
     checkingSave?: boolean;
     /** The action currently owning the shared detail-operation session. */
@@ -39,6 +40,7 @@ const props = withDefaults(
   {
     record: undefined,
     saving: false,
+    formPending: false,
     saveNeedsCheck: false,
     checkingSave: false,
     activeActionKey: undefined,
@@ -70,7 +72,13 @@ const emit = defineEmits<{
 const formActive = computed(() => props.mode === 'create' || props.mode === 'edit');
 const recordId = computed(() => (props.record?.id == null ? undefined : String(props.record.id)));
 const saveAvailable = computed(() => {
-  if (!formActive.value || props.recycleBinActive || props.detailLoading || props.detailLoadFailed) {
+  if (
+    !formActive.value ||
+    props.formPending ||
+    props.recycleBinActive ||
+    props.detailLoading ||
+    props.detailLoadFailed
+  ) {
     return false;
   }
   return props.context.can(props.mode === 'create' ? 'create' : 'update') === true;
@@ -108,11 +116,13 @@ const headerActions = computed<RecordActionItem[]>(() => {
         ? [
             {
               key: '__platform-save',
-              title: props.saving
-                ? language.t('platform.action.saving', '保存中')
-                : language.t('platform.action.save', '保存'),
+              title: props.formPending
+                ? language.t('platform.form.preparing', '正在准备表单…')
+                : props.saving
+                  ? language.t('platform.action.saving', '保存中')
+                  : language.t('platform.action.save', '保存'),
               actionLevel: 'primary' as const,
-              loading: props.saving,
+              loading: props.saving || props.formPending,
               disabled: !saveAvailable.value,
             },
           ]
@@ -121,7 +131,7 @@ const headerActions = computed<RecordActionItem[]>(() => {
         .filter((action) => action.actionCode === (props.mode === 'create' ? 'create' : 'update'))
         .map((action) => ({
           ...action,
-          loading: action.loading || action.key === props.activeActionKey,
+          loading: props.formPending || action.loading || action.key === props.activeActionKey,
           disabled: props.saving || !saveAvailable.value || action.disabled,
         })),
     ];

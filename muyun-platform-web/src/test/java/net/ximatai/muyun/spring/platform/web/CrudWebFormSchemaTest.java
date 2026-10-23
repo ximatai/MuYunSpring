@@ -352,6 +352,15 @@ class CrudWebFormSchemaTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.message").value("Record does not belong to the current page scope: tenantId"));
             mvc.perform(get("/demo.record.ui/view/demo-1")
+                            .header(PageContextScopePolicy.RECORD_CONTEXT_HEADER,
+                                    "{\"moduleAlias\":\"demo.record.ui\",\"recordId\":\"demo-1\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value("demo-1"));
+            mvc.perform(get("/demo.record.ui/view/demo-1")
+                            .header(PageContextScopePolicy.RECORD_CONTEXT_HEADER,
+                                    "{\"moduleAlias\":\"demo.record.ui\",\"recordId\":\"another-record\"}"))
+                    .andExpect(status().isBadRequest());
+            mvc.perform(get("/demo.record.ui/view/demo-1")
                             .header(PageContextScopePolicy.CONTEXT_HEADER, "{\"tenant\":\"tenant-a\"}"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value("demo-1"));

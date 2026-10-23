@@ -137,6 +137,33 @@ class BusinessContentGenerationWebScopeTest {
                 .isInstanceOf(PlatformAccessDeniedException.class);
     }
 
+    @Test void independentRecordGenerationRetainsOwnershipAndLiveReadAuthorization() {
+        var binding = PageContextBindingDefinition.navigatorList("project", "projectId", NavigatorListQueryMode.REQUIRED_SCOPE);
+        plan("one", List.of(binding));
+        request.addHeader(PageContextScopePolicy.RECORD_CONTEXT_HEADER,
+                "{\"moduleAlias\":\"test.generation\",\"recordId\":\"record\"}");
+        var reference = scope.capture(controller, LOCATION, "description");
+        assertThat(reference.payload()).doesNotContain("project-one");
+        var conflictingRequest = new MockHttpServletRequest();
+        conflictingRequest.setAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE,
+                request.getAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE));
+        conflictingRequest.addHeader(PageContextScopePolicy.RECORD_CONTEXT_HEADER, request.getHeader(PageContextScopePolicy.RECORD_CONTEXT_HEADER));
+        conflictingRequest.addHeader(PageContextScopePolicy.CONTEXT_HEADER, "{\"project\":\"project-two\"}");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(conflictingRequest));
+        assertThatThrownBy(() -> scope.capture(controller, LOCATION, "description"))
+                .hasMessageContaining("does not belong");
+        RequestContextHolder.resetRequestAttributes();
+        assertThat(scope.<String>withAccess(reference, MODULE, LOCATION, "description", ability -> "allowed"))
+                .isEqualTo("allowed");
+        row.setProjectId("project-two");
+        assertThatThrownBy(() -> scope.withAccess(reference, MODULE, LOCATION, "description", ability -> "not allowed"))
+                .isInstanceOf(PlatformAccessDeniedException.class);
+        row.setProjectId("project-one");
+        doThrow(new PlatformAccessDeniedException("reading permission withdrawn")).when(content).requireOwner(any(), any());
+        assertThatThrownBy(() -> scope.withAccess(reference, MODULE, LOCATION, "description", ability -> "not allowed"))
+                .isInstanceOf(PlatformAccessDeniedException.class).hasMessage("reading permission withdrawn");
+    }
+
     @Test void opaqueSelectionIsResolvedAgainForTheCurrentReaderIncludingPresentNull() {
         var binding = PageContextBindingDefinition.resolvedSelection("projectScope", PageContextTarget.LIST_QUERY, "projectId");
         plan("one", List.of(binding)); row.setProjectId(null);
@@ -302,7 +329,11 @@ class BusinessContentGenerationWebScopeTest {
     }
 
     @Test void submittedRootUsesTheActualSavingServiceAndRetainsTheNormalReadingScope() throws Exception {
-        savingHandler();
+        plan("one", List.of(PageContextBindingDefinition.navigatorList("project", "projectId", NavigatorListQueryMode.REQUIRED_SCOPE)));
+        request.addHeader(PageContextScopePolicy.RECORD_CONTEXT_HEADER,
+                "{\"moduleAlias\":\"test.generation\",\"recordId\":\"record\"}");
+        request.setAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE, new HandlerMethod(controller,
+                CrudWeb.class.getMethod("update", String.class, net.ximatai.muyun.spring.common.model.contract.EntityContract.class)));
         when(controller.service.mutationServiceIdentity()).thenCallRealMethod();
         var change = new BusinessContentOriginalChanged(controller.service, row, "description", "original-one");
         var submission = scope.captureSubmission(change).orElseThrow();

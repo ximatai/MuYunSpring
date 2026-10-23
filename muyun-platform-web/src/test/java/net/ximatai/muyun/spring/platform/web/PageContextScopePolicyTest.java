@@ -154,6 +154,70 @@ class PageContextScopePolicyTest {
         }
     }
 
+    @Test
+    void shouldDeriveIndependentNavigationOnlyFromPersistedOwnership() {
+        MockHttpServletRequest request = independentRequest("demo.record", "record-1");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        var binding = PageContextBindingDefinition.navigatorList("organization", "ownerScopeId", NavigatorListQueryMode.REQUIRED_SCOPE);
+        try {
+            ScopeRecord persisted = new ScopeRecord("organization-1", "organization");
+            ScopeRecord incoming = new ScopeRecord("forged-organization", "organization");
+            PageContextScopePolicy.requireRecordInScope(persisted, List.of(binding), "demo.record", PlatformAction.UPDATE, null);
+            PageContextScopePolicy.applyForUpdate(incoming, persisted, List.of(binding), "demo.record", PlatformAction.UPDATE, null);
+            assertThat(incoming.getOwnerScopeId()).isEqualTo("organization-1");
+            assertThatThrownBy(() -> PageContextScopePolicy.applyForCreate(incoming, List.of(binding),
+                    "demo.record", PlatformAction.CREATE, null)).hasMessageContaining("scope is required");
+            assertThatThrownBy(() -> PageContextScopePolicy.criteria(List.of(binding), Map.of(), false))
+                    .hasMessageContaining("scope is required");
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
+    @Test
+    void shouldKeepExplicitScopeAndOpaqueSelectionChecksForIndependentRecords() {
+        MockHttpServletRequest request = independentRequest("demo.record", "record-1");
+        request.addHeader(PageContextScopePolicy.CONTEXT_HEADER, "{\"organization\":\"organization-2\"}");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        ScopeRecord record = new ScopeRecord("organization-1", "organization");
+        try {
+            var binding = PageContextBindingDefinition.navigatorList("organization", "ownerScopeId", NavigatorListQueryMode.REQUIRED_SCOPE);
+            assertThatThrownBy(() -> PageContextScopePolicy.requireRecordInScope(record, List.of(binding),
+                    "demo.record", PlatformAction.VIEW, null)).hasMessageContaining("does not belong");
+            assertThatThrownBy(() -> PageContextScopePolicy.requireRecordInScope(record, List.of(
+                    PageContextBindingDefinition.resolvedSelection("roleScope", PageContextTarget.LIST_QUERY, "ownerScopeId")),
+                    "demo.record", PlatformAction.VIEW, new PageSelectionContextResolverRegistry(List.of())))
+                    .hasMessageContaining("scope is required");
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
+    @Test
+    void shouldRejectForgedIndependentRecordIdentityAndMissingOwnership() {
+        var binding = PageContextBindingDefinition.navigatorList("organization", "ownerScopeId", NavigatorListQueryMode.REQUIRED_SCOPE);
+        for (String[] identity : List.of(new String[]{"another.module", "record-1"}, new String[]{"demo.record", "another-record"})) {
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(independentRequest(identity[0], identity[1])));
+            try {
+                assertThatThrownBy(() -> PageContextScopePolicy.recordScopeValues("record-1", List.of(binding),
+                        "demo.record", PlatformAction.VIEW, null, field -> "organization-1"))
+                        .hasMessageContaining("does not match");
+            } finally { RequestContextHolder.resetRequestAttributes(); }
+        }
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(independentRequest("demo.record", "record-1")));
+        try {
+            assertThatThrownBy(() -> PageContextScopePolicy.recordScopeValues("record-1", List.of(binding),
+                    "demo.record", PlatformAction.VIEW, null, field -> null)).hasMessageContaining("scope is required");
+        } finally { RequestContextHolder.resetRequestAttributes(); }
+    }
+
+    private static MockHttpServletRequest independentRequest(String module, String id) {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(PageContextScopePolicy.RECORD_CONTEXT_HEADER,
+                "{\"moduleAlias\":\"" + module + "\",\"recordId\":\"" + id + "\"}");
+        return request;
+    }
+
     private static MockHttpServletRequest selectionRequest(String key) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("X-MuYun-Page-Selection", "{\"kind\":\"roleScope\",\"key\":\"" + key + "\"}");
@@ -180,6 +244,8 @@ class PageContextScopePolicyTest {
             this.ownerScopeId = ownerScopeId;
             this.ownerScopeType = ownerScopeType;
         }
+
+        public String getId() { return "record-1"; }
 
         public String getOwnerScopeId() { return ownerScopeId; }
 

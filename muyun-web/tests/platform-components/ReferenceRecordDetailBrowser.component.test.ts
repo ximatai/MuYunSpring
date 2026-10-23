@@ -149,7 +149,10 @@ describe('ReferenceRecordDetailBrowser', () => {
       '/iam.user/view/user-1',
     ]);
     expect(requests[0]?.headers).toBeUndefined();
-    expect(requests[1]?.headers).toEqual({ 'X-MuYun-Content-Languages': 'zh-CN,en,de' });
+    expect(requests[1]?.headers).toEqual({
+      'X-MuYun-Content-Languages': 'zh-CN,en,de',
+      'X-MuYun-Record-Context': JSON.stringify({ moduleAlias: 'iam.user', recordId: 'user-1' }),
+    });
     expect(wrapper.text()).toContain('平台管理员');
     wrapper.unmount();
   });

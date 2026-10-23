@@ -691,8 +691,12 @@ public class DynamicRecordWebController implements
     @ActionEndpoint(PlatformAction.VIEW)
     @CompiledRecordScope
     public DynamicRecord view(@PathVariable String id) {
-        return webScope(() -> detailOutput(RecordReadSupport.requireVisible(webScopeName(), id,
-                selectForAction(PlatformAction.VIEW, id))));
+        return webScope(() -> {
+            DynamicRecord record = RecordReadSupport.requireVisible(webScopeName(), id,
+                    selectForAction(PlatformAction.VIEW, id));
+            requireRecordScope(record);
+            return detailOutput(record);
+        });
     }
 
     private DynamicRecord detailOutput(DynamicRecord record) {
@@ -812,9 +816,10 @@ public class DynamicRecordWebController implements
             return webScope(() -> {
                 normalized.setId(id);
                 DynamicRecord existing = selectForAction(PlatformAction.UPDATE, id);
-                requireRecordScope(existing);
+                requireRecordScope(existing, PlatformAction.UPDATE);
                 validateAuditInputs(normalized, existing);
-                applyRecordScopeForCreate(normalized);
+                PageContextScopePolicy.applyForUpdate(normalized, existing, recordScopeBindings(), webScopeName(),
+                        PlatformAction.UPDATE, pageSelectionContextResolvers());
                 validateWritableSaveFields(normalized, "");
                 validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
                 requireDataScopeRecord(PlatformAction.UPDATE, id);
@@ -973,10 +978,13 @@ public class DynamicRecordWebController implements
     }
 
     private void requireRecordScope(DynamicRecord record) {
+        requireRecordScope(record, PlatformAction.VIEW);
+    }
+
+    private void requireRecordScope(DynamicRecord record, PlatformAction action) {
         if (record == null) return;
-        PageContextScopePolicy.requireRecordValues(
-                PageContextScopePolicy.requiredRecordScopeValues(recordScopeBindings()),
-                field -> StandardEntitySchema.TENANT_ID_FIELD.equals(field) ? record.getTenantId() : record.getValue(field));
+        PageContextScopePolicy.requireRecordInScope(record, recordScopeBindings(), webScopeName(),
+                action, pageSelectionContextResolvers());
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

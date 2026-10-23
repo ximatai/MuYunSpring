@@ -21,7 +21,16 @@ export function parseOperationReceiptReference(value: unknown): OperationReceipt
   } else if (v.kind === 'record-save' || v.kind === 'child-metadata') {
     keys =
       v.kind === 'record-save'
-        ? ['kind', 'moduleAlias', 'requestId', 'tenantId', 'menuId', 'pageContext', 'pageSelection']
+        ? [
+            'kind',
+            'moduleAlias',
+            'requestId',
+            'tenantId',
+            'menuId',
+            'pageContext',
+            'pageSelection',
+            'recordId',
+          ]
         : ['kind', 'moduleAlias', 'requestId', 'relationId'];
     if (
       !id('moduleAlias', module) ||
@@ -29,7 +38,8 @@ export function parseOperationReceiptReference(value: unknown): OperationReceipt
       !id('requestId', /^[a-zA-Z0-9-]{16,80}$/) ||
       (v.kind === 'child-metadata' && !id('relationId', identifier)) ||
       (v.tenantId !== undefined && !id('tenantId', identifier)) ||
-      (v.menuId !== undefined && !id('menuId', /^[a-zA-Z0-9_.:-]{1,128}$/))
+      (v.menuId !== undefined && !id('menuId', /^[a-zA-Z0-9_.:-]{1,128}$/)) ||
+      (v.kind === 'record-save' && v.recordId !== undefined && !id('recordId', identifier))
     )
       throw new Error('无效操作查询引用');
   } else throw new Error('不支持的操作查询引用');
@@ -88,6 +98,14 @@ export async function lookupOperationReceipt(
       headers: {
         ...(reference.tenantId ? { 'X-MuYun-Tenant-Id': reference.tenantId } : {}),
         ...(reference.menuId ? { 'X-MuYun-Menu-Id': reference.menuId } : {}),
+        ...(reference.recordId
+          ? {
+              'X-MuYun-Record-Context': JSON.stringify({
+                moduleAlias: reference.moduleAlias,
+                recordId: reference.recordId,
+              }),
+            }
+          : {}),
         ...(reference.pageContext ? { 'X-MuYun-Page-Context': JSON.stringify(reference.pageContext) } : {}),
         ...(reference.pageSelection
           ? { 'X-MuYun-Page-Selection': JSON.stringify(reference.pageSelection) }

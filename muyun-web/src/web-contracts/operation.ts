@@ -10,6 +10,8 @@ export interface OperationPresentation {
 export type OperationReceiptReference =
   | {
       kind: 'record-save';
+      /** Independent record context for a receipt lookup; never an authorization grant. */
+      recordId?: string;
       moduleAlias: string;
       requestId: string;
       tenantId?: string;

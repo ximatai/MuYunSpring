@@ -786,6 +786,7 @@ export default defineComponent({
         </template>
         <template v-if="businessVisible" #actions>
           <ModuleRecordDetailActions
+            :form-pending="mainFormPending"
             :save-needs-check="recordSaveNeedsCheck"
             :checking-save="saving"
             :context="context"
@@ -1137,6 +1138,7 @@ export default defineComponent({
             @changed="refreshList"
           />
           <ModuleRecordDetailActions
+            :form-pending="mainFormPending"
             :save-needs-check="recordSaveNeedsCheck"
             :checking-save="saving"
             :context="context"
@@ -1432,6 +1434,7 @@ export default defineComponent({
         </template>
         <template v-if="!enhancementDetailDrawer || enhancementDetailActions.length > 0" #operation>
           <ModuleRecordDetailActions
+            :form-pending="mainFormPending"
             :save-needs-check="recordSaveNeedsCheck"
             :checking-save="saving"
             :context="context"

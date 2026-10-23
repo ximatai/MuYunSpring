@@ -279,7 +279,10 @@ export function useModulePageSession(
             'X-MuYun-Page-Context': pageContextHeader.value,
             'X-MuYun-Page-Selection': pageSelectionHeader.value,
           }),
-          (request) => isHostScopedRequest(request.path),
+          (request) =>
+            !Object.keys(request.headers ?? {}).some(
+              (key) => key.toLowerCase() === 'x-muyun-record-context',
+            ) && isHostScopedRequest(request.path),
         ),
       });
   const referenceRecordDetailBrowser = createReferenceRecordDetailBrowser(rawContext.http, language);
@@ -553,6 +556,7 @@ export function useModulePageSession(
   }
   const referenceRecordDetailInteraction = ref({ editing: false, busy: false, dirty: false });
   const mainFormValid = ref(true);
+  const mainFormPending = ref(false);
   const relationDraftValid = ref(true);
   const formValidationRequestKey = ref(0);
   const recordSaveError = shallowRef<AppError>();
@@ -567,9 +571,10 @@ export function useModulePageSession(
   const recordOnlyAuthorizing = ref(false);
   let recordOnlySession = 0;
   const recordDraftValidityRevision = ref(0);
-  function updateMainFormValidity(validity: { valid: boolean }) {
+  function updateMainFormValidity(validity: { valid: boolean; pending?: boolean }) {
     recordDraftValidityRevision.value += 1;
     mainFormValid.value = validity.valid;
+    mainFormPending.value = validity.pending === true;
   }
   function updateEmbeddedChildren(
     relationField: string,
@@ -617,6 +622,7 @@ export function useModulePageSession(
   }
   watch([() => editingRecord.value?.id, formSessionKey], () => {
     mainFormValid.value = true;
+    mainFormPending.value = false;
     relationDraftValid.value = true;
     incompleteAggregateChildRelations.value = new Set();
   });
@@ -2065,12 +2071,13 @@ export function useModulePageSession(
         {
           key: 'save',
           actionCode: editorMode.value === 'create' ? 'create' : 'update',
-          title:
-            saving.value && activeDetailActionKey.value === 'save'
+          title: mainFormPending.value
+            ? t('platform.form.preparing', '正在准备表单…')
+            : saving.value && activeDetailActionKey.value === 'save'
               ? t('platform.action.saving', '保存中')
               : t('platform.action.save', '保存'),
-          loading: saving.value && activeDetailActionKey.value === 'save',
-          disabled: detailActionBusy.value,
+          loading: mainFormPending.value || (saving.value && activeDetailActionKey.value === 'save'),
+          disabled: mainFormPending.value || detailActionBusy.value,
           primary: true,
         },
       ];
@@ -3932,7 +3939,7 @@ export function useModulePageSession(
           '明细未完整加载，无法安全保存；请重新打开记录后再修改',
         ),
       );
-    if (!mainFormValid.value || !relationDraftValid.value) {
+    if (mainFormPending.value || !mainFormValid.value || !relationDraftValid.value) {
       if (presentValidation) formValidationRequestKey.value += 1;
       return;
     }
@@ -3976,6 +3983,7 @@ export function useModulePageSession(
       tenantScopeId.value,
       context.moduleAlias,
       props.descriptor.menuId,
+      props.recordOnly?.recordId,
       pageContextHeader.value,
       navigatorExtensionSelection.value,
       treeResource.value?.resource,
@@ -3988,6 +3996,7 @@ export function useModulePageSession(
       kind: 'record-save',
       moduleAlias: context.moduleAlias,
       requestId,
+      ...(props.recordOnly ? { recordId: props.recordOnly.recordId } : {}),
       ...(tenantScopeId.value ? { tenantId: tenantScopeId.value } : {}),
       ...(props.descriptor.menuId ? { menuId: props.descriptor.menuId } : {}),
       ...(pageContextHeader.value ? { pageContext: JSON.parse(pageContextHeader.value) } : {}),
@@ -4400,7 +4409,7 @@ export function useModulePageSession(
       relations,
       complete: relations.every((relation) => relation.loaded),
       isCurrent,
-      inputValid: mainFormValid.value && relationDraftValid.value,
+      inputValid: !mainFormPending.value && mainFormValid.value && relationDraftValid.value,
       fieldLines: values.map(({ field, value, before }) =>
         language.t('platform.screen.useModulePageSession.value-valuevalue', '{value1}：{value2}{value3}', {
           value1: field.label,
@@ -5236,6 +5245,7 @@ export function useModulePageSession(
       pageReady.value &&
       editorMode.value === 'edit' &&
       !sessionDirty.value &&
+      !mainFormPending.value &&
       mainFormValid.value &&
       relationDraftValid.value &&
       !interactionBusy.value &&
@@ -5415,6 +5425,7 @@ export function useModulePageSession(
     bindNavigatorQueryController,
     bindTreeQueryController,
     formValidationRequestKey,
+    mainFormPending,
     recordSaveError,
     referencePickerConfigs,
     runtimeUiDescriptor,

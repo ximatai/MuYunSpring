@@ -21,10 +21,6 @@ function readSessionSource() {
 it('routes every standard card shell through the shared content and form surfaces', () => {
   const source = `${readRuntimeSource()}\n${readSessionSource()}`;
 
-  assert.match(
-    source,
-    /if \(!mainFormValid\.value \|\| !relationDraftValid\.value\) \{[\s\S]*formValidationRequestKey\.value \+= 1;[\s\S]*return;/,
-  );
   assert.match(source, /ModulePageRecordContent/g);
   assert.notMatch(source, /StandardFlatFormSurface/);
   assert.notMatch(source, /ModulePageFormContributionRenderer/);

@@ -53,10 +53,14 @@ class RecordSaveRequestSupportTest {
         request.removeHeader("X-MuYun-Page-Context");
         request.addHeader("X-MuYun-Page-Context", "{\"departmentId\":\"b\"}");
         RecordSaveRequestSupport.execute(controller, "create", null, retry, () -> retry);
+        request.addHeader(PageContextScopePolicy.RECORD_CONTEXT_HEADER,
+                "{\"moduleAlias\":\"demo.record\",\"recordId\":\"record-1\"}");
+        RecordSaveRequestSupport.execute(controller, "create", null, retry, () -> retry);
         var fingerprint = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(service, times(3)).execute(anyString(), eq("demo.record"), eq("create"), fingerprint.capture(), any(), any());
+        verify(service, times(4)).execute(anyString(), eq("demo.record"), eq("create"), fingerprint.capture(), any(), any());
         assertThat(fingerprint.getAllValues().get(0)).isEqualTo(fingerprint.getAllValues().get(1))
             .isNotEqualTo(fingerprint.getAllValues().get(2));
+        assertThat(fingerprint.getAllValues().get(2)).isNotEqualTo(fingerprint.getAllValues().get(3));
     }
     @Test void authorizesCurrentRecordAccessBeforeDisclosingReceipt() {
         var service = mock(RecordSaveReceiptService.class);

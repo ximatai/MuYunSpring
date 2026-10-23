@@ -624,7 +624,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
                 T existing = service().select(id);
                 PageContextScopePolicy.requireRecordInScope(existing, recordScopeBindings(), webScopeName(),
                         PlatformAction.UPDATE, pageSelectionContextResolvers());
-                PageContextScopePolicy.applyForCreate(record, recordScopeBindings(), webScopeName(),
+                PageContextScopePolicy.applyForUpdate(record, existing, recordScopeBindings(), webScopeName(),
                         PlatformAction.UPDATE, pageSelectionContextResolvers());
                 if (hasActiveMenuEntryPolicy()) {
                     requireMenuEntryRecord(PlatformAction.UPDATE, existing);
