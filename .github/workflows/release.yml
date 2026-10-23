@@ -1,4 +1,4 @@
-name: Release to Maven Central
+name: Release platform artifacts
 
 on:
   push:
@@ -48,6 +48,7 @@ jobs:
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         run: |
           node scripts/version.mjs verify-release "$GITHUB_REF_NAME"
+          node scripts/github-release-notes.mjs "$GITHUB_REF_NAME" < docs/CHANGELOG.md > /dev/null
           echo "MUYUN_RELEASE_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
           ./gradlew verifyReleaseTagVersion verifyReleaseCredentials
 
@@ -102,6 +103,37 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public
+
+  github-release:
+    name: Publish GitHub Release
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: muyun-web/.nvmrc
+
+      - name: Synchronize release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes_file="$RUNNER_TEMP/muyun-release-notes.md"
+          node scripts/github-release-notes.mjs "$GITHUB_REF_NAME" < docs/CHANGELOG.md > "$notes_file"
+          title="MuYunSpring ${GITHUB_REF_NAME#v}"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --title "$title" --notes-file "$notes_file" --draft=false --prerelease=false
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --title "$title" --notes-file "$notes_file"
+          fi
 
   advance-development-version:
     name: Advance development version

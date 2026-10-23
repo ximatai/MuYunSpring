@@ -89,14 +89,23 @@ node scripts/version.mjs verify-release v<version>
 tag 必须与当前 `muyunVersion` 去掉 `-SNAPSHOT` 后完全一致。发布任务自身依赖 tag/version 与凭证 gate；Release workflow
 按以下顺序执行：
 
-1. 校验三处开发版本完全一致、年份正确、tag 匹配，并校验发布凭据。
+1. 校验三处开发版本完全一致、年份正确、tag 匹配、对应版本说明非空，并校验发布凭据。
 2. 清理工作区。
 3. 执行 `verifyAll`、本地 Maven 消费者验证、npm 消费者验证和 npm publish dry-run。
 4. 执行 `./gradlew publishReleaseToSonatype -Pmuyun.mavenCentralRelease=true`，以单个 bundle 上传并等待部署状态到达 `PUBLISHED`。
 5. 从 npm 消费者验证生成的 staging 包发布同一 tag 对应的 npm 包。
 6. 两个 registry 都成功后，在独立的最小写权限 job 中推进下一开发版本并推送 `main`。
+7. 双仓库发布成功后，独立的 `Publish GitHub Release` job 从该 tag 的变更记录创建或同步 GitHub Release，
+   与开发版本推进互不阻塞。该 job 仅使用 `contents: write`，不接触 Maven/npm 发布凭据。
 
-Maven Central 与 npm 都发布成功才代表一次完整发布。Maven Central 的索引可见性检查保留为发布后的轻量人工验证，
+Git tag 不会自动成为 GitHub Release。Release 标题为 `MuYunSpring X.Y.Z`，正文只取
+`docs/CHANGELOG.md` 的对应正式版本；缺失或空说明直接失败，不回退到提交流水。已有页面就地同步，
+保留原有附件；Latest 沿用 GitHub CLI 基于日期与版本的默认判定，不强制将旧版本标为最新。
+若 registry 已成功而 GitHub 页面同步失败，仅重试该 job，不重新上传 Maven/npm 构件。
+补建既有版本页面时，同样从其 tag 读取变更记录；补旧版可显式使用 `gh release create --latest=false`。
+
+Maven Central 与 npm 都发布成功才代表构件发布完成；GitHub Release 同步同一 tag 的版本说明，不替代 registry 发布状态。
+Maven Central 的索引可见性检查保留为发布后的轻量人工验证，
 不阻塞 Release workflow。
 
 插件只负责单次打包上传；平台脚本统一承接上传后的校验、发布和最终状态等待，合计最多 15 分钟。

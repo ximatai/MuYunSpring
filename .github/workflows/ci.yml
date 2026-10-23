@@ -57,7 +57,7 @@ jobs:
             case "$file" in
               .github/workflows/ci.yml | .github/workflows/release.yml | .github/workflows/version-rollover.yml | \
               scripts/version.mjs | scripts/version-lib.mjs | scripts/version.test.mjs | \
-              scripts/maven-publication* | scripts/wait-maven-central.mjs | \
+              scripts/maven-publication* | scripts/wait-maven-central.mjs | scripts/github-release* | \
               build.gradle | build.gradle.kts | settings.gradle | settings.gradle.kts | gradle.properties | \
               gradle/* | gradlew | gradlew.bat | \
               muyun-common/* | muyun-ability/* | muyun-dynamic/* | \
