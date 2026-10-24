@@ -95,13 +95,13 @@ class UserLoginStateRepositoryIT {
         Instant time = Instant.parse("2026-09-24T12:00:00Z");
         try (var ignored = TenantContext.use("tenant-login-other")) {
             service.recordLoginFailure(user, time);
-            service.recordLoginSuccess(user.getId(), time, "other", "other");
+            assertThat(service.admitLogin(user, true, time, "other", "other", admitted -> admitted)).isEmpty();
         }
         assertThat(dao.findById(user.getId()).getVersion()).isZero();
         try (var ignored = TenantContext.use(user.getTenantId())) {
             service.recordLoginFailure(user, time);
             service.recordLoginFailure(user, time);
-            service.recordLoginSuccess(user.getId(), time, "127.0.0.1", "test-browser");
+            assertThat(service.admitLogin(user, true, time, "127.0.0.1", "test-browser", admitted -> admitted)).isPresent();
         }
         UserAccount stored = dao.findById(user.getId());
         assertThat(stored.getFailedLoginCount()).isZero();
@@ -145,7 +145,7 @@ class UserLoginStateRepositoryIT {
         assertThat(service.loginLocked(locked, locked.getLockedUntil())).isFalse();
 
         try (var ignored = TenantContext.use(user.getTenantId())) {
-            service.recordLoginSuccess(user.getId(), locked.getLockedUntil(), "127.0.0.1", "test-browser");
+            assertThat(service.admitLogin(user, true, locked.getLockedUntil(), "127.0.0.1", "test-browser", admitted -> admitted)).isPresent();
         }
         assertThat(dao.findById(user.getId()).getLockedUntil()).isNull();
     }

@@ -92,18 +92,18 @@ public class UserSessionService {
             UserAccount user = userAccountService.findUserForLogin(attempt.tenantId, username);
             attempt.user = user;
             if (user == null) {
-                throw attempt.rejected("UNKNOWN_ACCOUNT");
+                throw rejectedWithoutVerification(attempt, password, "UNKNOWN_ACCOUNT");
             }
             if (!Boolean.TRUE.equals(user.getEnabled())) {
-                throw attempt.rejected("ACCOUNT_UNAVAILABLE");
+                throw rejectedWithoutVerification(attempt, password, "ACCOUNT_UNAVAILABLE");
             }
             Instant attemptedAt = now();
             // A locked account never evaluates the password, so the lock cannot be used as a guessing oracle.
             if (userAccountService.loginLocked(user, attemptedAt)) {
-                throw attempt.rejected("ACCOUNT_LOCKED");
+                throw rejectedWithoutVerification(attempt, password, "ACCOUNT_LOCKED");
             }
             if (!userAccountService.hasLocalPassword(user)) {
-                throw attempt.rejected("PASSWORD_NOT_SET");
+                throw rejectedWithoutVerification(attempt, password, "PASSWORD_NOT_SET");
             }
             if (!userAccountService.passwordMatches(user, password)) {
                 recordLoginFailure(attempt, user, attemptedAt);
@@ -123,50 +123,61 @@ public class UserSessionService {
     /**
      * The single exit through which every authentication method obtains a platform session. Callers verify
      * the credential inside the account's tenant scope; this entry then re-admits the account against its
-     * latest stored state before any session exists, so a lock or disablement that raced the credential
-     * check still prevents issuance, and records session, audit and lifecycle event the same way for all
+     * latest stored state before any session exists, so a lock, disablement or password change that raced
+     * the credential check still prevents issuance, and records session, audit and lifecycle event the same way for all
      * methods.
      */
-    private LoginResult issueSession(LoginAttempt attempt, UserAccount user) {
+    private LoginResult issueSession(LoginAttempt attempt, UserAccount verified) {
         String token = newToken();
         Instant issuedAt = now();
-        // Forced password change only constrains sessions that were opened with the password itself.
-        boolean passwordChangeRequired = attempt.method.isPassword()
-                && userAccountService.passwordChangeRequired(user, issuedAt);
-        CurrentUser currentUser = currentUserOf(user, passwordChangeRequired);
         Instant maxExpiresAt = issuedAt.plus(SESSION_ABSOLUTE_TTL);
-        UserSession session = new UserSession();
-        session.setTenantId(currentUser.tenantId());
-        session.setUserId(currentUser.userId());
-        session.setUsername(currentUser.username());
-        session.setOrganizationId(currentUser.organizationId());
-        session.setTokenHash(tokenHash(token));
-        session.setIssuedAt(issuedAt);
-        session.setExpiresAt(nextIdleExpiresAt(issuedAt, maxExpiresAt));
-        session.setMaxExpiresAt(maxExpiresAt);
-        session.setLastSeenAt(issuedAt);
-        session.setPasswordChangeRequired(passwordChangeRequired);
-        session.setAuthenticationMethod(attempt.method.code());
-        session.setLoginIp(normalizeBlank(attempt.ip));
-        session.setLoginUserAgent(normalizeBlank(attempt.userAgent));
-        // Login state is written before the session: login is not transactional, so a session must never
-        // be persisted for an account whose admission check below fails.
         attempt.reasonCode = "ACCOUNT_LOGIN_STATE_WRITE_FAILED";
-        if (!userAccountService.recordLoginSuccess(user.getId(), issuedAt, attempt.ip, attempt.userAgent)) {
-            throw attempt.rejected("ACCOUNT_STATE_CHANGED");
-        }
-        attempt.reasonCode = "SESSION_ISSUE_FAILED";
-        String sessionId = userSessionRecordService.issue(session);
-        if (session.getId() == null || session.getId().isBlank()) {
-            session.setId(sessionId);
-        }
-        attempt.recordSuccessAudit(issuedAt, currentUser.organizationId());
+        // Admission and the session insert share one transaction: the session is built from the admitted
+        // latest account, and no session is ever persisted for an account whose admission fails.
+        IssuedSession issued = userAccountService.admitLogin(verified, attempt.method.isPassword(), issuedAt,
+                attempt.ip, attempt.userAgent, user -> {
+                    attempt.reasonCode = "SESSION_ISSUE_FAILED";
+                    // Forced password change only constrains sessions that were opened with the password itself.
+                    boolean passwordChangeRequired = attempt.method.isPassword()
+                            && userAccountService.passwordChangeRequired(user, issuedAt);
+                    CurrentUser currentUser = currentUserOf(user, passwordChangeRequired);
+                    UserSession session = new UserSession();
+                    session.setTenantId(currentUser.tenantId());
+                    session.setUserId(currentUser.userId());
+                    session.setUsername(currentUser.username());
+                    session.setOrganizationId(currentUser.organizationId());
+                    session.setTokenHash(tokenHash(token));
+                    session.setIssuedAt(issuedAt);
+                    session.setExpiresAt(nextIdleExpiresAt(issuedAt, maxExpiresAt));
+                    session.setMaxExpiresAt(maxExpiresAt);
+                    session.setLastSeenAt(issuedAt);
+                    session.setPasswordChangeRequired(passwordChangeRequired);
+                    session.setAuthenticationMethod(attempt.method.code());
+                    session.setLoginIp(normalizeBlank(attempt.ip));
+                    session.setLoginUserAgent(normalizeBlank(attempt.userAgent));
+                    String sessionId = userSessionRecordService.issue(session);
+                    if (session.getId() == null || session.getId().isBlank()) {
+                        session.setId(sessionId);
+                    }
+                    return new IssuedSession(user, session.getId(), currentUser, passwordChangeRequired);
+                }).orElseThrow(() -> attempt.rejected("ACCOUNT_STATE_CHANGED"));
+        attempt.recordSuccessAudit(issuedAt, issued.currentUser().organizationId());
         userSessionLifecycleEventPublisher.get()
-                .publish(UserSessionLifecycleEvent.loggedIn(currentUser.userId(), session.getId()));
-        return LoginResult.bearer(token, session.getId(), issuedAt, currentUser,
-                passwordChangeRequired,
-                userAccountService.effectivePasswordStatus(user),
-                user.getPasswordExpiresAt());
+                .publish(UserSessionLifecycleEvent.loggedIn(issued.currentUser().userId(), issued.sessionId()));
+        return LoginResult.bearer(token, issued.sessionId(), issuedAt, issued.currentUser(),
+                issued.passwordChangeRequired(),
+                userAccountService.effectivePasswordStatus(issued.account()),
+                issued.account().getPasswordExpiresAt());
+    }
+
+    private record IssuedSession(UserAccount account, String sessionId, CurrentUser currentUser,
+                                 boolean passwordChangeRequired) {
+    }
+
+    /** Rejections that skip the password check still spend its cost, so timing does not reveal the account state. */
+    private AuthenticationFailedException rejectedWithoutVerification(LoginAttempt attempt, String password, String reason) {
+        userAccountService.spendPasswordVerification(password);
+        return attempt.rejected(reason);
     }
 
     private void recordLoginFailure(LoginAttempt attempt, UserAccount user, Instant failedAt) {

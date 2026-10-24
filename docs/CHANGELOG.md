@@ -23,7 +23,7 @@
 
 ### Compatibility
 
-- 未声明平台动作且未标注 `@AnonymousEndpoint` 的 HTTP 入口改为默认要求登录，不再对匿名请求静默放行。二开应用中确需匿名访问的接口（如外部回调）须在对应方法上标注 `@AnonymousEndpoint`；属于平台动作的入口继续使用 `ActionAccessMode.ANONYMOUS_ALLOWED`，两者不能同时声明。
+- 未声明平台动作且未标注 `@AnonymousEndpoint` 的 HTTP 入口改为默认要求登录，不再对匿名请求静默放行。二开应用中确需匿名访问的接口（如外部回调）须在对应方法上标注 `@AnonymousEndpoint`；属于平台动作的入口继续使用 `ActionAccessMode.ANONYMOUS_ALLOWED`，两者不能同时声明。Spring 错误控制器只在容器错误派发时免登录，直接请求其方法同样要求登录。
 - `iam_user.password_hash` 改为可空，`iam_user_session` 新增 `authentication_method`，`iam_organization` 新增 `organization_type`。开发态 schema 自动迁移；严格迁移模式不会自动放宽非空约束，升级已有库需先执行 `ALTER TABLE iam_user ALTER COLUMN password_hash DROP NOT NULL`。
 - `UserSessionView` 在 `passwordChangeRequired` 之后新增 `authenticationMethod` 组件，直接调用其构造器的代码需要补充参数；`PasswordStatus` 新增 `NONE`，按状态穷举处理的代码需要覆盖该值。
 

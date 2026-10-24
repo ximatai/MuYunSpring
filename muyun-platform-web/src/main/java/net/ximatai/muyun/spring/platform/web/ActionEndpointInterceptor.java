@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.web.*;
 
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException;
@@ -111,7 +112,7 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
             customEndpoint = null;
         }
         if (registered.isEmpty() && endpoint == null && customEndpoint == null) {
-            requireLoginForUndeclaredEndpoint(handlerMethod, anonymous);
+            requireLoginForUndeclaredEndpoint(request, handlerMethod, anonymous);
             return true;
         }
         ActingContextHolder.Scope actingScope = null;
@@ -166,9 +167,12 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
      * Endpoints outside the module action model are login-only unless they explicitly opt into anonymous
      * access, so an omitted declaration fails closed instead of exposing the handler to anonymous callers.
      */
-    private static void requireLoginForUndeclaredEndpoint(HandlerMethod handlerMethod, boolean anonymous) {
-        // Error rendering runs without a bound user, so only the container's error controller is exempt.
-        if (anonymous || ErrorController.class.isAssignableFrom(handlerMethod.getBeanType())) {
+    private static void requireLoginForUndeclaredEndpoint(HttpServletRequest request, HandlerMethod handlerMethod,
+                                                          boolean anonymous) {
+        // Error rendering runs without a bound user, so the error controller is exempt only for the container's
+        // error dispatch; a direct request to any of its methods still requires login.
+        if (anonymous || request.getDispatcherType() == DispatcherType.ERROR
+                && ErrorController.class.isAssignableFrom(handlerMethod.getBeanType())) {
             return;
         }
         if (CurrentUserContext.currentUser().isEmpty()) {

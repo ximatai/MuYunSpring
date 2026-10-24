@@ -129,6 +129,15 @@ class ActionEndpointInterceptorTest {
     }
 
     @Test
+    void shouldRequireLoginForDirectRequestsToErrorControllerMethods() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/error/diagnostics");
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new ContainerErrorController(), ContainerErrorController.class.getMethod("diagnostics"))))
+                .isInstanceOf(AuthenticationRequiredException.class);
+    }
+
+    @Test
     void shouldRejectAnonymousMarkerCombinedWithActionDeclaration() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/conflict");
 
@@ -996,6 +1005,10 @@ class ActionEndpointInterceptorTest {
     private static final class ContainerErrorController implements org.springframework.boot.webmvc.error.ErrorController {
         public String error() {
             return "error";
+        }
+
+        public String diagnostics() {
+            return "diagnostics";
         }
     }
 

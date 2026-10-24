@@ -55,7 +55,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 @Service
 public class UserAccountService extends TenantActiveScopedService<UserAccount> implements
@@ -418,32 +418,35 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
 
     /**
      * Verifying the current password is a credential attempt: it obeys the login lock and counts failures,
-     * which must commit even though the password change itself is rejected.
+     * which must commit even though the password change itself is rejected. The check runs before the
+     * field mutation opens its transaction scope, because a rejection thrown from inside that scope would
+     * mark the surrounding transaction rollback-only and discard the counted failure.
      */
     @Transactional(noRollbackFor = AuthenticationFailedException.class)
     public int changeOwnPassword(String userId, String currentPassword, String newPassword) {
         String validUserId = Preconditions.requireText(userId, "userId");
         Instant attemptedAt = Instant.now();
-        AtomicReference<UserAccount> mismatched = new AtomicReference<>();
-        int count;
-        try {
-            count = mutateFields(ownPasswordPolicy(), validUserId, user -> {
-                requireCommandUserEnabled(user);
-                if (loginLocked(user, attemptedAt)) {
-                    throw new AuthenticationFailedException("invalid username or password");
-                }
-                if (!passwordMatches(user, currentPassword)) {
-                    mismatched.set(user);
-                    throw new AuthenticationFailedException("invalid username or password");
-                }
-                applyOwnPassword(user, newPassword);
-            }, "passwordHash", "passwordStatus", "passwordChangedAt", "passwordExpiresAt", "failedLoginCount", "lockedUntil");
-        } catch (AuthenticationFailedException exception) {
-            if (mismatched.get() != null) {
-                recordLoginFailure(mismatched.get(), attemptedAt);
-            }
-            throw exception;
+        requireRecordScope(ownPasswordPolicy(), List.of(validUserId));
+        UserAccount verified = selectActiveRaw(validUserId);
+        if (verified == null) {
+            return 0;
         }
+        requireCommandUserEnabled(verified);
+        if (loginLocked(verified, attemptedAt)) {
+            throw new AuthenticationFailedException("invalid username or password");
+        }
+        if (!passwordMatches(verified, currentPassword)) {
+            recordLoginFailure(verified, attemptedAt);
+            throw new AuthenticationFailedException("invalid username or password");
+        }
+        int count = mutateFields(ownPasswordPolicy(), validUserId, user -> {
+            requireCommandUserEnabled(user);
+            // The verified password must still be the stored one; a concurrent change or lock makes it stale.
+            if (loginLocked(user, attemptedAt) || !Objects.equals(user.getPasswordHash(), verified.getPasswordHash())) {
+                throw new AuthenticationFailedException("invalid username or password");
+            }
+            applyOwnPassword(user, newPassword);
+        }, "passwordHash", "passwordStatus", "passwordChangedAt", "passwordExpiresAt", "failedLoginCount", "lockedUntil");
         if (count > 0) {
             revokeUserSessions(validUserId, "own password changed");
             userSecurityEventPublisher.publish(UserSecurityEvent.passwordChanged(validUserId));
@@ -496,18 +499,39 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     }
 
     /**
-     * Records a successful login against the latest stored state. The write only happens while the account
-     * is still enabled and unlocked, and the version check makes that decision atomic with concurrent
-     * failures that lock the account; callers must not open a session when this returns {@code false}.
+     * Admits a verified credential against the latest stored account and opens the session in the same
+     * transaction. Admission requires the account to still be enabled and unlocked and, for a password
+     * credential, to still store the exact password that was verified. The login-state update keeps the
+     * account row write-locked until the session is persisted, so a concurrent password change, reset or
+     * disablement either makes this admission fail or waits for it and then revokes the new session.
+     *
+     * @param openSession receives the admitted latest account; it must only persist the session
+     * @return the session result, or empty when the account no longer admits this login
      */
-    public boolean recordLoginSuccess(String userId, Instant loginAt, String ip, String userAgent) {
-        return VersionedRecordMutation.update(getDao(), () -> loginEligible(selectActiveRaw(userId), loginAt), user -> {
-            user.setLastLoginAt(loginAt);
-            user.setLastLoginIp(normalizeLength(ip, 64));
-            user.setLastLoginUserAgent(normalizeLength(userAgent, 512));
-            user.setFailedLoginCount(0);
-            user.setLockedUntil(null);
-        }) != null;
+    public <R> Optional<R> admitLogin(UserAccount verified, boolean passwordCredential, Instant loginAt,
+                                      String ip, String userAgent, Function<UserAccount, R> openSession) {
+        Objects.requireNonNull(verified, "verified");
+        Objects.requireNonNull(openSession, "openSession");
+        return inMutationTransaction(() -> {
+            UserAccount admitted = VersionedRecordMutation.update(getDao(),
+                    () -> admissible(selectActiveRaw(verified.getId()), verified, passwordCredential, loginAt), user -> {
+                        user.setLastLoginAt(loginAt);
+                        user.setLastLoginIp(normalizeLength(ip, 64));
+                        user.setLastLoginUserAgent(normalizeLength(userAgent, 512));
+                        user.setFailedLoginCount(0);
+                        user.setLockedUntil(null);
+                    });
+            return admitted == null ? Optional.<R>empty() : Optional.of(openSession.apply(admitted));
+        });
+    }
+
+    private UserAccount admissible(UserAccount latest, UserAccount verified, boolean passwordCredential, Instant at) {
+        UserAccount eligible = loginEligible(latest, at);
+        if (eligible == null || passwordCredential
+                && !Objects.equals(eligible.getPasswordHash(), verified.getPasswordHash())) {
+            return null;
+        }
+        return eligible;
     }
 
     /**
@@ -567,6 +591,11 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         return findOne(Criteria.of()
                 .eq("username", validUsername)
                 .eqNullable("tenantId", normalizeBlank(tenantId)));
+    }
+
+    /** Spends one password verification without consulting a stored credential; see {@link PasswordHashingService#spendVerification}. */
+    public void spendPasswordVerification(String password) {
+        passwordHashingService.spendVerification(password);
     }
 
     public boolean passwordMatches(UserAccount user, String password) {
