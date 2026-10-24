@@ -1,611 +1,396 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, useId, watch } from 'vue';
 import { businessNotificationExpired, presentationLabel, useLanguageContext } from '@muyun/web-core';
-import { UiActionButton, UiIcon, useUiBlockingOverlayState, uiOverlayLayers } from '@muyun/vue-ui-antdv';
+import { UiIcon, useUiBlockingOverlayState, uiOverlayLayers } from '@muyun/vue-ui-antdv';
 import type { WebBusinessNotification, WebBusinessNotificationAction } from '@muyun/web-contracts';
-import DateTimeText from './DateTimeText.vue';
+import BusinessNotificationCard from './BusinessNotificationCard.vue';
+import { useNotificationDeckMotion } from './useNotificationDeckMotion';
 
 defineOptions({ name: 'BusinessNotificationPanel' });
-
 const props = defineProps<{
   notifications: WebBusinessNotification[];
-  /** Allows a consumer to opt an individual card into the optional right-hand attachment area. */
+  /** Opt a card into the optional right-hand attachment area. */
   hasAccessory?: (notification: WebBusinessNotification) => boolean;
   executeAction: (
     notification: WebBusinessNotification,
     action: WebBusinessNotificationAction,
   ) => void | boolean | Promise<void | boolean>;
 }>();
-
-const emit = defineEmits<{
-  dismiss: [notificationId: string];
-}>();
-
-const executing = ref(new Map<string, string>());
+// Dismiss affects only this page session; the owning business keeps its processing state.
+const emit = defineEmits<{ dismiss: [notificationId: string] }>();
+const language = useLanguageContext();
+const overlayOpen = useUiBlockingOverlayState();
+const expanded = ref(false);
+const restoredTopId = ref<string>();
+const dismissed = ref(new Set<string>());
 const handled = ref(new Set<string>());
+const executing = shallowRef(new Map<string, { key: string; token: symbol }>());
 const now = ref(Date.now());
+const panelId = useId();
+const panelElement = ref<HTMLElement>();
+const bell = ref<HTMLButtonElement>();
+const deckMotion = useNotificationDeckMotion(panelElement, expanded);
+const { moving } = deckMotion;
+const latest = computed(() => {
+  const items = new Map<string, WebBusinessNotification>();
+  for (const notice of props.notifications) {
+    items.delete(notice.id);
+    items.set(notice.id, notice);
+  }
+  return items;
+});
+const active = computed(() =>
+  [...latest.value.values()]
+    .reverse()
+    .filter((notice) => !dismissed.value.has(notice.id) && !businessNotificationExpired(notice, now.value)),
+);
+const display = computed(() =>
+  active.value.map((notice) => ({
+    ...notice,
+    title: presentationLabel(notice.title, notice.textResources?.title, language),
+    subtitle: presentationLabel(notice.subtitle ?? '', notice.textResources?.subtitle, language),
+    content: presentationLabel(notice.content, notice.textResources?.content, language),
+    actions: notice.actions.map((action) => ({
+      ...action,
+      label: presentationLabel(action.label, notice.textResources?.[`action/${action.key}/label`], language),
+    })),
+  })),
+);
+const hasPersistent = computed(() => active.value.some((notice) => notice.displayPolicy === 'persistent'));
+const floating = computed(() =>
+  display.value.filter(
+    (notice) =>
+      (!overlayOpen.value || !hasPersistent.value || notice.displayPolicy === 'persistent') &&
+      (!recordHandled(notice.id) ||
+        notice.actions.some((action) => action.kind === 'navigate') ||
+        !notice.actions.length),
+  ),
+);
+const top = computed(() => floating.value[0]);
+const depth = computed(() => Math.max(0, Math.min(floating.value.length - 1, 2)));
+const stackPositions = computed(() => new Map(floating.value.map((notice, index) => [notice.id, index])));
+const deckCards = computed(() =>
+  display.value.map((notice, index) => ({
+    notice,
+    stackIndex: stackPositions.value.get(notice.id) ?? -1,
+    zIndex: display.value.length - index + depth.value,
+  })),
+);
+watch([deckCards, overlayOpen], deckMotion.stop);
+const countLabel = computed(() =>
+  language.t('platform.notifications.session-count', '本次提醒（{count} 条）', {
+    count: active.value.length,
+  }),
+);
+
+const sessionHint = computed(() =>
+  language.t(
+    'platform.notifications.session-note',
+    '仅临时保留在本次页面中，刷新或退出后清空。关闭提醒不代表业务已处理，待办请到业务页面查看。',
+  ),
+);
+
 let expiryTimer: ReturnType<typeof setTimeout> | undefined;
 function scheduleExpiry() {
   clearTimeout(expiryTimer);
   now.value = Date.now();
-  const future = props.notifications
+  const future = [...latest.value.values()]
     .map((item) => Date.parse(item.expiresAt ?? ''))
     .filter((time) => time > now.value);
   if (future.length)
     expiryTimer = setTimeout(scheduleExpiry, Math.min(Math.min(...future) - now.value, 2147483647));
 }
-watch(() => props.notifications.map((item) => item.expiresAt).join('|'), scheduleExpiry, { immediate: true });
+watch(() => props.notifications.map((item) => [item.id, item.expiresAt]), scheduleExpiry, {
+  immediate: true,
+});
 watch(
-  () => props.notifications.map((item) => item.id),
+  () => [...latest.value.keys()],
   (ids) => {
     handled.value = new Set([...handled.value].filter((id) => ids.includes(id)));
+    executing.value = new Map([...executing.value].filter(([id]) => ids.includes(id)));
   },
 );
-onBeforeUnmount(() => clearTimeout(expiryTimer));
-function unavailable(notification: WebBusinessNotification, action: WebBusinessNotificationAction) {
-  return (
-    executing.value.has(notification.id) ||
-    (action.kind === 'record' && handled.value.has(notification.id)) ||
-    businessNotificationExpired(notification, now.value)
-  );
-}
-
-const presentation = ref<'preview' | 'expanded' | 'collapsed'>('preview');
-const expanded = computed(() => presentation.value === 'expanded');
-const overlayOpen = useUiBlockingOverlayState();
-const language = useLanguageContext();
-const displayNotifications = computed(() =>
-  props.notifications.map((notification) => ({
-    ...notification,
-    title: presentationLabel(notification.title, notification.textResources?.title, language),
-    subtitle: presentationLabel(notification.subtitle ?? '', notification.textResources?.subtitle, language),
-    content: presentationLabel(notification.content, notification.textResources?.content, language),
-    actions: notification.actions.map((action) => ({
-      ...action,
-      label: presentationLabel(
-        action.label,
-        notification.textResources?.[`action/${action.key}/label`],
-        language,
-      ),
-    })),
-  })),
+watch(
+  () => active.value.length,
+  (count) => {
+    if (!count) expanded.value = false;
+  },
 );
-const persistent = computed(() =>
-  displayNotifications.value.filter((notification) => notification.displayPolicy === 'persistent'),
-);
-const ordinary = computed(() =>
-  displayNotifications.value.filter((notification) => notification.displayPolicy !== 'persistent'),
-);
-const orderedNotifications = computed(() => [
-  ...ordinary.value.filter((notification) => !notification.dismissible),
-  ...ordinary.value.filter((notification) => notification.dismissible),
-]);
-const visible = computed(() =>
-  presentation.value === 'collapsed'
-    ? []
-    : expanded.value
-      ? orderedNotifications.value
-      : orderedNotifications.value.slice(0, 1),
-);
-const hiddenCount = computed(() => Math.max(orderedNotifications.value.length - 1, 0));
-
-const groups = computed(() => [
-  { key: 'persistent', items: persistent.value },
-  { key: 'standard', items: visible.value },
-]);
-
-function actionsFor(notification: WebBusinessNotification, placement: 'leading' | 'trailing') {
-  return notification.actions.filter((action) => (action.placement ?? 'leading') === placement);
+let disposed = false;
+onBeforeUnmount(() => {
+  disposed = true;
+  clearTimeout(expiryTimer);
+});
+function dismissCard(id: string) {
+  if (!latest.value.get(id)?.dismissible) return;
+  dismissed.value = new Set([...dismissed.value, id]);
+  emit('dismiss', id);
 }
-
-function toneFor(notification: WebBusinessNotification) {
-  // Success describes the business outcome. It is not an alarm severity, so keep it on the
-  // workbench primary colour rather than competing with the success-green feedback vocabulary.
-  return notification.tone === 'danger' ? 'danger' : 'default';
+function busyAction(id: string) {
+  return executing.value.get(id)?.key;
 }
-
-function shouldShowAccessory(notification: WebBusinessNotification) {
-  return props.hasAccessory?.(notification) ?? false;
+function recordHandled(id: string) {
+  return handled.value.has(id);
 }
-
-async function run(notification: WebBusinessNotification, action: WebBusinessNotificationAction) {
-  const original = props.notifications.find((item) => item.id === notification.id);
+async function run(notice: WebBusinessNotification, action: WebBusinessNotificationAction) {
+  const original = latest.value.get(notice.id);
   const originalAction = original?.actions.find((item) => item.key === action.key);
   if (
     !original ||
     !originalAction ||
+    dismissed.value.has(original.id) ||
     businessNotificationExpired(original) ||
-    (originalAction.kind === 'record' && handled.value.has(original.id))
+    busyAction(original.id) ||
+    (originalAction.kind === 'record' && recordHandled(original.id))
   )
     return;
-  const key = `${notification.id}:${action.key}`;
-  if (executing.value.has(notification.id)) return;
-  executing.value = new Map(executing.value).set(notification.id, key);
+  const signature = JSON.stringify(originalAction);
+  const token = Symbol(original.id);
+  executing.value = new Map(executing.value).set(original.id, { key: originalAction.key, token });
   try {
     const result = await props.executeAction(original, originalAction);
-    if (result !== false && original.displayPolicy === 'persistent' && originalAction.kind === 'record') {
+    const current = latest.value.get(original.id);
+    if (
+      disposed ||
+      executing.value.get(original.id)?.token !== token ||
+      result === false ||
+      dismissed.value.has(original.id) ||
+      !current ||
+      JSON.stringify(current.actions.find((item) => item.key === originalAction.key)) !== signature ||
+      businessNotificationExpired(current)
+    )
+      return;
+    if (originalAction.dismissOnSuccess) {
+      dismissed.value = new Set([...dismissed.value, original.id]);
+      emit('dismiss', original.id);
+    } else if (original.displayPolicy === 'persistent' && originalAction.kind === 'record') {
       handled.value = new Set([...handled.value, original.id]);
     }
   } finally {
-    if (executing.value.get(notification.id) === key) {
+    if (executing.value.get(original.id)?.token === token) {
       const next = new Map(executing.value);
-      next.delete(notification.id);
+      next.delete(original.id);
       executing.value = next;
     }
   }
 }
+async function openPanel() {
+  if (await deckMotion.arrange(true)) panelElement.value?.focus();
+}
+async function closePanel() {
+  restoredTopId.value = top.value?.id;
+  void deckMotion.arrange(false);
+  await nextTick();
+  bell.value?.focus();
+}
 </script>
 
 <template>
-  <Teleport to="body" :disabled="!persistent.length">
+  <Teleport to="body" :disabled="!hasPersistent">
     <aside
-      v-if="displayNotifications.length"
-      :hidden="overlayOpen && !persistent.length"
+      v-if="active.length"
+      :hidden="overlayOpen && !hasPersistent"
       class="business-notification-panel"
-      :class="{
-        'business-notification-panel--expanded': expanded,
-        'business-notification-panel--persistent': persistent.length > 0,
-        'business-notification-panel--collapsed': presentation === 'collapsed' && !persistent.length,
-      }"
-      aria-live="polite"
       :aria-label="language.t('platform.screen.BusinessNotificationPanel.business-reminders', '业务提醒')"
+      aria-live="polite"
+      @keydown.esc.stop="closePanel"
     >
-      <template v-for="group in groups" :key="group.key">
-        <button
-          v-if="group.key === 'standard' && orderedNotifications.length && presentation === 'collapsed'"
-          :hidden="overlayOpen"
-          class="business-notification-summary"
-          type="button"
-          aria-expanded="false"
-          @click="presentation = 'expanded'"
-        >
-          {{
-            language.t('platform.notifications.count', '业务提醒（{count} 条）', {
-              count: orderedNotifications.length,
-            })
-          }}
-        </button>
+      <section
+        :id="panelId"
+        ref="panelElement"
+        :class="[
+          expanded ? 'business-notification-current' : 'business-notification-stack',
+          {
+            'business-notification-stack--restored': top?.id === restoredTopId,
+            'business-notification-deck--moving': moving,
+          },
+        ]"
+        :style="{ '--notification-stack-depth': depth }"
+        tabindex="-1"
+        :aria-label="countLabel"
+      >
+        <template v-if="!expanded">
+          <div
+            v-for="edge in depth"
+            :key="`edge-${edge}`"
+            data-notification-stack-edge
+            class="business-notification-stack-edge"
+            :style="{ '--notification-stack-index': edge, zIndex: depth - edge }"
+            aria-hidden="true"
+          />
+        </template>
         <div
-          v-else-if="group.key === 'standard' && orderedNotifications.length"
-          :hidden="overlayOpen"
-          class="business-notification-controls"
+          v-for="{ notice, stackIndex, zIndex } in deckCards"
+          :key="notice.id"
+          :data-notification-id="notice.id"
+          class="business-notification-deck-card"
+          :class="{
+            'business-notification-deck-card--top': notice.id === top?.id,
+            'business-notification-deck-card--back': !expanded && notice.id !== top?.id,
+          }"
+          :style="{
+            '--notification-stack-index': Math.min(depth, Math.max(0, stackIndex)),
+            zIndex,
+          }"
+          :hidden="
+            (overlayOpen && notice.displayPolicy !== 'persistent') ||
+            (!expanded && (stackIndex < 0 || (!moving && stackIndex > 2)))
+          "
+          :inert="!expanded && notice.id !== top?.id"
         >
-          <span>{{
-            language.t('platform.notifications.count', '业务提醒（{count} 条）', {
-              count: orderedNotifications.length,
-            })
-          }}</span>
-          <div>
-            <button
-              v-if="hiddenCount && !expanded"
-              class="business-notification-more"
-              type="button"
-              aria-expanded="false"
-              @click="presentation = 'expanded'"
-            >
-              {{
-                language.t('platform.notifications.view-all', '查看全部（还有 {count} 条）', {
-                  count: hiddenCount,
-                })
-              }}
-            </button>
-            <button class="business-notification-collapse" type="button" @click="presentation = 'collapsed'">
-              {{ language.t('platform.screen.BusinessNotificationPanel.collapse-reminders', '收起提醒') }}
-            </button>
-          </div>
-        </div>
-        <div
-          v-if="group.items.length"
-          :hidden="group.key === 'standard' && overlayOpen"
-          class="business-notification-list"
-          :class="`business-notification-list--${group.key}`"
-        >
-          <article
-            v-for="notification in group.items"
-            :key="notification.id"
-            class="business-notification-card"
-            :class="[
-              `business-notification-card--${toneFor(notification)}`,
-              { 'business-notification-card--with-accessory': shouldShowAccessory(notification) },
-            ]"
+          <BusinessNotificationCard
+            v-if="expanded || moving || notice.id === top?.id"
+            :notification="notice"
+            :has-accessory="hasAccessory?.(notice) ?? false"
+            :busy-action="busyAction(notice.id)"
+            :record-handled="recordHandled(notice.id)"
+            @close="dismissCard(notice.id)"
+            @action="run(notice, $event)"
           >
-            <button
-              v-if="notification.dismissible"
-              class="business-notification-close"
-              type="button"
-              :aria-label="
-                language.t('platform.screen.BusinessNotificationPanel.dismiss-reminder', '关闭提醒')
-              "
-              @click="emit('dismiss', notification.id)"
-            >
-              <UiIcon name="close" />
-            </button>
-            <div class="business-notification-card-surface">
-              <div class="business-notification-copy">
-                <header class="business-notification-header">
-                  <span class="business-notification-status-dot" aria-hidden="true" />
-                  <h2>{{ notification.title }}</h2>
-                  <DateTimeText
-                    v-if="notification.occurredAt"
-                    class="business-notification-time"
-                    :value="notification.occurredAt"
-                  />
-                </header>
-                <p v-if="notification.subtitle" class="business-notification-subtitle">
-                  {{ notification.subtitle }}
-                </p>
-                <p class="business-notification-content">{{ notification.content }}</p>
-                <p
-                  v-if="businessNotificationExpired(notification, now)"
-                  class="business-notification-expired"
-                  role="status"
-                >
-                  {{ language.t('platform.notifications.expired', '已过期') }}
-                </p>
-                <div v-if="notification.actions.length" class="business-notification-actions">
-                  <div
-                    v-if="actionsFor(notification, 'leading').length"
-                    class="business-notification-action-region"
-                  >
-                    <UiActionButton
-                      v-for="action in actionsFor(notification, 'leading')"
-                      :key="action.key"
-                      density="compact"
-                      :emphasis="action === notification.actions[0] ? 'primary' : 'secondary'"
-                      :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
-                      :loading="executing.get(notification.id) === `${notification.id}:${action.key}`"
-                      :disabled="unavailable(notification, action)"
-                      @click="run(notification, action)"
-                    >
-                      {{ action.label }}
-                    </UiActionButton>
-                  </div>
-                  <div
-                    v-if="actionsFor(notification, 'trailing').length"
-                    class="business-notification-action-region business-notification-action-region--trailing"
-                  >
-                    <UiActionButton
-                      v-for="action in actionsFor(notification, 'trailing')"
-                      :key="action.key"
-                      density="compact"
-                      emphasis="secondary"
-                      :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
-                      :loading="executing.get(notification.id) === `${notification.id}:${action.key}`"
-                      :disabled="unavailable(notification, action)"
-                      @click="run(notification, action)"
-                    >
-                      {{ action.label }}
-                    </UiActionButton>
-                  </div>
-                </div>
-              </div>
-              <div v-if="shouldShowAccessory(notification)" class="business-notification-accessory">
-                <slot name="accessory" :notification="notification" />
-              </div>
-            </div>
-          </article>
+            <template #accessory="context"><slot name="accessory" v-bind="context" /></template>
+          </BusinessNotificationCard>
         </div>
-      </template>
+      </section>
+      <button
+        ref="bell"
+        type="button"
+        class="business-notification-bell"
+        :aria-label="countLabel"
+        :title="sessionHint"
+        :aria-description="sessionHint"
+        :aria-controls="panelId"
+        :aria-expanded="expanded"
+        @click="expanded ? closePanel() : openPanel()"
+      >
+        <UiIcon name="notification" /><span class="business-notification-badge" aria-hidden="true">{{
+          active.length
+        }}</span>
+      </button>
     </aside>
   </Teleport>
 </template>
 
 <style scoped>
+.business-notification-current {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 0;
+  max-height: calc(100dvh - 112px);
+  padding: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  outline: none;
+}
+.business-notification-current :deep(.business-notification-card) {
+  box-shadow: none;
+}
+.business-notification-deck-card {
+  flex-shrink: 0;
+  min-width: 0;
+  transform-origin: top left;
+}
+.business-notification-deck-card[hidden] {
+  display: none;
+}
+.business-notification-stack--restored :deep(.business-notification-card),
+.business-notification-stack--restored :deep(.business-notification-card-surface),
+.business-notification-stack--restored :deep(.business-notification-card::before),
+.business-notification-current :deep(.business-notification-card),
+.business-notification-current :deep(.business-notification-card-surface),
+.business-notification-current :deep(.business-notification-card::before) {
+  animation: none;
+}
 .business-notification-panel {
+  width: min(480px, calc(100vw - 32px));
   position: fixed;
   right: 24px;
   bottom: 24px;
-  z-index: v-bind('uiOverlayLayers.notification');
-  display: grid;
-  width: min(480px, calc(100vw - 32px));
-  gap: 12px;
-  pointer-events: none;
-}
-.business-notification-panel[hidden],
-.business-notification-list[hidden],
-.business-notification-controls[hidden],
-.business-notification-summary[hidden] {
-  display: none;
-}
-.business-notification-panel--expanded {
-  max-height: calc(100vh - 48px);
-  grid-template-rows: auto minmax(0, 1fr);
-}
-.business-notification-panel--persistent {
-  display: grid;
-  grid-template-rows: minmax(0, max-content) auto minmax(0, 1fr);
-  max-height: calc(100dvh - 48px);
-}
-.business-notification-panel--persistent .business-notification-list--persistent {
-  overflow-y: auto;
-  pointer-events: auto;
-}
-.business-notification-panel--persistent .business-notification-list--standard {
-  max-height: 30dvh;
-  overflow-y: auto;
-  pointer-events: auto;
-}
-.business-notification-expired {
-  margin: 8px 0 0 var(--business-notification-header-indent);
-  color: var(--muyun-text-muted);
-  font-size: 12px;
-}
-.business-notification-panel--collapsed {
-  width: auto;
-}
-.business-notification-list {
-  display: grid;
-  gap: 12px;
-  min-height: 0;
-  padding: 8px 8px 0 0;
-}
-.business-notification-panel--expanded .business-notification-list {
-  overflow-y: auto;
-  pointer-events: auto;
-}
-.business-notification-controls,
-.business-notification-controls > div {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.business-notification-controls {
-  justify-content: space-between;
-  color: var(--muyun-text-muted);
-  font-size: 12px;
-}
-.business-notification-summary {
-  padding: 6px 12px;
-  border: 1px solid var(--muyun-border);
-  border-radius: 16px;
-  background: var(--muyun-surface);
-  color: var(--muyun-text-body);
-  box-shadow: 0 4px 12px rgb(15 23 42 / 12%);
-  cursor: pointer;
-  pointer-events: auto;
-}
-.business-notification-card {
-  --business-notification-accent: var(--muyun-theme-base);
-  --business-notification-axis-width: 3px;
-  --business-notification-header-indent: 17px;
-  --business-notification-header-right-gutter: 0px;
-  position: relative;
-  border-radius: 12px;
-  box-shadow: 0 16px 40px rgb(15 23 42 / 16%);
-  pointer-events: auto;
-  animation: notification-shadow-arrive 0.16s ease-out 0.6864s both;
-}
-.business-notification-card-surface {
-  position: relative;
-  display: grid;
-  gap: 9px;
-  padding: 18px;
-  border: 1px solid color-mix(in srgb, var(--business-notification-accent) 40%, var(--muyun-border));
-  border-left: var(--business-notification-axis-width) solid var(--business-notification-accent);
-  border-radius: 12px;
-  background: var(--muyun-surface);
-  animation: notification-unfold 0.6864s cubic-bezier(0.22, 0.8, 0.2, 1) both;
-}
-.business-notification-card::before {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  bottom: 0;
-  right: 0;
-  width: var(--business-notification-axis-width);
-  border-radius: 8px 0 0 8px;
-  background: var(--business-notification-accent);
-  content: '';
-  pointer-events: none;
-  animation: notification-axis-unfold 0.6864s cubic-bezier(0.22, 0.8, 0.2, 1) both;
-}
-.business-notification-card--danger {
-  --business-notification-accent: var(--muyun-danger-text);
-}
-.business-notification-card--with-accessory .business-notification-card-surface {
-  --business-notification-accessory-width: 112px;
-  grid-template-columns: minmax(0, 1fr);
-  min-height: 168px;
-}
-.business-notification-copy {
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  align-items: stretch;
+  gap: 16px;
+  z-index: v-bind('uiOverlayLayers.notification');
+  pointer-events: none;
 }
-.business-notification-accessory {
+.business-notification-panel[hidden] {
+  display: none;
+}
+.business-notification-stack {
   position: absolute;
-  right: calc(18px + var(--business-notification-header-right-gutter));
-  bottom: 18px;
-  width: var(--business-notification-accessory-width);
-  height: 96px;
-  min-width: 0;
+  right: 0;
+  bottom: 64px;
+  width: 100%;
+  padding: 16px 16px calc(16px + var(--notification-stack-depth) * 10px);
+  pointer-events: auto;
 }
-.business-notification-card--with-accessory .business-notification-copy {
-  min-height: 132px;
+.business-notification-stack .business-notification-deck-card--top {
+  position: relative;
 }
-.business-notification-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding-right: var(--business-notification-header-right-gutter);
-}
-h2,
-p {
-  margin: 0;
-}
-h2 {
-  color: var(--muyun-text);
-  font-size: 16px;
-  line-height: 22px;
-}
-.business-notification-status-dot {
-  width: 9px;
-  height: 9px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--business-notification-accent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--business-notification-accent) 14%, transparent);
-}
-.business-notification-time {
-  margin-left: auto;
-  color: var(--muyun-text-muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  line-height: 20px;
-  white-space: nowrap;
-}
-.business-notification-subtitle {
-  margin-left: var(--business-notification-header-indent);
-  color: var(--muyun-text-muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.business-notification-card--with-accessory .business-notification-subtitle,
-.business-notification-card--with-accessory .business-notification-content,
-.business-notification-card--with-accessory .business-notification-actions {
-  margin-right: calc(var(--business-notification-accessory-width) + 10px);
-}
-.business-notification-content {
-  margin-top: 8px;
-  margin-left: var(--business-notification-header-indent);
-  max-height: 100px;
-  padding-right: 4px;
-  overflow-y: auto;
-  color: var(--muyun-text-body);
-  font-size: 13px;
-  line-height: 20px;
-  white-space: pre-wrap;
-}
-.business-notification-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: auto;
-  margin-left: var(--business-notification-header-indent);
-  padding-top: 16px;
-}
-.business-notification-action-region {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.business-notification-action-region--trailing {
-  margin-left: auto;
-}
-.business-notification-close {
+.business-notification-stack-edge,
+.business-notification-stack .business-notification-deck-card--back {
   position: absolute;
-  z-index: 1;
-  top: -8px;
-  right: -8px;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  bottom: calc(16px + var(--notification-stack-depth) * 10px);
+  transform: translate(
+    calc(var(--notification-stack-index) * 10px),
+    calc(var(--notification-stack-index) * 10px)
+  );
+  pointer-events: none;
+}
+.business-notification-stack-edge {
+  border: 1px solid var(--muyun-border);
+  border-radius: 12px;
+  background: var(--muyun-surface);
+  box-shadow: 0 6px 16px rgb(15 23 42 / 8%);
+}
+.business-notification-deck--moving
+  .business-notification-deck-card--back
+  :deep(.business-notification-card) {
+  box-shadow: none;
+}
+.business-notification-deck--moving {
+  pointer-events: none;
+}
+.business-notification-deck--moving :deep(.business-notification-card),
+.business-notification-deck--moving :deep(button) {
+  pointer-events: none;
+}
+.business-notification-bell {
+  position: relative;
+  align-self: flex-end;
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid var(--muyun-danger-border);
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--muyun-border);
   border-radius: 50%;
-  color: var(--muyun-danger-text);
-  background: var(--muyun-danger-bg);
-  box-shadow: 0 2px 6px rgb(15 23 42 / 16%);
-  cursor: pointer;
-  font-size: 15px;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(2px, -2px);
-  transition:
-    opacity 0.16s ease,
-    transform 0.16s ease;
-}
-.business-notification-card:hover .business-notification-close,
-.business-notification-card:focus-within .business-notification-close {
-  opacity: 1;
-  pointer-events: auto;
-  transform: none;
-}
-.business-notification-close:hover {
-  background: color-mix(in srgb, var(--muyun-danger-text) 16%, var(--muyun-danger-bg));
-  color: var(--muyun-danger-text);
-}
-@media (hover: none) {
-  .business-notification-close {
-    opacity: 1;
-    pointer-events: auto;
-    transform: none;
-  }
-}
-.business-notification-more,
-.business-notification-collapse {
-  justify-self: end;
-  padding: 0 8px;
-  border: 0;
-  color: var(--muyun-text-muted);
-  background: transparent;
-  cursor: pointer;
-  pointer-events: auto;
-  font-size: 12px;
-  text-align: right;
-}
-.business-notification-more:hover,
-.business-notification-collapse:hover {
+  background: var(--muyun-surface);
   color: var(--muyun-primary);
+  box-shadow: 0 4px 12px rgb(15 23 42 / 12%);
+  pointer-events: auto;
+  cursor: pointer;
 }
-@keyframes notification-unfold {
-  0% {
-    clip-path: inset(100% 0 0 100%);
-  }
-  48.5% {
-    clip-path: inset(0 0 0 100%);
-  }
-  100% {
-    clip-path: inset(0);
-  }
+.business-notification-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 10px;
+  background: var(--muyun-theme-base);
+  color: var(--muyun-surface);
+  font-size: 11px;
+  line-height: 20px;
 }
-@keyframes notification-shadow-arrive {
-  from {
-    box-shadow: 0 16px 40px rgb(15 23 42 / 0%);
-  }
-  to {
-    box-shadow: 0 16px 40px rgb(15 23 42 / 16%);
-  }
-}
-@keyframes notification-axis-unfold {
-  0% {
-    top: 100%;
-    bottom: 0;
-    right: 0;
-  }
-  48.5% {
-    top: 0;
-    bottom: 0;
-    right: 0;
-    opacity: 1;
-  }
-  99% {
-    top: 0;
-    bottom: 0;
-    right: calc(100% - var(--business-notification-axis-width));
-    opacity: 1;
-  }
-  100% {
-    top: 0;
-    bottom: 0;
-    right: calc(100% - var(--business-notification-axis-width));
-    opacity: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .business-notification-card,
-  .business-notification-card-surface,
-  .business-notification-card::before {
-    animation-duration: 0.01ms;
-  }
-  .business-notification-card {
-    animation-delay: 0s;
-  }
-  .business-notification-close {
-    transition: none;
+@media (max-width: 720px) {
+  .business-notification-panel {
+    right: 16px;
+    bottom: 16px;
   }
 }
 </style>

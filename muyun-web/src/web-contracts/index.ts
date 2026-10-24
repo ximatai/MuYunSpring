@@ -149,7 +149,7 @@ export interface WebBusinessNotification {
   content: string;
   dismissible: boolean;
   actions: WebBusinessNotificationAction[];
-  /** Persistent cards remain above ordinary overlays and outside the collapsible queue. */
+  /** Persistent floating cards remain actionable above ordinary overlays; all reminders share the current collection. */
   displayPolicy?: 'standard' | 'persistent';
   /** Optional absolute action deadline, in ISO-8601 format. */
   expiresAt?: string;

@@ -110,6 +110,16 @@ npm link <muyun-spring-repository>/build/consumer-npm/staging/web-app
 
 安装包消费者验证会检查示例的 Vue 类型、独立构建与组件交互，不替代业务后端授权验收。
 
+## 临时业务提醒
+
+公开 `BusinessNotificationPanel` 继续接收 `notifications`、`executeAction` 和可选附件槽，不增加消息中心。
+铃铛位于右下角，切换本次提醒卡片的展开与收起（无面板外框）；叉号只移除本次页面展示，不代表业务完成。
+宿主用 `@dismiss` 同步删除内存集合对应项；组件也会本地排除，避免依赖宿主回传才更新数量。
+动作成功后是否移除由 `dismissOnSuccess` 声明；取消或失败返回 `false`。业务撤回通过更新输入集合表达。
+动作需要确认时使用公开 `confirmAction({ title: '确认操作', layer: 'notification' })`，使确认入口位于提醒之上。
+账号切换时以身份为 `key` 重建组件。刷新后集合清空，业务恢复仍由领域服务负责。
+边界和完整生命周期见[实时业务提醒接入](../platform/BUSINESS_NOTIFICATION_BACKEND_INTEGRATION.md#本次页面内的临时提醒)。
+
 ## 宿主请求与认证恢复
 
 标准模块、角色范围导航和用户在线状态共用宿主注入的 HTTP factory。辅助模块 API 通过
