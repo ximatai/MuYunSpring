@@ -2,7 +2,8 @@ import type {
   ChangeOwnPasswordRequest,
   CurrentUserProfile,
   CurrentUser,
-  ExternalLoginRedemption,
+  ExternalLoginCompleteRequest,
+  ExternalLoginCompletion,
   ExternalLoginStart,
   LoginRequest,
   LoginResult,
@@ -43,7 +44,7 @@ export interface AuthClient {
 export interface ExternalLoginClient {
   startLogin(providerId: string, tenantId: string): Promise<ExternalLoginStart>;
   startBind(providerId: string, token: string): Promise<ExternalLoginStart>;
-  redeem(transactionId: string, browserProof: string): Promise<ExternalLoginRedemption>;
+  complete(providerId: string, request: ExternalLoginCompleteRequest): Promise<ExternalLoginCompletion>;
   identities(token: string): Promise<OwnExternalIdentities>;
   unbind(identityId: string, token: string): Promise<void>;
 }
@@ -162,11 +163,11 @@ export function createExternalLoginClient(http: HttpClient): ExternalLoginClient
         path: `/iam.auth/external/${segment(providerId)}/bind`,
         headers: bearer(token),
       }),
-    redeem: (transactionId, browserProof) =>
-      http.request<ExternalLoginRedemption>({
+    complete: (providerId, request) =>
+      http.request<ExternalLoginCompletion>({
         method: 'POST',
-        path: `/iam.auth/external/transactions/${segment(transactionId)}/redeem`,
-        body: { browserProof },
+        path: `/iam.auth/external/${segment(providerId)}/complete`,
+        body: request,
       }),
     identities: (token) =>
       http.request<OwnExternalIdentities>({ path: '/iam.auth/external/identities', headers: bearer(token) }),

@@ -509,6 +509,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
      *
      * @param openSession receives the admitted latest account; it must only persist the session
      * @return the session result, or empty when the account no longer admits this login
+     * @hidden Internal IAM collaborator of the session entry.
      */
     public <R> Optional<R> admitLogin(UserAccount verified, boolean passwordCredential, Instant loginAt,
                                       String ip, String userAgent, Function<UserAccount, R> openSession) {

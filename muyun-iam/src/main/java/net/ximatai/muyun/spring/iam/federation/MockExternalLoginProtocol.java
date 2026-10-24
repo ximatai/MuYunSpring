@@ -43,23 +43,23 @@ public class MockExternalLoginProtocol implements ExternalLoginProtocol {
     }
 
     @Override
-    public URI authorizationUri(IdentityProvider provider, ExternalAuthorizationContext context) {
+    public URI authorizationUri(IdentityProviderDescriptor provider, ExternalAuthorizationContext context) {
         return ExternalIdentityUris.withQuery(
                 ExternalIdentityUris.resolve(context.apiBaseUri(), "iam.auth/external/mock/authorize"),
                 Map.of("state", context.state(), "redirect_uri", context.callbackUri().toString()));
     }
 
     @Override
-    public VerifiedExternalIdentity verify(IdentityProvider provider, Map<String, String> callbackParameters,
+    public VerifiedExternalIdentity verify(IdentityProviderDescriptor provider, Map<String, String> callbackParameters,
                                            ExternalAuthorizationContext context) {
         String code = callbackParameters.get("code");
         if (code == null || !code.startsWith(CODE_PREFIX) || code.length() == CODE_PREFIX.length()) {
             throw ExternalIdentityVerificationException.rejected("mock authorization code is missing");
         }
         String externalUserId = code.substring(CODE_PREFIX.length());
-        String enterpriseId = provider.getExternalEnterpriseId() == null
+        String enterpriseId = provider.externalEnterpriseId() == null
                 ? DEFAULT_ENTERPRISE_ID
-                : provider.getExternalEnterpriseId();
+                : provider.externalEnterpriseId();
         return new VerifiedExternalIdentity(enterpriseId, externalUserId, externalUserId, clock.instant());
     }
 }

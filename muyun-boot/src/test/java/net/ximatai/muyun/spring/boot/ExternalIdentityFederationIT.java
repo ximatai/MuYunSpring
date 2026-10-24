@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.iam.federation.IdentityProvider;
+import net.ximatai.muyun.spring.iam.federation.IdentityProviderDescriptor;
 import net.ximatai.muyun.spring.iam.federation.IdentityProviderService;
 import net.ximatai.muyun.spring.iam.federation.MockExternalLoginProtocol;
 import net.ximatai.muyun.spring.iam.federation.TenantIdentityPolicy;
@@ -60,7 +61,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * External sign-in and binding through real HTTP with the development mock provider, from transaction start
- * over provider callback to browser redemption, against a real database.
+ * over the provider round trip to completion by the initiating browser, against a real database.
  */
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(classes = {MuYunSpringApplication.class, ExternalIdentityFederationIT.ForeignProtocolConfiguration.class},
@@ -167,36 +168,47 @@ class ExternalIdentityFederationIT {
 
         JsonNode unbound = completeFlow(startLogin(), "emp-999");
         assertThat(unbound.path("status").asText()).isEqualTo("denied");
-        assertThat(unbound.path("failureCode").asText()).isEqualTo("IDENTITY_NOT_BOUND");
+        assertThat(unbound.path("failure").asText()).isEqualTo("identityNotBound");
         assertThat(unbound.path("login").isMissingNode() || unbound.path("login").isNull()).isTrue();
 
         JsonNode conflict = completeFlow(post("/iam.auth/external/" + PROVIDER + "/bind", Map.of(),
                 passwordLogin("bob")), "emp-001");
-        assertThat(conflict.path("failureCode").asText()).isEqualTo("IDENTITY_CONFLICT");
+        assertThat(conflict.path("failure").asText()).isEqualTo("identityConflict");
 
         JsonNode identities = exchange(HttpMethod.GET, "/iam.auth/external/identities", null, aliceToken).getBody();
         String bindingId = identities.path("bindings").get(0).path("id").asText();
         assertThat(exchange(HttpMethod.POST, "/iam.auth/external/identities/" + bindingId + "/delete", Map.of(),
                 aliceToken).getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(completeFlow(startLogin(), "emp-001").path("failureCode").asText()).isEqualTo("IDENTITY_NOT_BOUND");
+        assertThat(completeFlow(startLogin(), "emp-001").path("failure").asText()).isEqualTo("identityNotBound");
     }
 
     @Test
-    void redeemsOnlyOnceAndOnlyWithTheInitiatingBrowserProof() throws Exception {
+    void completesOnlyFromTheInitiatingBrowserAndOnlyOnce() throws Exception {
+        String aliceToken = passwordLogin("alice");
+        completeFlow(post("/iam.auth/external/" + PROVIDER + "/bind", Map.of(), aliceToken), "emp-777");
         JsonNode start = startLogin();
-        String location = callback(start, "emp-404");
-        assertThat(location).startsWith("http://workbench.test/app/?")
-                .contains("_muyunExternalLogin=" + start.path("transactionId").asText())
-                .contains("_muyunTenantId=" + TENANT)
-                .doesNotContain(start.path("browserProof").asText());
+        String code = authorize(start, "emp-777");
 
-        ResponseEntity<JsonNode> forged = post("/iam.auth/external/transactions/"
-                + start.path("transactionId").asText() + "/redeem", Map.of("browserProof", "forged"), null);
-        assertThat(forged.getStatusCode().is4xxClientError()).isTrue();
-        assertThat(redeem(start).getStatusCode()).isEqualTo(HttpStatus.OK);
-        ResponseEntity<JsonNode> replay = redeem(start);
+        // A browser that did not start the transaction holds neither the proof nor a usable state/proof pair.
+        ResponseEntity<JsonNode> withoutProof = complete(start, code, "forged-proof");
+        assertThat(withoutProof.getStatusCode().is4xxClientError()).isTrue();
+        assertThat(withoutProof.getBody().path("code").asText()).isEqualTo("iam.federation.state-invalid");
+
+        ResponseEntity<JsonNode> completed = complete(start, code, start.path("browserProof").asText());
+        assertThat(completed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(completed.getBody().path("login").path("token").asText()).isNotBlank();
+
+        ResponseEntity<JsonNode> replay = complete(start, code, start.path("browserProof").asText());
         assertThat(replay.getStatusCode().is4xxClientError()).isTrue();
         assertThat(replay.getBody().path("code").asText()).isEqualTo("iam.federation.state-invalid");
+    }
+
+    @Test
+    void mockAuthorizationPageOnlyReturnsToTheConfiguredWorkbench() throws Exception {
+        HttpResponse<String> foreign = http.send(HttpRequest.newBuilder(URI.create(base()
+                        + "/iam.auth/external/mock/authorize?state=s&redirect_uri=" + encode("https://evil.example/")))
+                .GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(foreign.statusCode()).isEqualTo(400);
     }
 
     @Test
@@ -219,25 +231,24 @@ class ExternalIdentityFederationIT {
     }
 
     @Test
-    void deniesIdentitiesFromAnotherEnterpriseThroughAPluggedProtocol() throws Exception {
+    void deniesIdentitiesFromAnotherEnterpriseThroughAPluggedProtocol() {
         ResponseEntity<JsonNode> start = post("/iam.auth/external/" + FOREIGN_PROVIDER + "/login",
                 Map.of("tenantId", TENANT), null);
         assertThat(start.getStatusCode()).isEqualTo(HttpStatus.OK);
-        String state = query(URI.create(start.getBody().path("authorizationUrl").asText())).get("state");
-        http.send(HttpRequest.newBuilder(URI.create(base() + "/iam.auth/external/" + FOREIGN_PROVIDER
-                + "/callback?state=" + encode(state) + "&code=anyone")).GET().build(), HttpResponse.BodyHandlers.discarding());
-        JsonNode result = redeem(start.getBody()).getBody();
+        JsonNode result = post("/iam.auth/external/" + FOREIGN_PROVIDER + "/complete", Map.of(
+                "state", start.getBody().path("state").asText(),
+                "browserProof", start.getBody().path("browserProof").asText(),
+                "parameters", Map.of("state", start.getBody().path("state").asText(), "code", "anyone")), null).getBody();
         assertThat(result.path("status").asText()).isEqualTo("denied");
-        assertThat(result.path("failureCode").asText()).isEqualTo("ENTERPRISE_MISMATCH");
+        assertThat(result.path("failure").asText()).isEqualTo("enterpriseMismatch");
     }
 
     @Test
-    void rejectsCallbacksWithUnknownStateWithoutTouchingTransactions() throws Exception {
-        HttpResponse<Void> response = http.send(HttpRequest.newBuilder(URI.create(base()
-                        + "/iam.auth/external/" + PROVIDER + "/callback?state=unknown&code=mock:emp-001")).GET().build(),
-                HttpResponse.BodyHandlers.discarding());
-        assertThat(response.statusCode()).isEqualTo(302);
-        assertThat(response.headers().firstValue("Location")).contains("http://workbench.test/app/");
+    void rejectsCompletionsWithUnknownState() {
+        ResponseEntity<JsonNode> response = post("/iam.auth/external/" + PROVIDER + "/complete", Map.of(
+                "state", "unknown", "browserProof", "unknown", "parameters", Map.of("code", "mock:emp-001")), null);
+        assertThat(response.getStatusCode().is4xxClientError()).isTrue();
+        assertThat(response.getBody().path("code").asText()).isEqualTo("iam.federation.state-invalid");
     }
 
     @Test
@@ -250,8 +261,8 @@ class ExternalIdentityFederationIT {
                 .collect(Collectors.toSet());
         assertThat(anonymousPaths).containsExactlyInAnyOrder(
                 "/iam.auth/login", "/iam.auth/logout", "/platform.localization/catalog",
-                "/iam.auth/external/{providerId}/login", "/iam.auth/external/{providerId}/callback",
-                "/iam.auth/external/transactions/{transactionId}/redeem", "/iam.auth/external/mock/authorize");
+                "/iam.auth/external/{providerId}/login", "/iam.auth/external/{providerId}/complete",
+                "/iam.auth/external/mock/authorize");
     }
 
     private JsonNode startLogin() {
@@ -266,30 +277,32 @@ class ExternalIdentityFederationIT {
     }
 
     private JsonNode completeFlow(JsonNode start, String externalUserId) throws Exception {
-        callback(start, externalUserId);
-        ResponseEntity<JsonNode> redemption = redeem(start);
-        assertThat(redemption.getStatusCode()).isEqualTo(HttpStatus.OK);
-        return redemption.getBody();
+        ResponseEntity<JsonNode> completion = complete(start, authorize(start, externalUserId),
+                start.path("browserProof").asText());
+        assertThat(completion.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return completion.getBody();
     }
 
-    /** Opens the mock authorization page and follows its form submission to the platform callback. */
-    private String callback(JsonNode start, String externalUserId) throws Exception {
+    /**
+     * Opens the mock authorization page, checks it returns to the workbench, and yields the code the provider
+     * would append to the workbench address.
+     */
+    private String authorize(JsonNode start, String externalUserId) throws Exception {
         URI authorization = URI.create(start.path("authorizationUrl").asText());
         Map<String, String> query = query(authorization);
+        assertThat(query.get("redirect_uri")).isEqualTo("http://workbench.test/app/");
+        assertThat(query.get("state")).isEqualTo(start.path("state").asText());
         String page = http.send(HttpRequest.newBuilder(URI.create(base() + "/iam.auth/external/mock/authorize?"
                         + authorization.getRawQuery())).GET().build(), HttpResponse.BodyHandlers.ofString()).body();
-        assertThat(page).contains("模拟身份源授权");
-        String callbackPath = URI.create(query.get("redirect_uri")).getPath().replaceFirst("^/api", "");
-        HttpResponse<Void> response = http.send(HttpRequest.newBuilder(URI.create(base() + callbackPath
-                + "?state=" + encode(query.get("state")) + "&code=" + encode("mock:" + externalUserId))).GET().build(),
-                HttpResponse.BodyHandlers.discarding());
-        assertThat(response.statusCode()).isEqualTo(302);
-        return response.headers().firstValue("Location").orElseThrow();
+        assertThat(page).contains("模拟身份源授权").contains("action=\"http://workbench.test/app/\"");
+        return "mock:" + externalUserId;
     }
 
-    private ResponseEntity<JsonNode> redeem(JsonNode start) {
-        return post("/iam.auth/external/transactions/" + start.path("transactionId").asText() + "/redeem",
-                Map.of("browserProof", start.path("browserProof").asText()), null);
+    /** What the workbench submits after the provider returned the browser with state and code. */
+    private ResponseEntity<JsonNode> complete(JsonNode start, String code, String browserProof) {
+        String state = start.path("state").asText();
+        return post("/iam.auth/external/" + start.path("providerId").asText(PROVIDER) + "/complete", Map.of(
+                "state", state, "browserProof", browserProof, "parameters", Map.of("state", state, "code", code)), null);
     }
 
     private String passwordLogin(String username) {
@@ -360,12 +373,12 @@ class ExternalIdentityFederationIT {
         }
 
         @Override
-        public URI authorizationUri(IdentityProvider provider, ExternalAuthorizationContext context) {
+        public URI authorizationUri(IdentityProviderDescriptor provider, ExternalAuthorizationContext context) {
             return URI.create("https://idp.test/authorize?state=" + encode(context.state()));
         }
 
         @Override
-        public VerifiedExternalIdentity verify(IdentityProvider provider, Map<String, String> callbackParameters,
+        public VerifiedExternalIdentity verify(IdentityProviderDescriptor provider, Map<String, String> callbackParameters,
                                                ExternalAuthorizationContext context) {
             return new VerifiedExternalIdentity("foreign-corp", callbackParameters.get("code"), null,
                     java.time.Instant.now());

@@ -1,27 +1,43 @@
 import type { LanguageContext } from '@muyun/web-core';
-import type { ExternalLoginPurpose, ExternalLoginRedemption, ExternalLoginStart } from '@muyun/web-contracts';
+import type { ExternalLoginCompletion, ExternalLoginPurpose, ExternalLoginStart } from '@muyun/web-contracts';
 
-/** Query parameter the platform callback appends when it returns the browser to the workbench. */
-export const EXTERNAL_LOGIN_RETURN_PARAMETER = '_muyunExternalLogin';
 const STORAGE_KEY = 'muyun.externalLogin.pending';
 
+/** A transaction this browser started and may complete when the provider returns it to the workbench. */
 export interface PendingExternalLogin {
-  transactionId: string;
+  providerId: string;
+  state: string;
   browserProof: string;
   purpose: ExternalLoginPurpose;
+  /** Locked tenant of the sign-in entry, restored on the address after the provider round trip. */
+  tenantId?: string;
+}
+
+/** A provider return to the workbench, matched against this browser's pending transactions. */
+export interface ExternalLoginReturn {
+  /** Absent when this browser did not start the transaction; the return must then be ignored. */
+  pending?: PendingExternalLogin;
+  /** Every provider parameter on the address, forwarded unchanged for server-side verification. */
+  parameters: Record<string, string>;
 }
 
 /**
- * Keeps the browser proof of a started transaction in session storage, so only this browser tab session can
- * redeem the result after the provider round trip. The proof never leaves storage except in the redeem body.
+ * Keeps the state and proof of a started transaction in session storage. Only this browser tab session can
+ * complete the transaction; neither value is ever placed in a URL by the workbench.
  */
 export function rememberExternalLogin(
   start: ExternalLoginStart,
-  purpose: ExternalLoginPurpose,
+  target: { providerId: string; purpose: ExternalLoginPurpose; tenantId?: string },
   storage: Storage | undefined = sessionStorageOrUndefined(),
 ) {
-  const pending = readPending(storage).filter((entry) => entry.transactionId !== start.transactionId);
-  pending.push({ transactionId: start.transactionId, browserProof: start.browserProof, purpose });
+  const pending = readPending(storage).filter((entry) => entry.state !== start.state);
+  pending.push({
+    providerId: target.providerId,
+    state: start.state,
+    browserProof: start.browserProof,
+    purpose: target.purpose,
+    tenantId: target.tenantId || undefined,
+  });
   writePending(storage, pending.slice(-5));
 }
 
@@ -30,67 +46,56 @@ export function navigateToExternalAuthorization(authorizationUrl: string) {
   window.location.assign(authorizationUrl);
 }
 
-/** Returns and forgets the pending transaction the current URL returns for, if this browser started it. */
-export function takeReturningExternalLogin(
-  search: string = currentSearch(),
+/**
+ * Reads a provider return from the workbench root query and forgets the matching pending transaction.
+ * Returns `undefined` when the address is not a provider return.
+ */
+export function takeExternalLoginReturn(
+  query: Record<string, unknown>,
   storage: Storage | undefined = sessionStorageOrUndefined(),
-): PendingExternalLogin | undefined {
-  const transactionId = new URLSearchParams(search).get(EXTERNAL_LOGIN_RETURN_PARAMETER)?.trim();
-  if (!transactionId) {
+): ExternalLoginReturn | undefined {
+  const parameters: Record<string, string> = {};
+  for (const [key, value] of Object.entries(query)) {
+    const text = Array.isArray(value) ? value[0] : value;
+    if (typeof text === 'string' && !key.startsWith('_muyun')) {
+      parameters[key] = text;
+    }
+  }
+  const state = parameters.state?.trim();
+  if (!state) {
     return undefined;
   }
   const pending = readPending(storage);
-  const match = pending.find((entry) => entry.transactionId === transactionId);
   writePending(
     storage,
-    pending.filter((entry) => entry.transactionId !== transactionId),
+    pending.filter((entry) => entry.state !== state),
   );
-  return match;
+  return { pending: pending.find((entry) => entry.state === state), parameters };
 }
 
-/** Whether the URL carries a return from the platform callback, matched or not. */
-export function hasExternalLoginReturn(search: string = currentSearch()) {
-  return Boolean(new URLSearchParams(search).get(EXTERNAL_LOGIN_RETURN_PARAMETER));
-}
-
-/** Removes the return parameter while keeping the rest of the address, including a locked tenant. */
-export function withoutExternalLoginReturn(href: string) {
-  const url = new URL(href);
-  url.searchParams.delete(EXTERNAL_LOGIN_RETURN_PARAMETER);
-  return url.toString();
-}
-
-export function stripExternalLoginReturnFromLocation() {
-  if (typeof window === 'undefined' || !hasExternalLoginReturn(window.location.search)) {
-    return;
+/** User-facing explanation of a completion that did not succeed. */
+export function externalLoginFailureMessage(completion: ExternalLoginCompletion, language: LanguageContext) {
+  if (completion.status === 'expired') {
+    return language.t('platform.external-login.authorization-expired', '授权已超时，请重新发起');
   }
-  window.history.replaceState(window.history.state, '', withoutExternalLoginReturn(window.location.href));
-}
-
-/** User-facing explanation of a redemption that did not succeed. */
-export function externalLoginFailureMessage(redemption: ExternalLoginRedemption, language: LanguageContext) {
-  if (redemption.status === 'expired' || redemption.status === 'pending') {
-    return language.t('platform.screen.ExternalLogin.authorization-expired', '授权已超时，请重新发起');
-  }
-  switch (redemption.failureCode) {
-    case 'IDENTITY_NOT_BOUND':
+  switch (completion.failure) {
+    case 'identityNotBound':
       return language.t(
-        'platform.screen.ExternalLogin.identity-not-bound',
+        'platform.external-login.identity-not-bound',
         '该外部账号尚未绑定本系统账号，请先用账号密码登录，在个人信息中绑定后再使用',
       );
-    case 'IDENTITY_CONFLICT':
-      return language.t('platform.screen.ExternalLogin.identity-conflict', '该外部账号已绑定其他账号');
-    case 'ALREADY_BOUND':
-      return language.t('platform.screen.ExternalLogin.already-bound', '当前账号已绑定该身份源');
-    case 'ENTERPRISE_MISMATCH':
-      return language.t('platform.screen.ExternalLogin.enterprise-mismatch', '该外部账号不属于允许的企业');
-    case 'PROVIDER_UNAVAILABLE':
-      return language.t('platform.screen.ExternalLogin.provider-unavailable', '身份源暂时不可用，请稍后重试');
+    case 'identityConflict':
+      return language.t('platform.external-login.identity-conflict', '该外部账号已绑定其他账号');
+    case 'alreadyBound':
+      return language.t('platform.external-login.already-bound', '当前账号已绑定该身份源');
+    case 'enterpriseMismatch':
+      return language.t('platform.external-login.enterprise-mismatch', '该外部账号不属于允许的企业');
+    case 'providerUnavailable':
+      return language.t('platform.external-login.provider-unavailable', '身份源暂时不可用，请稍后重试');
+    case 'internalError':
+      return language.t('platform.external-login.internal-error', '平台处理失败，请稍后重试');
     default:
-      return language.t(
-        'platform.screen.ExternalLogin.authorization-failed',
-        '外部授权未通过，请重试或联系管理员',
-      );
+      return language.t('platform.external-login.authorization-failed', '外部授权未通过，请重试或联系管理员');
   }
 }
 
@@ -111,7 +116,7 @@ function writePending(storage: Storage | undefined, pending: PendingExternalLogi
       storage?.setItem(STORAGE_KEY, JSON.stringify(pending));
     }
   } catch {
-    // Storage may be unavailable; the transaction then simply cannot be redeemed.
+    // Storage may be unavailable; the transaction then simply cannot be completed.
   }
 }
 
@@ -121,7 +126,8 @@ function isPending(value: unknown): value is PendingExternalLogin {
   }
   const entry = value as Record<string, unknown>;
   return (
-    typeof entry.transactionId === 'string' &&
+    typeof entry.providerId === 'string' &&
+    typeof entry.state === 'string' &&
     typeof entry.browserProof === 'string' &&
     (entry.purpose === 'login' || entry.purpose === 'bind')
   );
@@ -133,8 +139,4 @@ function sessionStorageOrUndefined(): Storage | undefined {
   } catch {
     return undefined;
   }
-}
-
-function currentSearch() {
-  return typeof window === 'undefined' ? '' : window.location.search;
 }

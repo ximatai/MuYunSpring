@@ -48,11 +48,12 @@ function externalLoginClient(overrides: Partial<ExternalLoginClient> = {}): Exte
     startLogin: vi.fn(),
     startBind: vi.fn().mockResolvedValue({
       transactionId: 'tx-1',
+      state: 's',
       authorizationUrl: 'https://idp.test/authorize?state=s',
       browserProof: 'proof-1',
       expiresAt: '2026-10-24T00:03:00Z',
     }),
-    redeem: vi.fn(),
+    complete: vi.fn(),
     identities: vi.fn().mockResolvedValue({
       bindings: [
         {

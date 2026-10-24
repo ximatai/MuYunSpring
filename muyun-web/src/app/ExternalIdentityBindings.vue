@@ -40,7 +40,7 @@ async function bind(method: ExternalLoginMethod) {
   error.value = undefined;
   try {
     const start = await props.client.startBind(method.providerId, props.token);
-    rememberExternalLogin(start, 'bind');
+    rememberExternalLogin(start, { providerId: method.providerId, purpose: 'bind' });
     navigateToExternalAuthorization(start.authorizationUrl);
   } catch (cause) {
     error.value = () => userFacingErrorMessage(normalizeError(cause), language);

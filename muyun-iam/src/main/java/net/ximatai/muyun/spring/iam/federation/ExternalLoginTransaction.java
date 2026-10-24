@@ -13,7 +13,8 @@ import java.time.Instant;
 /**
  * Server-side state of one external authorization round trip. The opaque {@code state} sent to the
  * provider and the browser proof kept by the initiating browser are stored only as hashes. The transaction
- * is completed once by the provider callback and redeemed once by the browser that holds the proof.
+ * is completed exactly once, by the browser that started it, presenting both values together with the
+ * provider callback parameters.
  */
 @Getter
 @Setter
@@ -42,8 +43,8 @@ public class ExternalLoginTransaction extends StandardEntity {
     @Column(name = "status", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Transaction status")
     private ExternalLoginStatus status;
 
-    @Column(name = "failure_code", type = ColumnType.VARCHAR, length = 64, comment = "Stable denial code")
-    private String failureCode;
+    @Column(name = "failure", type = ColumnType.VARCHAR, length = 64, comment = "Stable denial reason")
+    private ExternalLoginFailure failure;
 
     @Column(name = "result_user_id", type = ColumnType.VARCHAR, length = 64, comment = "Resolved local account")
     private String resultUserId;
@@ -55,9 +56,6 @@ public class ExternalLoginTransaction extends StandardEntity {
     @Column(name = "expires_at", type = ColumnType.TIMESTAMP, nullable = false, comment = "Expires at")
     private Instant expiresAt;
 
-    @Column(name = "completed_at", type = ColumnType.TIMESTAMP, comment = "Provider callback completed at")
+    @Column(name = "completed_at", type = ColumnType.TIMESTAMP, comment = "Completed by the initiating browser at")
     private Instant completedAt;
-
-    @Column(name = "redeemed_at", type = ColumnType.TIMESTAMP, comment = "Browser redeemed at")
-    private Instant redeemedAt;
 }

@@ -14,13 +14,7 @@ import {
 import type { ExternalLoginMethod, LoginResult, TenantBranding } from '@muyun/web-contracts';
 import { UiButton, UiInput } from '@muyun/vue-ui-antdv';
 import { normalizeInitialValue, resolveLoginTenantDefaults } from './loginTenant';
-import {
-  externalLoginFailureMessage,
-  navigateToExternalAuthorization,
-  rememberExternalLogin,
-  stripExternalLoginReturnFromLocation,
-  takeReturningExternalLogin,
-} from './externalLoginReturn';
+import { navigateToExternalAuthorization, rememberExternalLogin } from './externalLoginReturn';
 
 const language = useLanguageContext();
 
@@ -68,7 +62,6 @@ const loginTitle = computed(
 const loginSubtitle = computed(() => tenantBranding.value?.subtitle);
 
 onMounted(async () => {
-  await redeemReturningExternalLogin();
   if (!tenantLocked || !tenantId.value) {
     return;
   }
@@ -91,36 +84,6 @@ onMounted(async () => {
   }
 });
 
-/** Finishes a sign-in this browser started before the provider round trip. */
-async function redeemReturningExternalLogin() {
-  const pending = takeReturningExternalLogin();
-  stripExternalLoginReturnFromLocation();
-  if (!pending || !props.externalLoginClient) {
-    return;
-  }
-  if (pending.purpose !== 'login') {
-    formError.value = () =>
-      language.t(
-        'platform.screen.ExternalLogin.bind-needs-sign-in',
-        '登录状态已失效，绑定未完成，请登录后重新绑定',
-      );
-    return;
-  }
-  externalBusy.value = true;
-  try {
-    const redemption = await props.externalLoginClient.redeem(pending.transactionId, pending.browserProof);
-    if (redemption.status === 'succeeded' && redemption.login) {
-      emit('authenticated', redemption.login);
-      return;
-    }
-    formError.value = () => externalLoginFailureMessage(redemption, language);
-  } catch (cause) {
-    formError.value = () => loginErrorMessage(cause);
-  } finally {
-    externalBusy.value = false;
-  }
-}
-
 async function startExternalLogin(method: ExternalLoginMethod) {
   if (!props.externalLoginClient) {
     return;
@@ -129,7 +92,11 @@ async function startExternalLogin(method: ExternalLoginMethod) {
   externalBusy.value = true;
   try {
     const start = await props.externalLoginClient.startLogin(method.providerId, tenantId.value);
-    rememberExternalLogin(start, 'login');
+    rememberExternalLogin(start, {
+      providerId: method.providerId,
+      purpose: 'login',
+      tenantId: tenantId.value,
+    });
     navigateToExternalAuthorization(start.authorizationUrl);
   } catch (cause) {
     formError.value = () => loginErrorMessage(cause);
@@ -288,7 +255,7 @@ async function submitPasswordChange() {
       </form>
       <div v-if="!passwordChangeRequired && externalMethods.length > 0" class="login-external">
         <p class="login-external-divider">
-          {{ language.t('platform.screen.ExternalLogin.or-sign-in-with', '或使用以下方式登录') }}
+          {{ language.t('platform.screen.LoginView.or-sign-in-with', '或使用以下方式登录') }}
         </p>
         <UiButton
           v-for="method in externalMethods"
@@ -298,7 +265,7 @@ async function submitPasswordChange() {
           @click="startExternalLogin(method)"
         >
           {{
-            language.t('platform.screen.ExternalLogin.sign-in-with', '使用 {provider} 登录', {
+            language.t('platform.screen.LoginView.sign-in-with', '使用 {provider} 登录', {
               provider: method.title,
             })
           }}

@@ -318,17 +318,28 @@ export interface ExternalLoginMethod {
 }
 
 /**
- * A started external sign-in or bind transaction. `browserProof` must stay in the initiating browser and is
- * required to redeem the result; it is never put into a URL.
+ * A started external sign-in or bind transaction. `state` and `browserProof` must stay in the initiating
+ * browser; only that browser can complete the transaction, and the proof is never put into a URL.
  */
 export interface ExternalLoginStart {
   transactionId: string;
+  state: string;
   authorizationUrl: string;
   browserProof: string;
   expiresAt: string;
 }
 
-export type ExternalLoginStatus = 'pending' | 'succeeded' | 'denied' | 'expired';
+export type ExternalLoginStatus = 'succeeded' | 'denied' | 'expired';
+export type ExternalLoginFailure =
+  | 'identityNotBound'
+  | 'identityConflict'
+  | 'alreadyBound'
+  | 'enterpriseMismatch'
+  | 'policyDisabled'
+  | 'accountUnavailable'
+  | 'providerRejected'
+  | 'providerUnavailable'
+  | 'internalError';
 export type ExternalLoginPurpose = 'login' | 'bind';
 
 export interface ExternalIdentityView {
@@ -341,11 +352,18 @@ export interface ExternalIdentityView {
   lastAuthenticatedAt?: string;
 }
 
-export interface ExternalLoginRedemption {
+/** What the initiating browser submits after the provider returned it to the workbench. */
+export interface ExternalLoginCompleteRequest {
+  state: string;
+  browserProof: string;
+  /** Every provider parameter on the return address, verified on the server. */
+  parameters: Record<string, string>;
+}
+
+export interface ExternalLoginCompletion {
   status: ExternalLoginStatus;
   purpose: ExternalLoginPurpose;
-  /** Stable denial code such as `IDENTITY_NOT_BOUND` or `IDENTITY_CONFLICT`. */
-  failureCode?: string;
+  failure?: ExternalLoginFailure;
   login?: LoginResult;
   binding?: ExternalIdentityView;
 }

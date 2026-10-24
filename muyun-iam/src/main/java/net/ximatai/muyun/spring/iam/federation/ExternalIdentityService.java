@@ -48,6 +48,12 @@ public class ExternalIdentityService extends TenantActiveScopedService<ExternalI
                 .eq("externalUserId", externalUserId)));
     }
 
+    /** Stamps a successful sign-in through the binding; internal state, not a business edit. */
+    void recordAuthentication(String identityId, java.time.Instant at) {
+        net.ximatai.muyun.spring.ability.VersionedRecordMutation.update(getDao(), () -> selectActiveRaw(identityId),
+                binding -> binding.setLastAuthenticatedAt(at));
+    }
+
     /** Bindings of one account in the current tenant scope. */
     public List<ExternalIdentity> bindingsOfUser(String userId) {
         return list(Criteria.of().eq("userId", userId), ALL);

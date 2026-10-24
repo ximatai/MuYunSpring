@@ -9,22 +9,18 @@ import net.ximatai.muyun.spring.iam.federation.ConditionalOnExternalIdentityFede
 import net.ximatai.muyun.spring.iam.federation.ExternalLoginResults;
 import net.ximatai.muyun.spring.iam.federation.ExternalLoginService;
 import net.ximatai.muyun.spring.iam.web.security.BearerTokens;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
 /**
- * HTTP entries of external sign-in and binding. The provider calls back the platform, which then sends the
- * browser to the workbench with only the transaction id; the browser redeems it with the proof it kept.
+ * HTTP entries of external sign-in and binding. The provider returns the browser to the workbench, which
+ * completes the transaction here with the state and proof it kept; no session is issued to any other browser.
  */
 @RestController
 @ConditionalOnExternalIdentityFederation
@@ -48,23 +44,14 @@ public class ExternalLoginWebController {
         return externalLoginService.startBind(currentUser(), BearerTokens.from(request), providerId);
     }
 
-    /** Provider callback; answers with a redirect so no token or secret ever travels in the URL. */
+    /** Completes a transaction with the callback parameters the provider returned to the workbench. */
     @AnonymousEndpoint
-    @GetMapping("/{providerId}/callback")
-    public ResponseEntity<Void> callback(@PathVariable String providerId,
-                                         @RequestParam Map<String, String> parameters) {
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .header(HttpHeaders.LOCATION, externalLoginService.complete(providerId, parameters).toString())
-                .header(HttpHeaders.CACHE_CONTROL, "no-store")
-                .build();
-    }
-
-    @AnonymousEndpoint
-    @PostMapping("/transactions/{transactionId}/redeem")
-    public ExternalLoginResults.Redemption redeem(@PathVariable String transactionId,
-                                                  @RequestBody RedeemRequest request,
-                                                  HttpServletRequest httpRequest) {
-        return externalLoginService.redeem(transactionId, request == null ? null : request.browserProof(),
+    @PostMapping("/{providerId}/complete")
+    public ExternalLoginResults.Completion complete(@PathVariable String providerId,
+                                                    @RequestBody CompleteRequest request,
+                                                    HttpServletRequest httpRequest) {
+        CompleteRequest body = request == null ? new CompleteRequest(null, null, null) : request;
+        return externalLoginService.complete(providerId, body.state(), body.browserProof(), body.parameters(),
                 httpRequest.getRemoteAddr(), httpRequest.getHeader("User-Agent"));
     }
 
@@ -86,6 +73,10 @@ public class ExternalLoginWebController {
     public record StartLoginRequest(String tenantId) {
     }
 
-    public record RedeemRequest(String browserProof) {
+    /**
+     * @param parameters every query parameter the provider appended to the workbench address, verified by the
+     *                   provider's protocol on the server
+     */
+    public record CompleteRequest(String state, String browserProof, Map<String, String> parameters) {
     }
 }

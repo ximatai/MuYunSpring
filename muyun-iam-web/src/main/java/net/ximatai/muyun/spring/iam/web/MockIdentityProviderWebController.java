@@ -2,7 +2,6 @@ package net.ximatai.muyun.spring.iam.web;
 
 import net.ximatai.muyun.spring.common.platform.AnonymousEndpoint;
 import net.ximatai.muyun.spring.iam.federation.ExternalIdentityFederationSettings;
-import net.ximatai.muyun.spring.iam.federation.ExternalIdentityUris;
 import net.ximatai.muyun.spring.iam.federation.MockIdentityProviderCondition;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.http.HttpHeaders;
@@ -15,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.HtmlUtils;
 
 /**
- * Development-only stand-in for a provider's authorization page. It returns to the platform callback with
+ * Development-only stand-in for a provider's authorization page. It returns to the workbench callback with
  * the external user id typed by the developer; the mock protocol refuses to start outside development mode.
  */
 @RestController
@@ -32,9 +31,8 @@ public class MockIdentityProviderWebController {
     @GetMapping(value = "/authorize", produces = MediaType.TEXT_HTML_VALUE)
     public ResponseEntity<String> authorize(@RequestParam("state") String state,
                                             @RequestParam("redirect_uri") String redirectUri) {
-        // Only the platform's own callbacks are accepted, so the page cannot be used as an open redirect.
-        String callbackPrefix = ExternalIdentityUris.resolve(settings.apiBaseUrl(), "iam.auth/external/").toString();
-        if (!redirectUri.startsWith(callbackPrefix) || !redirectUri.endsWith("/callback")) {
+        // Only the configured workbench callback is accepted, so the page cannot be used as an open redirect.
+        if (!redirectUri.equals(settings.workbenchUrl().toString())) {
             return ResponseEntity.badRequest().contentType(MediaType.TEXT_PLAIN).body("invalid redirect_uri");
         }
         String html = """
@@ -44,7 +42,7 @@ public class MockIdentityProviderWebController {
                 <title>模拟身份源授权</title></head>
                 <body style="font-family: sans-serif; max-width: 420px; margin: 64px auto; padding: 0 16px">
                 <h1 style="font-size: 20px">模拟身份源授权（仅开发环境）</h1>
-                <p>输入要模拟的外部用户 ID，确认后按真实流程回调平台。</p>
+                <p>输入要模拟的外部用户 ID，确认后按真实流程回到工作台。</p>
                 <form method="get" action="%s">
                 <input type="hidden" name="state" value="%s">
                 <label>外部用户 ID <input name="mockUserId" required autofocus style="width: 100%%"></label>

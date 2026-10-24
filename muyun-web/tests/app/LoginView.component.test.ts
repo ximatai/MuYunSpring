@@ -42,60 +42,9 @@ describe('LoginView', () => {
 
     expect(external.startLogin).toHaveBeenCalledWith('welink', 'tenant-a');
     expect(navigateToExternalAuthorization).toHaveBeenCalledWith('https://idp.test/authorize?state=s');
-    expect(window.sessionStorage.getItem('muyun.externalLogin.pending')).toContain('proof-1');
-  });
-
-  it('signs in with the redeemed external session when the provider returns this browser', async () => {
-    window.sessionStorage.setItem(
-      'muyun.externalLogin.pending',
-      JSON.stringify([{ transactionId: 'tx-1', browserProof: 'proof-1', purpose: 'login' }]),
-    );
-    window.history.replaceState({}, '', '/?_muyunTenantId=tenant-a&_muyunExternalLogin=tx-1');
-    const login = {
-      token: 'token-1',
-      tokenType: 'Bearer',
-      issuedAt: '2026-10-24T00:00:00Z',
-      currentUser: {},
-    };
-    const external = externalLoginClient({
-      redeem: vi.fn().mockResolvedValue({ status: 'succeeded', purpose: 'login', login }),
-    });
-    const wrapper = mount(LoginView, {
-      props: {
-        authClient: authClient(),
-        loginContextClient: loginContextClient(),
-        externalLoginClient: external,
-      },
-    });
-    await flushPromises();
-
-    expect(external.redeem).toHaveBeenCalledWith('tx-1', 'proof-1');
-    expect(wrapper.emitted('authenticated')?.[0]).toEqual([login]);
-    expect(window.location.search).toBe('?_muyunTenantId=tenant-a');
-  });
-
-  it('explains an unbound external identity instead of signing in', async () => {
-    window.sessionStorage.setItem(
-      'muyun.externalLogin.pending',
-      JSON.stringify([{ transactionId: 'tx-1', browserProof: 'proof-1', purpose: 'login' }]),
-    );
-    window.history.replaceState({}, '', '/?_muyunTenantId=tenant-a&_muyunExternalLogin=tx-1');
-    const external = externalLoginClient({
-      redeem: vi
-        .fn()
-        .mockResolvedValue({ status: 'denied', purpose: 'login', failureCode: 'IDENTITY_NOT_BOUND' }),
-    });
-    const wrapper = mount(LoginView, {
-      props: {
-        authClient: authClient(),
-        loginContextClient: loginContextClient(),
-        externalLoginClient: external,
-      },
-    });
-    await flushPromises();
-
-    expect(wrapper.emitted('authenticated')).toBeUndefined();
-    expect(wrapper.find('.login-error').text()).toContain('尚未绑定');
+    expect(JSON.parse(window.sessionStorage.getItem('muyun.externalLogin.pending') ?? '[]')).toEqual([
+      { providerId: 'welink', state: 's', browserProof: 'proof-1', purpose: 'login', tenantId: 'tenant-a' },
+    ]);
   });
 
   it('switches labels and an existing failure while preserving credentials and the login contract', async () => {
@@ -263,12 +212,13 @@ function externalLoginClient(overrides: Partial<ExternalLoginClient> = {}): Exte
   return {
     startLogin: vi.fn().mockResolvedValue({
       transactionId: 'tx-1',
+      state: 's',
       authorizationUrl: 'https://idp.test/authorize?state=s',
       browserProof: 'proof-1',
       expiresAt: '2026-10-24T00:03:00Z',
     }),
     startBind: vi.fn(),
-    redeem: vi.fn(),
+    complete: vi.fn(),
     identities: vi.fn(),
     unbind: vi.fn(),
     ...overrides,

@@ -7,7 +7,11 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
-/** Builds absolute addresses below configured bases without string concatenation mistakes. */
+/**
+ * Builds absolute addresses below configured bases without string concatenation mistakes.
+ *
+ * @hidden Internal helper of federation protocols shipped with the platform.
+ */
 public final class ExternalIdentityUris {
     private ExternalIdentityUris() {
     }

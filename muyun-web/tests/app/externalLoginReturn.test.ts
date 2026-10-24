@@ -3,8 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   externalLoginFailureMessage,
   rememberExternalLogin,
-  takeReturningExternalLogin,
-  withoutExternalLoginReturn,
+  takeExternalLoginReturn,
 } from '@/app/externalLoginReturn';
 
 class MemoryStorage implements Storage {
@@ -29,40 +28,60 @@ class MemoryStorage implements Storage {
   }
 }
 
-const start = (transactionId: string) => ({
-  transactionId,
+const start = (state: string) => ({
+  transactionId: `tx-${state}`,
+  state,
   authorizationUrl: 'https://idp.test/authorize',
-  browserProof: `proof-${transactionId}`,
+  browserProof: `proof-${state}`,
   expiresAt: '2026-10-24T00:03:00Z',
 });
 
 describe('externalLoginReturn', () => {
-  it('redeems only the transaction this browser started, once', () => {
+  it('matches a provider return only to a transaction this browser started, once', () => {
     const storage = new MemoryStorage();
-    rememberExternalLogin(start('tx-1'), 'login', storage);
-    rememberExternalLogin(start('tx-2'), 'bind', storage);
+    rememberExternalLogin(
+      start('s-1'),
+      { providerId: 'welink', purpose: 'login', tenantId: 'tenant-a' },
+      storage,
+    );
+    rememberExternalLogin(start('s-2'), { providerId: 'welink', purpose: 'bind' }, storage);
 
-    expect(takeReturningExternalLogin('?_muyunExternalLogin=tx-2', storage)).toEqual({
-      transactionId: 'tx-2',
-      browserProof: 'proof-tx-2',
-      purpose: 'bind',
+    expect(takeExternalLoginReturn({ state: 's-2', code: 'c' }, storage)).toEqual({
+      pending: { providerId: 'welink', state: 's-2', browserProof: 'proof-s-2', purpose: 'bind' },
+      parameters: { state: 's-2', code: 'c' },
     });
-    expect(takeReturningExternalLogin('?_muyunExternalLogin=tx-2', storage)).toBeUndefined();
-    expect(takeReturningExternalLogin('?_muyunExternalLogin=unknown', storage)).toBeUndefined();
-    expect(takeReturningExternalLogin('?_muyunExternalLogin=tx-1', storage)?.purpose).toBe('login');
+    expect(takeExternalLoginReturn({ state: 's-2', code: 'c' }, storage)?.pending).toBeUndefined();
+    expect(takeExternalLoginReturn({ state: 's-1', code: 'c' }, storage)?.pending?.tenantId).toBe('tenant-a');
+  });
+
+  it('treats a return started elsewhere as foreign and never as this browser’s sign-in', () => {
+    const storage = new MemoryStorage();
+    rememberExternalLogin(start('mine'), { providerId: 'welink', purpose: 'login' }, storage);
+
+    const foreign = takeExternalLoginReturn({ state: 'attacker-state', code: 'victim-code' }, storage);
+
+    expect(foreign).toEqual({
+      pending: undefined,
+      parameters: { state: 'attacker-state', code: 'victim-code' },
+    });
+    expect(takeExternalLoginReturn({ state: 'mine' }, storage)?.pending?.browserProof).toBe('proof-mine');
+  });
+
+  it('ignores addresses without a provider state and drops workbench markers from forwarded parameters', () => {
+    const storage = new MemoryStorage();
+    rememberExternalLogin(start('s-1'), { providerId: 'welink', purpose: 'login' }, storage);
+
+    expect(takeExternalLoginReturn({ _muyunTenantId: 'tenant-a' }, storage)).toBeUndefined();
+    expect(
+      takeExternalLoginReturn({ state: 's-1', code: ['c'], _muyunTenantId: 'tenant-a' }, storage)?.parameters,
+    ).toEqual({ state: 's-1', code: 'c' });
   });
 
   it('ignores corrupted storage instead of failing the page', () => {
     const storage = new MemoryStorage();
     storage.setItem('muyun.externalLogin.pending', '{not json');
 
-    expect(takeReturningExternalLogin('?_muyunExternalLogin=tx-1', storage)).toBeUndefined();
-  });
-
-  it('removes only the return marker and keeps the locked tenant', () => {
-    expect(
-      withoutExternalLoginReturn('https://host.test/app/?_muyunTenantId=tenant-a&_muyunExternalLogin=tx-1'),
-    ).toBe('https://host.test/app/?_muyunTenantId=tenant-a');
+    expect(takeExternalLoginReturn({ state: 's-1' }, storage)?.pending).toBeUndefined();
   });
 
   it('explains denials without exposing internal codes', () => {
@@ -70,16 +89,16 @@ describe('externalLoginReturn', () => {
 
     expect(
       externalLoginFailureMessage(
-        { status: 'denied', purpose: 'login', failureCode: 'IDENTITY_NOT_BOUND' },
+        { status: 'denied', purpose: 'login', failure: 'identityNotBound' },
         language,
       ),
     ).toContain('尚未绑定');
     expect(externalLoginFailureMessage({ status: 'expired', purpose: 'login' }, language)).toContain('超时');
     expect(
       externalLoginFailureMessage(
-        { status: 'denied', purpose: 'bind', failureCode: 'SOMETHING_NEW' },
+        { status: 'denied', purpose: 'bind', failure: 'providerRejected' },
         language,
       ),
-    ).not.toContain('SOMETHING_NEW');
+    ).toContain('外部授权未通过');
   });
 });

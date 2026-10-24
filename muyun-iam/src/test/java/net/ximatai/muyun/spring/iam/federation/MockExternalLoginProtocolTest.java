@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class MockExternalLoginProtocolTest {
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-24T00:00:00Z"), ZoneOffset.UTC);
     private final ExternalAuthorizationContext context = new ExternalAuthorizationContext("state-1",
-            URI.create("http://platform.test/api/iam.auth/external/mock_idp/callback"), URI.create("http://platform.test/api"));
+            URI.create("http://workbench.test/app/"), URI.create("http://platform.test/api"));
 
     @Test
     void refusesToStartOutsideDevelopmentMode() {
@@ -30,7 +30,7 @@ class MockExternalLoginProtocolTest {
 
         assertThat(uri.toString()).startsWith("http://platform.test/api/iam.auth/external/mock/authorize?")
                 .contains("state=state-1")
-                .contains("redirect_uri=http%3A%2F%2Fplatform.test%2Fapi%2Fiam.auth%2Fexternal%2Fmock_idp%2Fcallback");
+                .contains("redirect_uri=http%3A%2F%2Fworkbench.test%2Fapp%2F");
     }
 
     @Test
@@ -55,11 +55,8 @@ class MockExternalLoginProtocolTest {
         return new MockExternalLoginProtocol(() -> PlatformRuntimeMode.DEVELOPMENT, clock);
     }
 
-    private static IdentityProvider provider(String enterpriseId) {
-        IdentityProvider provider = new IdentityProvider();
-        provider.setId("mock_idp");
-        provider.setProviderType(MockExternalLoginProtocol.PROVIDER_TYPE);
-        provider.setExternalEnterpriseId(enterpriseId);
-        return provider;
+    private static IdentityProviderDescriptor provider(String enterpriseId) {
+        return new IdentityProviderDescriptor("mock_idp", MockExternalLoginProtocol.PROVIDER_TYPE, enterpriseId,
+                "mock_idp", null, null, Map.of());
     }
 }

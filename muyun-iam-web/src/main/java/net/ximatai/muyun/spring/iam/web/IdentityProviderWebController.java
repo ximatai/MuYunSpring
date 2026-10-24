@@ -41,6 +41,7 @@ public class IdentityProviderWebController extends WebSupport<IdentityProviderSe
                                 .field("identityNamespace", field -> field.label("身份命名空间"))
                                 .field("clientId", field -> field.label("应用 Client ID"))
                                 .field("clientSecretEnvironmentVariable", field -> field.label("密钥环境变量名"))
+                                .field("configuration", field -> field.label("协议配置（JSON）").uiType("textarea").columnSpan(2))
                                 .field("enabled", field -> field.label("启用状态").enabledStatus())))
                         .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()))))
                 .build();

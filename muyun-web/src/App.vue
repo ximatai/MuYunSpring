@@ -105,12 +105,7 @@ import CurrentUserProfileDialog from './app/CurrentUserProfileDialog.vue';
 import { useCurrentUserProfile } from './app/useCurrentUserProfile';
 import { useAssistantAvailability } from './app/useAssistantAvailability';
 import LoginView from './app/LoginView.vue';
-import {
-  externalLoginFailureMessage,
-  hasExternalLoginReturn,
-  stripExternalLoginReturnFromLocation,
-  takeReturningExternalLogin,
-} from './app/externalLoginReturn';
+import { externalLoginFailureMessage, takeExternalLoginReturn } from './app/externalLoginReturn';
 import ThemeSkinPreferencesDialog from './app/ThemeSkinPreferencesDialog.vue';
 import {
   closeMenuTab,
@@ -547,46 +542,69 @@ configureAuthenticationRecovery((error, token) => {
 });
 
 onMounted(async () => {
+  if (await completeReturningExternalLogin()) {
+    return;
+  }
   if (!usesMockStartup() && !effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN)) {
     loginRequired.value = true;
     loading.value = false;
     return;
   }
   await loadWorkbench();
-  await completeReturningExternalLogin();
 });
 
 /**
- * Finishes an external round trip the signed-in user started, such as binding an account. Sign-in returns
- * without a session are finished by the login view instead.
+ * Completes an external sign-in or bind when the identity provider returns this browser to the workbench
+ * root. Only a transaction this browser started can be completed; a return for any other transaction is
+ * dropped. Returns `true` when the return already decided what the workbench shows.
  */
-async function completeReturningExternalLogin() {
-  if (!hasExternalLoginReturn()) {
-    return;
+async function completeReturningExternalLogin(): Promise<boolean> {
+  await router.isReady();
+  const route = router.currentRoute.value;
+  const externalReturn = route.path === '/' ? takeExternalLoginReturn(route.query) : undefined;
+  if (!externalReturn) {
+    return false;
   }
-  const pending = takeReturningExternalLogin();
-  stripExternalLoginReturnFromLocation();
+  const pending = externalReturn.pending;
+  // Provider parameters must not remain in the address bar or browser history.
+  await router.replace({
+    path: '/',
+    query: pending?.purpose === 'login' && pending.tenantId ? { _muyunTenantId: pending.tenantId } : {},
+  });
   if (!pending) {
-    return;
+    return false;
   }
+  const signedIn = Boolean(effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN));
   try {
-    const redemption = await externalLoginClient.redeem(pending.transactionId, pending.browserProof);
-    if (redemption.status === 'succeeded' && pending.purpose === 'bind') {
+    const completion = await externalLoginClient.complete(pending.providerId, {
+      state: pending.state,
+      browserProof: pending.browserProof,
+      parameters: externalReturn.parameters,
+    });
+    if (completion.status === 'succeeded' && completion.login) {
+      await handleAuthenticated(completion.login);
+      return true;
+    }
+    if (completion.status === 'succeeded') {
       presentPlatformSuccess(
-        platformLanguageContext.t('platform.screen.ExternalLogin.bound', '已绑定 {provider}', {
-          provider: redemption.binding?.providerTitle ?? '',
+        platformLanguageContext.t('platform.external-login.bound', '已绑定 {provider}', {
+          provider: completion.binding?.providerTitle ?? '',
         }),
       );
-      return;
+      return false;
     }
-    if (redemption.status === 'succeeded' && redemption.login) {
-      await handleAuthenticated(redemption.login);
-      return;
+    const message = externalLoginFailureMessage(completion, platformLanguageContext);
+    if (pending.purpose === 'login' && !signedIn) {
+      error.value = message;
+      loginRequired.value = true;
+      loading.value = false;
+      return true;
     }
-    presentPlatformMessage(externalLoginFailureMessage(redemption, platformLanguageContext));
+    presentPlatformMessage(message);
   } catch (cause) {
     presentPlatformError(cause, { source: 'external-login', phase: 'action' });
   }
+  return false;
 }
 
 onUnmounted(() => {

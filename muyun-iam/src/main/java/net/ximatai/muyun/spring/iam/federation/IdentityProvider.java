@@ -14,6 +14,8 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEnabledSortableEnt
  * Platform-level external identity source maintained by platform super administrators. Its record id is
  * the stable provider code referenced by tenant policies, bindings and the login method recorded on sessions.
  * Secrets are never stored; the record only names the server environment variable holding the client secret.
+ * Protocol-specific settings live in {@link #getConfiguration()} as a flat JSON object of strings, validated
+ * by the provider's protocol.
  */
 @Getter
 @Setter
@@ -47,6 +49,11 @@ public class IdentityProvider extends StandardEnabledSortableEntity {
             comment = "Server environment variable holding the client secret")
     @NormalizeText(TextNormalization.TRIM_TO_NULL)
     private String clientSecretEnvironmentVariable;
+
+    @Column(name = "configuration", type = ColumnType.TEXT,
+            comment = "Protocol settings as a JSON object of string values")
+    @NormalizeText(TextNormalization.TRIM_TO_NULL)
+    private String configuration;
 
     public String effectiveIdentityNamespace() {
         return identityNamespace == null || identityNamespace.isBlank() ? getId() : identityNamespace;

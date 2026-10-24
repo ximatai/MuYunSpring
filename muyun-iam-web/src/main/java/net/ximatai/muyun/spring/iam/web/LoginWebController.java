@@ -7,7 +7,6 @@ import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
-import net.ximatai.muyun.spring.iam.federation.ExternalLoginService;
 import net.ximatai.muyun.spring.iam.web.security.BearerTokens;
 import net.ximatai.muyun.spring.iam.user.LoginResult;
 import net.ximatai.muyun.spring.iam.user.CurrentUserProfile;
@@ -16,6 +15,7 @@ import net.ximatai.muyun.spring.iam.user.UpdateCurrentUserProfileRequest;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
 import net.ximatai.muyun.spring.iam.tenant.TenantBranding;
 import net.ximatai.muyun.spring.iam.tenant.TenantLoginContext;
+import net.ximatai.muyun.spring.iam.tenant.TenantLoginMethodContributor;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import net.ximatai.muyun.spring.platform.web.PlatformStaticActionDeclaration;
 import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -38,30 +39,35 @@ public class LoginWebController {
     private final UserSessionService userSessionService;
     private final TenantService tenantService;
     private final CurrentUserProfileService currentUserProfileService;
-    private ObjectProvider<ExternalLoginService> externalLoginService;
+    private final List<TenantLoginMethodContributor> loginMethodContributors;
 
     public LoginWebController(UserSessionService userSessionService) {
         this.userSessionService = userSessionService;
         this.tenantService = null;
         this.currentUserProfileService = null;
+        this.loginMethodContributors = List.of();
     }
 
     public LoginWebController(UserSessionService userSessionService, TenantService tenantService) {
-        this(userSessionService, tenantService, null);
+        this(userSessionService, tenantService, null, List.of());
     }
 
-    @Autowired
     public LoginWebController(UserSessionService userSessionService, TenantService tenantService,
-                              CurrentUserProfileService currentUserProfileService) {
+                              CurrentUserProfileService currentUserProfileService,
+                              List<TenantLoginMethodContributor> loginMethodContributors) {
         this.userSessionService = userSessionService;
         this.tenantService = tenantService;
         this.currentUserProfileService = currentUserProfileService;
+        this.loginMethodContributors = List.copyOf(loginMethodContributors);
     }
 
-    /** Federation is optional; without it the login entry simply offers no external methods. */
+    /** Additional sign-in methods are optional capabilities; without any the entry offers only the password. */
     @Autowired
-    void setExternalLoginService(ObjectProvider<ExternalLoginService> externalLoginService) {
-        this.externalLoginService = externalLoginService;
+    public LoginWebController(UserSessionService userSessionService, TenantService tenantService,
+                              CurrentUserProfileService currentUserProfileService,
+                              ObjectProvider<TenantLoginMethodContributor> loginMethodContributors) {
+        this(userSessionService, tenantService, currentUserProfileService,
+                loginMethodContributors.orderedStream().toList());
     }
 
     @AnonymousEndpoint
@@ -124,9 +130,9 @@ public class LoginWebController {
     public TenantLoginContext loginContext(@RequestParam String tenantId) {
         TenantService service = requireTenantService();
         service.requireActiveTenant(tenantId);
-        ExternalLoginService federation = externalLoginService == null ? null : externalLoginService.getIfAvailable();
-        return new TenantLoginContext(tenantId, service.branding(tenantId),
-                federation == null ? java.util.List.of() : federation.loginMethods(tenantId));
+        return new TenantLoginContext(tenantId, service.branding(tenantId), loginMethodContributors.stream()
+                .flatMap(contributor -> contributor.loginMethods(tenantId).stream())
+                .toList());
     }
 
     private String bearerToken(HttpServletRequest request) {

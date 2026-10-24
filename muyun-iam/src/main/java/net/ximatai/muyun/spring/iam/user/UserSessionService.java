@@ -136,7 +136,9 @@ public class UserSessionService {
         LoginAttempt attempt = new LoginAttempt(normalizeBlank(tenantId), claimedAccount, method, ip, userAgent);
         if (attempt.tenantId == null) {
             // Platform super administrators only sign in with their local password.
-            throw attempt.rejected("SYSTEM_ACCOUNT_NOT_ALLOWED");
+            RuntimeException rejected = attempt.rejected("SYSTEM_ACCOUNT_NOT_ALLOWED");
+            attempt.recordFailureAudit();
+            throw rejected;
         }
         try (TenantContext.Scope ignored = TenantContext.use(attempt.tenantId)) {
             attempt.reasonCode = "TENANT_UNAVAILABLE";
@@ -156,7 +158,11 @@ public class UserSessionService {
         }
     }
 
-    /** Whether the session behind {@code token} is active and was issued within {@code window}. */
+    /**
+     * Whether the session behind {@code token} is active and was issued within {@code window}.
+     *
+     * @hidden Internal IAM collaborator for recent-authentication checks.
+     */
     public boolean authenticatedWithin(String token, Duration window) {
         UserSession session = sessionByToken(token);
         Instant now = now();
