@@ -51,6 +51,51 @@ function viewContext() {
 }
 
 describe('ReferenceRecordDetailBrowser', () => {
+  it.each([false, true])(
+    'preserves loading and failure presentation (full surface=%s)',
+    async (fullSurface) => {
+      let releaseContext!: () => void;
+      const ready = new Promise<void>((resolve) => (releaseContext = resolve));
+      const http: HttpClient = {
+        async request({ path }) {
+          if (path.endsWith('/view-context')) {
+            await ready;
+            return viewContext() as never;
+          }
+          throw new AppError('temporary view failure', { status: 500 });
+        },
+      };
+      const wrapper = mount(ReferenceRecordDetailBrowser, {
+        props: { http },
+        slots: {
+          default: ReferenceField,
+          ...(fullSurface ? { 'full-surface': () => h('p', '完整详情') } : {}),
+        },
+        global: {
+          stubs: {
+            RecordDetailDrawer: {
+              name: 'RecordDetailDrawer',
+              props: ['open'],
+              emits: ['close'],
+              template: '<aside v-if="open"><slot /></aside>',
+            },
+          },
+        },
+      });
+      await wrapper.get('button').trigger('click');
+      const drawer = wrapper.getComponent({ name: 'RecordDetailDrawer' });
+      expect(drawer.props('open')).toBe(!fullSurface);
+      if (!fullSurface) expect(wrapper.text()).toContain('加载记录详情');
+      releaseContext();
+      await flushPromises();
+      expect(drawer.props('open')).toBe(true);
+      expect(wrapper.text()).toContain('详情暂时无法加载，请关闭后重试。');
+      drawer.vm.$emit('close');
+      await nextTick();
+      expect(drawer.props('open')).toBe(false);
+    },
+  );
+
   it('loads content provenance in its default target detail using the target VIEW context', async () => {
     const content = { key: 'target-title', policy: 'MANUAL_TRANSLATIONS' };
     const request = vi.fn(async ({ path }: { path: string }) => {
