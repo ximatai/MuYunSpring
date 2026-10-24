@@ -3,6 +3,8 @@
     "nativeName": "简体中文",
     "direction": "ltr",
     "messages": {
+      "platform.notifications.session-note": "仅临时保留在本次页面中，刷新或退出后清空。关闭提醒不代表业务已处理，待办请到业务页面查看。",
+      "platform.notifications.session-count": "本次提醒（{count} 条）",
       "platform.language.label": "界面语言",
       "platform.language.changed": "界面语言已切换",
       "platform.language.restore-failed": "暂时无法恢复语言偏好，可继续选择界面语言",
@@ -3666,6 +3668,8 @@
     "direction": "ltr",
     "fallbackTag": "zh-CN",
     "messages": {
+      "platform.notifications.session-note": "Temporary reminders for this page session only. Refreshing or signing out clears them. Closing a reminder does not complete the business task; check pending work on its business page.",
+      "platform.notifications.session-count": "Session reminders ({count})",
       "platform.language.label": "Interface language",
       "platform.language.changed": "Interface language changed",
       "platform.language.restore-failed": "Language preference is temporarily unavailable. You can still select a language.",
@@ -7330,6 +7334,8 @@
     "enabled": false,
     "fallbackTag": "en",
     "messages": {
+      "platform.notifications.session-note": "Notifications temporaires de cette page, effacées à l’actualisation ou à la déconnexion. Fermer une notification ne termine pas la tâche ; consultez la page métier correspondante.",
+      "platform.notifications.session-count": "Notifications de cette session ({count})",
       "platform.language.label": "Langue de l’interface",
       "platform.language.changed": "Langue de l’interface modifiée",
       "platform.language.restore-failed": "La préférence de langue est temporairement indisponible. Vous pouvez choisir une langue.",

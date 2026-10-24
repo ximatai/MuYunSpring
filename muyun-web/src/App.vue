@@ -950,11 +950,13 @@ function handleSecurityNotification(notification: WebUserNotification) {
 }
 
 function receiveBusinessNotification(notification: WebBusinessNotification) {
-  const current = businessNotifications.value.filter((item) => item.id !== notification.id);
+  const current = businessNotifications.value.filter(
+    (item) => item.id !== notification.id && !businessNotificationExpired(item),
+  );
   businessNotifications.value = [...current, notification];
 }
 
-function dismissBusinessNotification(notificationId: string) {
+function removeBusinessNotification(notificationId: string) {
   businessNotifications.value = businessNotifications.value.filter((item) => item.id !== notificationId);
 }
 
@@ -962,6 +964,7 @@ async function executeBusinessNotificationAction(
   notification: WebBusinessNotification,
   action: WebBusinessNotificationAction,
 ) {
+  const identity = configurationIdentity();
   try {
     if (businessNotificationExpired(notification)) return false;
     if (action.kind === 'navigate') {
@@ -970,26 +973,28 @@ async function executeBusinessNotificationAction(
       );
     } else {
       const completed = await executeBusinessNotificationRecordAction(action, {
-        current: () => businessNotifications.value.find((item) => item.id === notification.id),
+        current: () =>
+          identity === configurationIdentity()
+            ? businessNotifications.value.find((item) => item.id === notification.id)
+            : undefined,
         confirm: () =>
           confirmAction(
             {
               title: action.label,
               content: action.confirmation ?? '',
               danger: action.danger,
-              layer: notification.displayPolicy === 'persistent' ? 'notification' : 'standard',
+              layer: 'notification',
             },
             platformLanguageContext,
           ),
         invoke: () => invokeBusinessNotificationRecordAction(createBackendHttpClient(), action),
       });
-      if (!completed) return false;
+      if (!completed || identity !== configurationIdentity()) return false;
       presentPlatformSuccess(
         platformLanguageContext.t('platform.screen.App.operation-completed', '操作完成'),
         { source: 'business-notification', phase: 'action' },
       );
     }
-    if (action.dismissOnSuccess) dismissBusinessNotification(notification.id);
     return true;
   } catch (cause) {
     presentPlatformError(cause, { source: 'business-notification', phase: 'action' });
@@ -1640,9 +1645,10 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
         @select="selectThemeSkin"
       />
       <BusinessNotificationPanel
+        :key="configurationIdentity()"
         :notifications="businessNotifications"
         :execute-action="executeBusinessNotificationAction"
-        @dismiss="dismissBusinessNotification"
+        @dismiss="removeBusinessNotification"
       />
       <div v-if="securityNotification" class="security-notification-mask" role="presentation">
         <section class="security-notification-dialog" role="alertdialog" aria-modal="true">

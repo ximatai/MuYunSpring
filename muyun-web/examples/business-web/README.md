@@ -47,3 +47,12 @@
 `ReadonlyBusinessViewExample.vue` 展示只消费公开 `RecordReadView` 和 `ReadonlyRecordWorkspace` 的聚合读取与同源多视图，包含复合行身份、分页、搜索和标准自适应详情。数据及描述符均为确定性本地 fixture，不代表服务端授权验收；正式业务应绑定自己的已授权读取服务，并在身份或范围改变时更新 `scopeKey`。契约及菜单声明见[只读业务投影与同源多入口](../../../docs/frontend/READONLY_BUSINESS_VIEWS.md)。
 
 跨目录引用样板复用公开 `ReferencePickerProvider`，演示分页、未搜索历史 ID 回显、失效项和授权范围切换；本地数据仅验证交互契约，正式业务须在服务端校验来源与目标授权。
+
+## 自定义业务页的租户选择
+
+`TenantScopedOverviewExample.vue` 只依赖公开包，接收当前用户、宿主客户端和概览接口路径。
+它组合 `ManagementWorkspace`、`ManagementExplorerColumn`、`TenantScopeExplorer`，使用
+`iam.tenant` 的授权引用候选，为业务请求绑定执行租户，处理空选择、身份变更、取消与迟到响应。
+组件由业务宿主接入，不在默认的本地 fixture 演示页自动访问真实后端。
+完整用法和服务端边界见[消费者接入文档](../../../docs/frontend/LOCAL_CONSUMER.md#自定义业务页的执行租户选择)。
+安装包消费者测试会实际构建并挂载本组件，确保业务无需使用内部路径或源码 alias。

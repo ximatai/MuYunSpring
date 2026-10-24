@@ -1,26 +1,31 @@
-import { mount } from '@vue/test-utils';
-import { describe, expect, it, vi } from 'vitest';
-import type { WebBusinessNotification } from '@muyun/web-contracts';
-import BusinessNotificationPanel from '@/platform-components/BusinessNotificationPanel.vue';
+import { flushPromises, mount } from '@vue/test-utils';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, nextTick } from 'vue';
+import type { WebBusinessNotification } from '@muyun/web-contracts';
 import { createLanguageContext, provideLanguageContext } from '@muyun/web-core';
+import BusinessNotificationPanel from '@/platform-components/BusinessNotificationPanel.vue';
+import { registerUiBlockingOverlay } from '@/vue-ui-antdv/blockingOverlays';
 
 function notification(
   id: string,
-  dismissible: boolean,
-  presentation: Pick<WebBusinessNotification, 'tone' | 'occurredAt'> = {},
+  dismissible = true,
+  extra: Partial<WebBusinessNotification> = {},
 ): WebBusinessNotification {
-  return {
-    id,
-    code: `demo.${id}`,
-    title: id,
-    content: '提醒正文',
-    dismissible,
-    actions: [],
-    ...presentation,
-  };
+  return { id, code: `demo.${id}`, title: id, content: '提醒正文', dismissible, actions: [], ...extra };
 }
-
+const command = {
+  kind: 'record' as const,
+  key: 'process',
+  label: '处理',
+  moduleAlias: 'demo.order',
+  recordId: 'record',
+  actionCode: 'approve',
+  dismissOnSuccess: true,
+};
+function mountPanel(notifications: WebBusinessNotification[], executeAction = vi.fn()) {
+  return mount(BusinessNotificationPanel, { props: { notifications, executeAction } });
+}
+afterEach(() => vi.useRealTimers());
 describe('BusinessNotificationPanel', () => {
   it('renders receiver-language resources while executing the original declarative action', async () => {
     const language = createLanguageContext({ languageTag: 'en' });
@@ -59,20 +64,18 @@ describe('BusinessNotificationPanel', () => {
         provideLanguageContext(language);
         return () =>
           h(BusinessNotificationPanel, {
-            notifications: [notice, notification('second', true)],
+            notifications: [notification('second', true), notice],
             executeAction,
           });
       },
     });
     const wrapper = mount(host);
     expect(wrapper.text()).toContain('Pending task');
-    expect(wrapper.text()).toContain('Business reminders (2)');
-    expect(wrapper.get('.business-notification-more').text()).toBe('View all (1 more)');
+    expect(wrapper.get('.business-notification-bell').attributes('aria-label')).toBe('Session reminders (2)');
     language.setLanguage('zh-CN');
     await nextTick();
     expect(wrapper.text()).toContain('待办原文');
-    expect(wrapper.text()).toContain('业务提醒（2 条）');
-    expect(wrapper.get('.business-notification-more').text()).toContain('还有 1 条');
+    expect(wrapper.get('.business-notification-bell').attributes('aria-label')).toBe('本次提醒（2 条）');
     language.setLanguage('en');
     await nextTick();
     const button = wrapper.findAll('button').find((item) => item.text() === 'Process');
@@ -83,332 +86,277 @@ describe('BusinessNotificationPanel', () => {
     wrapper.unmount();
   });
 
-  it('prioritizes non-dismissible reminders and lets the user expand the temporary queue', async () => {
-    const wrapper = mount(BusinessNotificationPanel, {
-      props: {
-        notifications: [
-          notification('optional-1', true),
-          notification('required-1', false),
-          notification('optional-2', true),
-          notification('required-2', false),
-        ],
-        executeAction: () => undefined,
-      },
-    });
+  it.each(['success', 'danger', undefined] as const)(
+    'keeps the original single card presentation and optional accessory (tone=%s)',
+    (tone) => {
+      const notice = notification('single', true, {
+        tone,
+        occurredAt: '2026-09-11T06:57:39Z',
+        actions: [command, { ...command, key: 'later', label: '其他', placement: 'trailing' }],
+      });
+      const wrapper = mount(BusinessNotificationPanel, {
+        props: { notifications: [notice], executeAction: vi.fn(), hasAccessory: () => true },
+        slots: { accessory: '<span class="test-accessory">附件</span>' },
+      });
+      expect(wrapper.findAll('.business-notification-card')).toHaveLength(1);
+      expect(wrapper.get('.business-notification-card').classes()).toContain(
+        tone === 'danger' ? 'business-notification-card--danger' : 'business-notification-card--default',
+      );
+      expect(wrapper.get('.business-notification-action-region--trailing').text().replace(/\s/g, '')).toBe(
+        '其他',
+      );
+      expect(wrapper.get('.test-accessory').text()).toBe('附件');
+      expect(wrapper.get('time').attributes('datetime')).toBe('2026-09-11T06:57:39.000Z');
+      expect(wrapper.find('.business-notification-controls').exists()).toBe(false);
+      expect(wrapper.get('.business-notification-badge').text()).toBe('1');
+    },
+  );
 
-    expect(wrapper.findAll('.business-notification-card h2').map((node) => node.text())).toEqual([
-      'required-1',
+  it('deduplicates the active collection and stacks the latest received card without overlapping bodies', () => {
+    const wrapper = mountPanel([
+      notification('required', false),
+      notification('second'),
+      notification('latest'),
+      notification('latest', true, { title: '最新版本' }),
     ]);
-    expect(wrapper.get('.business-notification-more').text()).toContain('还有 3 条');
-
-    await wrapper.get('.business-notification-more').trigger('click');
-
-    expect(wrapper.findAll('.business-notification-card')).toHaveLength(4);
-    expect(wrapper.get('.business-notification-collapse').text()).toBe('收起提醒');
+    expect(wrapper.findAll('.business-notification-card h2').map((el) => el.text())).toEqual(['最新版本']);
+    expect(wrapper.findAll('.business-notification-stack-edge')).toHaveLength(2);
+    expect(wrapper.get('.business-notification-badge').text()).toBe('3');
+    expect(wrapper.find('.business-notification-controls').exists()).toBe(false);
+    expect(wrapper.get('.business-notification-bell').attributes('aria-label')).toBe('本次提醒（3 条）');
   });
 
-  it('renders an optional presentation tone and occurrence time in the standard card header', async () => {
-    const wrapper = mount(BusinessNotificationPanel, {
-      props: {
-        notifications: [
-          notification('helmet-online', true, {
-            tone: 'success',
-            occurredAt: '2026-09-11T06:57:39Z',
-          }),
-          notification('helmet-offline', true, { tone: 'danger' }),
-          notification('ordinary', true),
-        ],
-        executeAction: () => undefined,
-      },
-    });
-
-    await wrapper.get('.business-notification-more').trigger('click');
-    const cards = wrapper.findAll('.business-notification-card');
-    expect(cards[0].classes()).toContain('business-notification-card--default');
-    expect(cards[1].classes()).toContain('business-notification-card--danger');
-    expect(cards[2].classes()).toContain('business-notification-card--default');
-    expect(cards[0].get('.business-notification-time').attributes('datetime')).toBe(
-      '2026-09-11T06:57:39.000Z',
-    );
-    expect(cards[1].find('.business-notification-time').exists()).toBe(false);
-    expect(cards[0].find('.business-notification-status-dot').exists()).toBe(true);
-  });
-
-  it('renders a consumer-provided accessory only for opted-in notifications', async () => {
-    const wrapper = mount(BusinessNotificationPanel, {
-      props: {
-        notifications: [notification('helmet-online', true), notification('ordinary', true)],
-        hasAccessory: (item: WebBusinessNotification) => item.id === 'helmet-online',
-        executeAction: () => undefined,
-      },
-      slots: {
-        accessory: '<div class="notification-test-accessory">小地图</div>',
-      },
-    });
-
-    await wrapper.get('.business-notification-more').trigger('click');
-    const cards = wrapper.findAll('.business-notification-card');
-    expect(cards[0].classes()).toContain('business-notification-card--with-accessory');
-    expect(cards[0].get('.notification-test-accessory').text()).toBe('小地图');
-    expect(cards[1].find('.business-notification-accessory').exists()).toBe(false);
-  });
-  it('keeps collapsed presentation across new and empty queues, retaining non-dismissible reminders and their actions', async () => {
-    const required = notification('required', false);
-    required.actions = [
-      {
-        kind: 'navigate',
-        key: 'todo',
-        label: '办理待办',
-        moduleAlias: 'iam.workflow_workbench',
-        dismissOnSuccess: false,
-      },
-    ];
-    const executeAction = vi.fn();
-    const wrapper = mount(BusinessNotificationPanel, { props: { notifications: [required], executeAction } });
-    expect(wrapper.findAll('.business-notification-card')).toHaveLength(1);
-    await wrapper.get('.business-notification-collapse').trigger('click');
-    expect(wrapper.findAll('.business-notification-card')).toHaveLength(0);
-    expect(wrapper.get('.business-notification-summary').text()).toBe('业务提醒（1 条）');
-    expect(wrapper.emitted('dismiss')).toBeUndefined();
-    await wrapper.setProps({ notifications: [required, notification('new', true)] });
-    expect(wrapper.findAll('.business-notification-card')).toHaveLength(0);
-    expect(wrapper.get('.business-notification-summary').text()).toBe('业务提醒（2 条）');
+  it('removes closed cards only from this session and suppresses repeated pushes of those IDs', async () => {
+    const notices = [notification('one'), notification('two'), notification('three')];
+    const execute = vi.fn();
+    const wrapper = mountPanel(notices, execute);
+    for (let i = 0; i < 3; i++) await wrapper.get('.business-notification-close').trigger('click');
+    expect(wrapper.find('.business-notification-card').exists()).toBe(false);
+    expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
+    expect(wrapper.emitted('dismiss')).toEqual([['three'], ['two'], ['one']]);
+    expect(execute).not.toHaveBeenCalled();
     await wrapper.setProps({ notifications: [] });
-    expect(wrapper.find('.business-notification-panel').exists()).toBe(false);
-    await wrapper.setProps({ notifications: [required, notification('new', true)] });
-    expect(wrapper.findAll('.business-notification-card')).toHaveLength(0);
-    await wrapper.get('.business-notification-summary').trigger('click');
-    expect(wrapper.findAll('.business-notification-card h2').map((item) => item.text())).toEqual([
-      'required',
-      'new',
-    ]);
-    expect(wrapper.findAll('.business-notification-close')).toHaveLength(1);
-    await wrapper.findComponent({ name: 'UiActionButton' }).trigger('click');
-    expect(executeAction).toHaveBeenCalledExactlyOnceWith(required, required.actions[0]);
-    expect(wrapper.emitted('dismiss')).toBeUndefined();
-    await wrapper.get('.business-notification-collapse').trigger('click');
-    expect(wrapper.findAll('.business-notification-card')).toHaveLength(0);
-  });
-});
-
-it('keeps all persistent cards outside ordinary sorting, collapse and overlay suppression, including accessories', async () => {
-  const { registerUiBlockingOverlay } = await import('@/vue-ui-antdv/blockingOverlays');
-  const overlay = registerUiBlockingOverlay();
-  const ordinary = notification('ordinary-required', false);
-  const urgent = { ...notification('invitation', true), displayPolicy: 'persistent' as const };
-  const second = { ...notification('call', false), displayPolicy: 'persistent' as const };
-  const wrapper = mount(BusinessNotificationPanel, {
-    attachTo: document.body,
-    props: { notifications: [ordinary], executeAction: vi.fn(), hasAccessory: () => true },
-    slots: { accessory: '<span class="persistent-accessory">附件</span>' },
-  });
-  const titles = () =>
-    [...document.querySelectorAll('.business-notification-card h2')].map((el) => el.textContent);
-  try {
-    await wrapper.get('.business-notification-collapse').trigger('click');
-    await wrapper.setProps({ notifications: [ordinary, urgent, second] });
-    expect(titles()).toEqual(['invitation', 'call']);
-    expect(document.querySelectorAll('.persistent-accessory')).toHaveLength(2);
-    overlay.setVisible(true);
-    await nextTick();
-    expect(titles()).toEqual(['invitation', 'call']);
-    expect(document.querySelector('.business-notification-panel')!.hasAttribute('hidden')).toBe(false);
-    expect(document.querySelector('.business-notification-summary')!.hasAttribute('hidden')).toBe(true);
-    overlay.release();
-    await nextTick();
-    expect(document.querySelector('.business-notification-summary')?.textContent).toContain('1 条');
-  } finally {
+    await wrapper.setProps({ notifications: [...notices] });
+    expect(wrapper.find('.business-notification-card').exists()).toBe(false);
+    await wrapper.setProps({ notifications: [...notices, notification('new')] });
+    expect(wrapper.get('.business-notification-card h2').text()).toBe('new');
+    expect(wrapper.get('.business-notification-badge').text()).toBe('1');
     wrapper.unmount();
-    overlay.release();
-  }
-});
+    const reopened = mountPanel(notices);
+    expect(reopened.get('.business-notification-badge').text()).toBe('3');
+  });
 
-it('prevents competing or repeated completed persistent actions and permits retry after cancellation', async () => {
-  const action = {
-    kind: 'record' as const,
-    key: 'accept',
-    label: '接听',
-    moduleAlias: 'demo.call',
-    recordId: 'call',
-    actionCode: 'accept',
-    dismissOnSuccess: false,
-  };
-  const notice = {
-    ...notification('call', false),
-    displayPolicy: 'persistent' as const,
-    actions: [action, { ...action, key: 'decline', label: '拒绝' }],
-  };
-  let finish!: (result: boolean) => void;
-  const executeAction = vi.fn(
-    () =>
+  it('opens the temporary list through the bell and restores unclosed floating cards', async () => {
+    const wrapper = mountPanel([notification('one', false), notification('two'), notification('three')]);
+    await wrapper.get('.business-notification-close').trigger('click');
+    await wrapper.get('.business-notification-bell').trigger('click');
+    expect(wrapper.findAll('.business-notification-current .business-notification-card')).toHaveLength(2);
+    expect(wrapper.find('.business-notification-current-header').exists()).toBe(false);
+    expect(wrapper.get('.business-notification-bell').attributes('aria-expanded')).toBe('true');
+    await wrapper.get('.business-notification-bell').trigger('click');
+    expect(wrapper.get('.business-notification-card h2').text()).toBe('two');
+    await wrapper.get('.business-notification-bell').trigger('click');
+    expect(wrapper.findAll('.business-notification-current')).toHaveLength(1);
+    expect(wrapper.find('.business-notification-session-note').exists()).toBe(false);
+    expect(wrapper.get('.business-notification-bell').attributes('title')).toContain('刷新或退出后清空');
+    expect(wrapper.find('.business-notification-stack').exists()).toBe(false);
+  });
+
+  it('removes business-completed reminders automatically while cancelled actions remain retryable', async () => {
+    let finish!: (value: boolean) => void;
+    const execute = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const notice = notification('task', false, {
+      actions: [command, { ...command, key: 'other', label: '其他处理' }],
+    });
+    const wrapper = mount(BusinessNotificationPanel, {
+      props: { notifications: [notice], executeAction: execute },
+    });
+    await wrapper.get('.business-notification-actions button').trigger('click');
+    await wrapper.findAll('.business-notification-actions button')[1]!.trigger('click');
+    expect(execute).toHaveBeenCalledTimes(1);
+    finish(false);
+    await flushPromises();
+    expect(wrapper.get('.business-notification-badge').text()).toBe('1');
+    await wrapper.get('.business-notification-actions button').trigger('click');
+    await wrapper.setProps({ notifications: [{ ...notice }] });
+    await wrapper.get('.business-notification-actions button').trigger('click');
+    expect(execute).toHaveBeenCalledTimes(2);
+    finish(true);
+    await flushPromises();
+    expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
+    expect(wrapper.emitted('dismiss')).toEqual([['task']]);
+    await wrapper.setProps({ notifications: [{ ...notice }] });
+    expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
+  });
+
+  it('filters expiration at the deadline, invalid deadlines and domain withdrawals from every view', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-24T00:00:00Z'));
+    const wrapper = mountPanel([
+      notification('expires', true, { expiresAt: '2026-10-24T00:00:01Z' }),
+      notification('withdraw'),
+      notification('invalid', true, { expiresAt: 'invalid' }),
+    ]);
+    expect(wrapper.get('.business-notification-badge').text()).toBe('2');
+    await wrapper.get('.business-notification-bell').trigger('click');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(wrapper.findAll('.business-notification-card h2').map((el) => el.text())).toEqual(['withdraw']);
+    expect(wrapper.get('.business-notification-badge').text()).toBe('1');
+    await wrapper.setProps({ notifications: [] });
+    expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
+    expect(wrapper.find('.business-notification-current').exists()).toBe(false);
+  });
+
+  it('does not retire a replacement reminder when a stale action finishes', async () => {
+    let finish!: (value: boolean) => void;
+    const execute = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const original = notification('task', true, { actions: [command] });
+    const wrapper = mount(BusinessNotificationPanel, {
+      props: { notifications: [original], executeAction: execute },
+    });
+    await wrapper.get('.business-notification-actions button').trigger('click');
+    await wrapper.setProps({
+      notifications: [
+        { ...original, title: '新的业务状态', actions: [{ ...command, arguments: { version: 2 } }] },
+      ],
+    });
+    finish(true);
+    await flushPromises();
+    expect(wrapper.get('.business-notification-card h2').text()).toBe('新的业务状态');
+    expect(wrapper.emitted('dismiss')).toBeUndefined();
+    expect(wrapper.get('.business-notification-actions button').attributes('disabled')).toBeUndefined();
+  });
+
+  it('ignores completion from a withdrawn action without disturbing a newer invocation of the same ID', async () => {
+    const completions: ((value: boolean) => void)[] = [];
+    const executeAction = vi.fn(() => new Promise<boolean>((resolve) => completions.push(resolve)));
+    const notice = notification('task', true, { actions: [command] });
+    const wrapper = mountPanel([notice], executeAction);
+    await wrapper.get('.business-notification-actions button').trigger('click');
+    await wrapper.setProps({ notifications: [] });
+    await wrapper.setProps({ notifications: [{ ...notice }] });
+    await wrapper.get('.business-notification-actions button').trigger('click');
+    expect(executeAction).toHaveBeenCalledTimes(2);
+    completions[0]!(true);
+    await flushPromises();
+    expect(wrapper.emitted('dismiss')).toBeUndefined();
+    expect(wrapper.get('.business-notification-actions button').attributes('disabled')).toBeDefined();
+    completions[1]!(true);
+    await flushPromises();
+    expect(wrapper.emitted('dismiss')).toEqual([['task']]);
+    expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
+  });
+
+  it('does not dismiss a new host session when an unmounted action completes', async () => {
+    let finish!: (value: boolean) => void;
+    const executeAction = () =>
       new Promise<boolean>((resolve) => {
         finish = resolve;
-      }),
-  );
-  const wrapper = mount(BusinessNotificationPanel, {
-    attachTo: document.body,
-    props: { notifications: [notice], executeAction },
-  });
-  const buttons = () => [
-    ...document.querySelectorAll<HTMLButtonElement>('.business-notification-actions button'),
-  ];
-  try {
-    buttons()[0].click();
-    buttons()[1].click();
-    await nextTick();
-    expect(executeAction).toHaveBeenCalledTimes(1);
-    finish(false);
-    await Promise.resolve();
-    await nextTick();
-    buttons()[0].click();
-    await nextTick();
-    expect(executeAction).toHaveBeenCalledTimes(2);
+      });
+    const wrapper = mount(BusinessNotificationPanel, {
+      props: { notifications: [notification('task', true, { actions: [command] })], executeAction },
+    });
+    await wrapper.get('.business-notification-actions button').trigger('click');
+    wrapper.unmount();
     finish(true);
-    await Promise.resolve();
-    await nextTick();
-    expect(buttons().every((button) => button.disabled)).toBe(true);
-    buttons()[0].click();
-    buttons()[1].click();
-    expect(executeAction).toHaveBeenCalledTimes(2);
-  } finally {
-    wrapper.unmount();
-  }
-});
+    await flushPromises();
+    expect(wrapper.emitted('dismiss')).toBeUndefined();
+  });
 
-it('disables actions at the deadline without waiting for another notification or overlay event', async () => {
-  vi.useFakeTimers();
-  vi.setSystemTime(new Date('2026-10-21T00:00:00Z'));
-  const executeAction = vi.fn();
-  const wrapper = mount(BusinessNotificationPanel, {
-    attachTo: document.body,
-    props: {
-      notifications: [
-        {
-          ...notification('call', false),
-          displayPolicy: 'persistent',
-          expiresAt: '2026-10-21T00:00:01Z',
-          actions: [
-            {
-              kind: 'navigate',
-              key: 'view',
-              label: '查看来电',
-              moduleAlias: 'demo.call',
-              dismissOnSuccess: false,
-            },
-          ],
-        },
-      ],
-      executeAction,
-    },
-  });
-  try {
-    const button = document.querySelector<HTMLButtonElement>('.business-notification-actions button')!;
-    expect(button.disabled).toBe(false);
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(button.disabled).toBe(true);
-    expect(document.querySelector('.business-notification-expired')?.textContent).toBe('已过期');
-    button.click();
-    expect(executeAction).not.toHaveBeenCalled();
-  } finally {
-    wrapper.unmount();
-    vi.useRealTimers();
-  }
-});
-
-it('allows a persistent notification to run while an unrelated ordinary action is pending', async () => {
-  const action = (key: string) => ({
-    kind: 'record' as const,
-    key,
-    label: key,
-    moduleAlias: 'demo.call',
-    recordId: key,
-    actionCode: 'accept',
-    dismissOnSuccess: false,
-  });
-  const ordinary = { ...notification('ordinary', false), actions: [action('ordinary-action')] };
-  const urgent = {
-    ...notification('urgent', false),
-    displayPolicy: 'persistent' as const,
-    actions: [action('urgent-action')],
-  };
-  let finish!: () => void;
-  const executeAction = vi.fn((notice: WebBusinessNotification) =>
-    notice.id === 'ordinary'
-      ? new Promise<void>((resolve) => {
-          finish = resolve;
-        })
-      : undefined,
-  );
-  const wrapper = mount(BusinessNotificationPanel, {
-    attachTo: document.body,
-    props: { notifications: [ordinary, urgent], executeAction },
-  });
-  try {
-    const buttons = [
+  it('preserves navigation after persistent commands without inferring business completion', async () => {
+    const navigate = {
+      kind: 'navigate' as const,
+      key: 'view',
+      label: '查看',
+      moduleAlias: 'demo.call',
+      dismissOnSuccess: false,
+    };
+    const notice = notification('call', false, {
+      displayPolicy: 'persistent',
+      actions: [{ ...command, dismissOnSuccess: false }, navigate],
+    });
+    const executeAction = vi.fn(async () => true);
+    const wrapper = mount(BusinessNotificationPanel, { props: { notifications: [notice], executeAction } });
+    const buttons = () => [
       ...document.querySelectorAll<HTMLButtonElement>('.business-notification-actions button'),
     ];
-    buttons.find((button) => button.textContent?.trim() === 'ordinary-action')!.click();
-    await nextTick();
-    const urgentButton = buttons.find((button) => button.textContent?.trim() === 'urgent-action')!;
-    expect(urgentButton.disabled).toBe(false);
-    urgentButton.click();
-    await nextTick();
-    expect(executeAction.mock.calls.map(([notice]) => notice.id)).toEqual(['ordinary', 'urgent']);
-  } finally {
-    finish?.();
-    wrapper.unmount();
-  }
-});
-
-it('keeps navigation available after a persistent record command completes without allowing another command', async () => {
-  const command = {
-    kind: 'record' as const,
-    key: 'accept',
-    label: '接受',
-    moduleAlias: 'demo.call',
-    recordId: 'call',
-    actionCode: 'accept',
-    dismissOnSuccess: false,
-  };
-  const navigate = {
-    kind: 'navigate' as const,
-    key: 'view',
-    label: '查看详情',
-    moduleAlias: 'demo.call',
-    recordId: 'call',
-    dismissOnSuccess: false,
-  };
-  const executeAction = vi.fn(async () => true);
-  const wrapper = mount(BusinessNotificationPanel, {
-    attachTo: document.body,
-    props: {
-      notifications: [
-        {
-          ...notification('call', false),
-          displayPolicy: 'persistent',
-          actions: [command, { ...command, key: 'decline', label: '拒绝' }, navigate],
-        },
-      ],
-      executeAction,
-    },
-  });
-  const buttons = () => [
-    ...document.querySelectorAll<HTMLButtonElement>('.business-notification-actions button'),
-  ];
-  try {
-    buttons()[0].click();
-    await Promise.resolve();
-    await nextTick();
-    expect(buttons().map((button) => button.disabled)).toEqual([true, true, false]);
-    buttons()[0].click();
-    buttons()[1].click();
-    buttons()[2].click();
-    await Promise.resolve();
-    await nextTick();
-    expect(executeAction.mock.calls).toHaveLength(2);
+    buttons()[0]!.click();
+    await flushPromises();
+    expect(buttons().map((button) => button.disabled)).toEqual([true, false]);
     expect(wrapper.emitted('dismiss')).toBeUndefined();
-    expect(buttons()[2].disabled).toBe(false);
-  } finally {
+    expect(document.querySelector('.business-notification-badge')?.textContent).toBe('1');
     wrapper.unmount();
-  }
+  });
+
+  it('keeps a handled persistent record action disabled after the same reminder is withdrawn and pushed again', async () => {
+    const navigate = {
+      kind: 'navigate' as const,
+      key: 'view',
+      label: '查看',
+      moduleAlias: 'demo.call',
+      dismissOnSuccess: false,
+    };
+    const notice = notification('call', false, {
+      displayPolicy: 'persistent',
+      actions: [{ ...command, dismissOnSuccess: false }, navigate],
+    });
+    const executeAction = vi.fn(async () => true);
+    const wrapper = mount(BusinessNotificationPanel, { props: { notifications: [notice], executeAction } });
+    const button = () => document.querySelector<HTMLButtonElement>('.business-notification-actions button');
+    button()!.click();
+    await flushPromises();
+    expect(button()?.disabled).toBe(true);
+    await wrapper.setProps({ notifications: [] });
+    await wrapper.setProps({ notifications: [{ ...notice }] });
+    expect(button()?.disabled).toBe(true);
+    button()!.click();
+    await flushPromises();
+    expect(executeAction).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('defers ordinary cards for overlays but retains persistent presentation and the full active count', async () => {
+    const overlay = registerUiBlockingOverlay();
+    const wrapper = mountPanel([
+      notification('persistent', false, { displayPolicy: 'persistent' }),
+      notification('ordinary'),
+    ]);
+    try {
+      overlay.setVisible(true);
+      await nextTick();
+      expect(document.querySelector('.business-notification-card h2')?.textContent).toBe('persistent');
+      expect(document.querySelector('.business-notification-badge')?.textContent).toBe('2');
+      overlay.release();
+      await nextTick();
+      expect(document.querySelector('.business-notification-card h2')?.textContent).toBe('ordinary');
+      document.querySelector<HTMLButtonElement>('.business-notification-bell')!.click();
+      await nextTick();
+      overlay.setVisible(true);
+      await nextTick();
+      const cards = [
+        ...document.querySelectorAll<HTMLElement>(
+          '.business-notification-current .business-notification-card',
+        ),
+      ];
+      expect(
+        cards.find((card) => card.querySelector('h2')?.textContent === 'ordinary')?.parentElement?.hidden,
+      ).toBe(true);
+      expect(
+        cards.find((card) => card.querySelector('h2')?.textContent === 'persistent')?.parentElement?.hidden,
+      ).toBe(false);
+    } finally {
+      overlay.release();
+      wrapper.unmount();
+    }
+  });
 });

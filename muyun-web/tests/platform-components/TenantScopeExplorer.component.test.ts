@@ -82,4 +82,57 @@ describe('TenantScopeExplorer', () => {
       [[{ id: 'tenant-201', title: '第201个租户' }], false, 1],
     ]);
   });
+
+  it('reports the first unfiltered result as the full set even when a search answered first', async () => {
+    const pendingFull: Array<() => void> = [];
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (request.url.endsWith('/platform.module/iam.tenant/reference-context'))
+        return Response.json({
+          moduleAlias: 'iam.tenant',
+          capabilities: [],
+          abilities: ['crud'],
+          actions: [],
+        });
+      const body = JSON.parse(String(init?.body ?? '{}')) as { quickSearch?: string };
+      const page = (records: QueryListRecord[]) =>
+        Response.json({
+          records,
+          total: records.length,
+          pageNum: 1,
+          pageSize: 200,
+          pages: 1,
+          totalKnown: true,
+        });
+      if (body.quickSearch) return page([{ id: 'tenant-b', title: '租户B' }]);
+      return new Promise<Response>((resolve) =>
+        pendingFull.push(() =>
+          resolve(
+            page([
+              { id: 'tenant-a', title: '租户A' },
+              { id: 'tenant-b', title: '租户B' },
+            ]),
+          ),
+        ),
+      );
+    });
+    const context = createModuleContext<QueryListRecord>({
+      moduleAlias: 'iam.tenant',
+      http: createHttpClient({ baseUrl: 'http://api.local' }),
+      runtimeAccess: 'REFERENCE',
+    });
+    const wrapper = mount(TenantScopeExplorer, { props: { context, reloadKey: 0 } });
+    await flushPromises();
+    await wrapper.find('[title="搜索租户"]').trigger('click');
+    await wrapper.find('input').setValue('B');
+    await flushPromises();
+    await wrapper.find('input').setValue('');
+    await flushPromises();
+    pendingFull.splice(0).forEach((release) => release());
+    await flushPromises();
+
+    const loaded = wrapper.emitted('loaded') ?? [];
+    expect(loaded[0]).toEqual([[{ id: 'tenant-b', title: '租户B' }], false, 1]);
+    expect(loaded.filter((event) => event[1] === true)).toEqual([[expect.any(Array), true, 2]]);
+  });
 });

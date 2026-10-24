@@ -48,6 +48,9 @@ function requireHttp(http: HttpClient | undefined) {
 
 const hasLoadedFullSurface = () =>
   Boolean(browser.active.value?.record && browser.activeContext.value && slots['full-surface']);
+// A full surface owns its drawer. Do not open a temporary loading shell before replacing it.
+const fallbackDrawerOpen = () =>
+  Boolean(browser.active.value) && (!slots['full-surface'] || browser.active.value?.failed === true);
 </script>
 
 <template>
@@ -64,7 +67,7 @@ const hasLoadedFullSurface = () =>
   />
   <RecordDetailDrawer
     v-else
-    :open="Boolean(browser.active.value)"
+    :open="fallbackDrawerOpen()"
     :title="browser.title.value"
     :render-mode="props.inlineAnchor ? 'inline' : 'portal'"
     :scope="props.inlineAnchor ? 'tab' : 'viewport'"

@@ -29,8 +29,10 @@ const keyword = ref('');
 const initialFullResultDelivered = ref(false);
 
 function handleLoaded(records: QueryListRecord[], total?: number) {
-  const initialFullResult = !initialFullResultDelivered.value && !keyword.value.trim();
-  initialFullResultDelivered.value = true;
+  // Only an unfiltered response can stand for the full candidate set; an earlier search result must not consume it.
+  const unfiltered = !keyword.value.trim();
+  const initialFullResult = unfiltered && !initialFullResultDelivered.value;
+  if (unfiltered) initialFullResultDelivered.value = true;
   emit('loaded', records, initialFullResult, total);
 }
 </script>

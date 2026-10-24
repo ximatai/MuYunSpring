@@ -10,7 +10,8 @@ export interface ManagementWorkspaceContext {
   registerExplorer: (registration: ManagementWorkspaceExplorerRegistration) => void;
   unregisterExplorer: (id: string) => void;
   isExplorerCollapsed: (id: string) => boolean;
-  toggleExplorer: (id: string) => void;
+  expandExplorer: (id: string) => void;
+  collapseExplorer: (id: string) => void;
   collapsedExplorerOffset: (id: string) => number;
   hasCollapsedExplorers: ComputedRef<boolean>;
 }

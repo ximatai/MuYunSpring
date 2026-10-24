@@ -75,6 +75,51 @@ npm link <muyun-spring-repository>/build/consumer-npm/staging/web-app
 
 完整接入片段与组件见[顶栏业务入口示例](../../muyun-web/examples/business-web/README.md#工作台顶栏业务入口)。框架宿主中的演示图标仅在开发环境显示，业务 App 通过插槽自行装配；界面显隐不替代服务端授权。
 
+## 自定义业务页的执行租户选择
+
+公开入口提供 `TenantScopeExplorer` 与 `ManagementExplorerColumn`，复用内部标准页面的租户列表、
+远程搜索、刷新和折叠交互。所需 `ModuleContext`、`QueryListRecord`、`CurrentUser`、`HttpClient`
+同样从 `@ximatai/muyun-web-app` 导入，无需内部文件路径或源码 alias。
+
+完整最小页面见 [TenantScopedOverviewExample.vue](../../muyun-web/examples/business-web/src/views/TenantScopedOverviewExample.vue)。
+业务应用拥有该页面，传入当前身份、宿主 HTTP 客户端和自己的概览接口：
+
+```vue
+<TenantScopedOverviewExample
+  :current-user="currentUser"
+  :http="http"
+  overview-path="/business.overview"
+/>
+```
+
+接入约定：
+
+- 系统身份已加载且 `system === true` 时显示选择器。候选通过
+  `createModuleContext<QueryListRecord>({ moduleAlias: 'iam.tenant', runtimeAccess: 'REFERENCE', http })`
+  读取，继续接受 `iam.tenant` 的授权引用校验；不使用管理查询或客户端自造的租户目录。
+- 折叠列必须放在 `ManagementWorkspace` 内，显式设置 `collapsible`；`explorerCount` 与实际显示列数一致。
+  普通租户用户隐藏选择列，固定使用身份中的 `tenantId`；身份或执行租户缺失时暂停业务读取。
+- 租户目录使用未绑定执行租户的宿主客户端。业务请求为当前范围创建
+  `withHttpHeaders(http, { 'X-MuYun-Tenant-Id': tenantId })`，不改写全局客户端、登录身份或其他页签。
+- 身份、租户或接口改变时同步清空旧内容，取消旧请求，并拒绝已失效会话的迟到成功或错误。
+  同一轮宿主更新完成后才发送请求，避免组合中间状态。即使传输层忽略取消，旧响应也不能回填；
+  页面卸载使用同一释放边界。
+
+此选择只确定请求执行范围，不授予跨租户权限。业务接口仍须执行动作授权、有效租户校验和领域范围约束；
+候选读取成功不保证某个业务动作可执行。业务自有的详情请求、角色内容差异与编辑门禁由业务处理。
+
+安装包消费者验证会检查示例的 Vue 类型、独立构建与组件交互，不替代业务后端授权验收。
+
+## 临时业务提醒
+
+公开 `BusinessNotificationPanel` 继续接收 `notifications`、`executeAction` 和可选附件槽，不增加消息中心。
+铃铛位于右下角，切换本次提醒卡片的展开与收起（无面板外框）；叉号只移除本次页面展示，不代表业务完成。
+宿主用 `@dismiss` 同步删除内存集合对应项；组件也会本地排除，避免依赖宿主回传才更新数量。
+动作成功后是否移除由 `dismissOnSuccess` 声明；取消或失败返回 `false`。业务撤回通过更新输入集合表达。
+动作需要确认时使用公开 `confirmAction({ title: '确认操作', layer: 'notification' })`，使确认入口位于提醒之上。
+账号切换时以身份为 `key` 重建组件。刷新后集合清空，业务恢复仍由领域服务负责。
+边界和完整生命周期见[实时业务提醒接入](../platform/BUSINESS_NOTIFICATION_BACKEND_INTEGRATION.md#本次页面内的临时提醒)。
+
 ## 宿主请求与认证恢复
 
 标准模块、角色范围导航和用户在线状态共用宿主注入的 HTTP factory。辅助模块 API 通过

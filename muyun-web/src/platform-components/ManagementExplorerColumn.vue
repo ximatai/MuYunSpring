@@ -1,16 +1,6 @@
 <script setup lang="ts">
 import { useLanguageContext } from '@muyun/web-core';
-import {
-  computed,
-  getCurrentInstance,
-  inject,
-  nextTick,
-  onMounted,
-  onUnmounted,
-  provide,
-  ref,
-  watch,
-} from 'vue';
+import { computed, getCurrentInstance, inject, nextTick, onUnmounted, provide, ref, watch } from 'vue';
 import { UiButton } from '@muyun/vue-ui-antdv';
 import {
   MANAGEMENT_EXPLORER_COLUMN_CONTEXT,
@@ -46,7 +36,6 @@ const navigationDisabled = inject(
 const workspace = inject(MANAGEMENT_WORKSPACE_CONTEXT, undefined);
 const instance = getCurrentInstance();
 const id = `management-explorer-${instance?.uid ?? Math.random().toString(36).slice(2)}`;
-const previewOpen = ref(false);
 const collapsing = ref(false);
 const collapseLeaving = ref(false);
 const expanding = ref(false);
@@ -54,7 +43,6 @@ const contentElement = ref<HTMLElement>();
 const tabTriggerElement = ref<HTMLElement>();
 const tabTransitionOffset = ref(0);
 const tabTransitionWidth = ref<number>(MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.railWidth);
-let previewCloseTimer: ReturnType<typeof setTimeout> | undefined;
 let collapseTimer: ReturnType<typeof setTimeout> | undefined;
 let collapseStartTimer: ReturnType<typeof setTimeout> | undefined;
 let expandStartTimer: ReturnType<typeof setTimeout> | undefined;
@@ -97,13 +85,7 @@ watch(
   { immediate: true },
 );
 
-function dismissPreview(event: KeyboardEvent) {
-  if (event.key === 'Escape' && previewOpen.value) closePreview();
-}
-onMounted(() => document.addEventListener('keydown', dismissPreview));
 onUnmounted(() => {
-  document.removeEventListener('keydown', dismissPreview);
-  closePreview();
   clearCollapseTimers();
   if (expandStartTimer) clearTimeout(expandStartTimer);
   clearWorkspacePushAnimations();
@@ -117,14 +99,7 @@ function restore() {
   const measuredTabWidth = tabTriggerElement.value?.getBoundingClientRect().width ?? 0;
   tabTransitionWidth.value =
     measuredTabWidth > 0 ? measuredTabWidth : MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.railWidth;
-  // A narrow host keeps the navigator in an overlay instead of pushing the
-  // primary card outside the workspace. Clicking also works without hover.
-  workspace?.toggleExplorer(id);
-  if (collapsed.value) {
-    openPreview();
-    return;
-  }
-  closePreview();
+  workspace?.expandExplorer(id);
   expanding.value = true;
   void nextTick(() => {
     animateWorkspacePush(workspaceLayoutBeforeRestore);
@@ -139,15 +114,14 @@ function restore() {
 }
 
 function collapse() {
-  if (collapsed.value || collapsing.value) return;
+  if (collapsing.value || collapsed.value) return;
   const workspaceLayoutBeforeCollapse = captureWorkspaceLayout();
   if (expandStartTimer) clearTimeout(expandStartTimer);
   expandStartTimer = undefined;
   expanding.value = false;
   clearWorkspacePushAnimations();
-  closePreview();
   collapsing.value = true;
-  workspace?.toggleExplorer(id);
+  workspace?.collapseExplorer(id);
   void nextTick(() => {
     animateWorkspacePush(workspaceLayoutBeforeCollapse);
     // Keep the departing panel at its former position until the released grid
@@ -237,34 +211,6 @@ function clearWorkspacePushAnimations() {
   workspacePushCleanupTimer = undefined;
   workspacePushEffects = [];
 }
-
-function closePreview() {
-  clearPreviewCloseTimer();
-  previewOpen.value = false;
-}
-
-function openPreview() {
-  if (!collapsed.value) return;
-  clearPreviewCloseTimer();
-  previewOpen.value = true;
-}
-
-function schedulePreviewClose() {
-  clearPreviewCloseTimer();
-  previewCloseTimer = setTimeout(() => {
-    previewOpen.value = false;
-    previewCloseTimer = undefined;
-  }, 140);
-}
-
-function clearPreviewCloseTimer() {
-  if (previewCloseTimer) clearTimeout(previewCloseTimer);
-  previewCloseTimer = undefined;
-}
-
-watch(collapsed, (isCollapsed) => {
-  if (!isCollapsed) closePreview();
-});
 </script>
 
 <template>
@@ -278,15 +224,12 @@ watch(collapsed, (isCollapsed) => {
       'management-explorer-column--collapsing': collapsing,
       'management-explorer-column--collapse-leaving': collapseLeaving,
       'management-explorer-column--expanding': expanding,
-      'management-explorer-column--preview-open': previewOpen,
     }"
     :style="{
       '--muyun-management-collapsed-offset': `${collapsedOffset}px`,
       '--muyun-management-tab-transition-offset': `${tabTransitionOffset}px`,
       '--muyun-management-tab-transition-width': `${tabTransitionWidth}px`,
     }"
-    @pointerenter="openPreview"
-    @pointerleave="schedulePreviewClose"
   >
     <Transition name="management-explorer-tab">
       <div v-if="collapsed" ref="tabTriggerElement" class="management-explorer-column-tab-trigger">
@@ -316,7 +259,8 @@ watch(collapsed, (isCollapsed) => {
         </div>
       </div>
     </Transition>
-    <div ref="contentElement" class="management-explorer-column-content">
+    <!-- Retain navigator state without letting closed content contribute hidden scroll overflow. -->
+    <div v-show="!collapsed || collapsing" ref="contentElement" class="management-explorer-column-content">
       <slot />
     </div>
   </section>
@@ -449,7 +393,7 @@ watch(collapsed, (isCollapsed) => {
   color: var(--muyun-theme-text, var(--muyun-text));
 }
 
-/* The collapsed layout commits first; this overlay then exits as the rest of the workspace backfills. */
+/* The collapsed layout commits first; the departing panel exits as the rest of the workspace backfills. */
 .management-explorer-column--collapse-leaving .management-explorer-column-content {
   will-change: opacity, transform;
   opacity: 0;
@@ -475,7 +419,7 @@ watch(collapsed, (isCollapsed) => {
     calc(100cqw - var(--muyun-management-collapsed-rail-offset, 48px))
   );
   height: min(600px, calc(100vh - 120px));
-  min-height: 320px;
+  min-height: 0;
   border-radius: 8px;
   opacity: 0;
   pointer-events: none;
@@ -483,7 +427,7 @@ watch(collapsed, (isCollapsed) => {
   transition:
     opacity 0.18s ease,
     transform 0.18s cubic-bezier(0.2, 0, 0, 1),
-    visibility 0s linear 0.18s;
+    visibility 0s;
 }
 
 .management-explorer-column--collapsed.management-explorer-column--collapsing
@@ -502,18 +446,5 @@ watch(collapsed, (isCollapsed) => {
   .management-explorer-column-content {
   opacity: 0;
   transform: translateX(-36px);
-}
-
-.management-explorer-column--preview-open .management-explorer-column-content {
-  visibility: visible;
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0);
-  box-shadow: 0 14px 28px rgb(15 23 42 / 13%);
-  transition:
-    box-shadow 0.18s ease,
-    opacity 0.18s ease,
-    transform 0.18s cubic-bezier(0.2, 0, 0, 1),
-    visibility 0s;
 }
 </style>

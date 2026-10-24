@@ -1,7 +1,9 @@
 // This entry is built by the independently installed business consumer's Vite.
+export { default as TenantScopedOverviewExample } from './views/TenantScopedOverviewExample.vue';
 export { useRecordReadSession } from '@ximatai/muyun-web-app/record-read';
 export {
   AppWorkbenchShell,
+  BusinessNotificationPanel,
   ReadonlyRecordWorkspace,
   ReferencePicker,
   resolveRecordReadEntry,
@@ -11,6 +13,8 @@ export {
   usePageDescriptor,
   usePageRoute,
   ManagementWorkspace,
+  ManagementExplorerColumn,
+  TenantScopeExplorer,
   RecordQueryListSurface,
   RecordQueryListCell,
   RecordDetailPanel,

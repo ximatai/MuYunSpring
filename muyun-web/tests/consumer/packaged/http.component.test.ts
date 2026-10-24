@@ -9,6 +9,7 @@ import { createBusinessDirectoryReferenceProvider } from '../../../examples/busi
 type ConsumerContract = Pick<
   typeof Consumer,
   | 'AppWorkbenchShell'
+  | 'BusinessNotificationPanel'
   | 'ReadonlyRecordWorkspace'
   | 'ReferencePicker'
   | 'resolveRecordReadEntry'
@@ -715,4 +716,30 @@ it('published picker resolves unseen history and prevents removed history being 
   } finally {
     wrapper.unmount();
   }
+});
+
+it('consumes session-only reminders from the public package without treating close as business processing', async () => {
+  const executeAction = vi.fn();
+  const notice = {
+    id: 'session-one',
+    code: 'demo.notice',
+    title: '本次业务提醒',
+    content: '临时内容',
+    dismissible: true,
+    actions: [],
+  };
+  const wrapper = mount(sdk.BusinessNotificationPanel, {
+    props: { notifications: [notice, { ...notice }], executeAction },
+  });
+  expect(wrapper.get('.business-notification-badge').text()).toBe('1');
+  await wrapper.get('.business-notification-close').trigger('click');
+  expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
+  expect(wrapper.emitted('dismiss')).toEqual([['session-one']]);
+  expect(executeAction).not.toHaveBeenCalled();
+  await wrapper.setProps({ notifications: [{ ...notice, id: 'session-two' }] });
+  await wrapper.get('.business-notification-bell').trigger('click');
+  expect(wrapper.findAll('.business-notification-current .business-notification-card')).toHaveLength(1);
+  expect(wrapper.find('.business-notification-current-header').exists()).toBe(false);
+  expect(wrapper.get('.business-notification-bell').attributes('title')).toContain('刷新或退出后清空');
+  expect(wrapper.find('.business-notification-stack').exists()).toBe(false);
 });
