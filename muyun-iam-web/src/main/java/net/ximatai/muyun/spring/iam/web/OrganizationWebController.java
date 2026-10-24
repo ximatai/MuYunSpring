@@ -49,6 +49,7 @@ public class OrganizationWebController extends WebSupport<OrganizationService> i
                                         .title("机构档案")
                                         .field("title", field -> field.label("机构名称").required())
                                         .field("code", field -> field.label("机构编码").required())
+                                        .field("organizationType", field -> field.label("机构类型"))
                                         .field("parentId", field -> field.label("上级机构").recordPicker())
                                         .field("managerEmployeeId", field -> field.label("机构负责人").recordPicker())
                         .field("enabled", field -> field.label("启用状态").enabledStatus())))

@@ -1738,6 +1738,8 @@ export interface UserSessionView {
   maxExpiresAt?: string;
   lastSeenAt?: string;
   passwordChangeRequired?: boolean;
+  /** How the session was authenticated, for example `password`. */
+  authenticationMethod?: string;
   loginIp?: string;
   loginUserAgent?: string;
   terminalType?: string;
@@ -1762,7 +1764,8 @@ export interface UserSessionStatusView {
   idleSessionCount?: number;
 }
 
-export type UserPasswordStatus = 'normal' | 'initial' | 'resetRequired' | 'expired';
+/** `none` marks an account that has no local password and signs in through another method. */
+export type UserPasswordStatus = 'normal' | 'initial' | 'resetRequired' | 'expired' | 'none';
 
 export interface ResetPasswordResponse {
   count: number;

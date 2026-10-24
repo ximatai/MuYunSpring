@@ -10,6 +10,9 @@
 
 ### Changed
 
+- 未声明平台动作且未标注 `@AnonymousEndpoint` 的 HTTP 入口改为默认要求登录，不再对匿名请求静默放行；`/iam.auth/login`、`/iam.auth/logout` 与语言目录显式声明匿名访问。二开应用中确需匿名访问的接口（如外部回调）须在方法或类上标注 `@AnonymousEndpoint`。
+- 账号连续登录失败达到阈值后锁定，锁定期内不校验密码、统一返回认证失败；默认 5 次失败锁定 15 分钟，可通过 `muyun.iam.login.lockout.max-failed-attempts`（0 表示关闭）与 `muyun.iam.login.lockout.lock-duration` 调整。
+- 账号支持无本地密码状态（`passwordStatus=none`），此类账号不能使用密码登录；会话与登录审计记录登录方式，`iam_user.password_hash` 改为可空，`iam_user_session` 新增 `authentication_method`，机构新增可选的字典字段“机构类型”。
 - 业务提醒保留单卡片外观，统一为最新可处理提醒在左上方的右下堆叠；右下铃铛统一承接数量及卡片展开、收起，展开后直接排列独立卡片，不增加面板外框；展开、收起使用逐张移位过渡并遵循减少动态效果设置；铃铛提示本次页面提醒刷新后清空。关闭卡片仅移出本次展示，不代表业务处理；重复推送去重，过期、撤回及业务明确完成时同步更新集合与数量，不增加消息持久化或历史能力。
 
 ### Fixed

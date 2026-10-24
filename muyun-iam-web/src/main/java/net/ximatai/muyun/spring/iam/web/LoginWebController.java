@@ -17,6 +17,7 @@ import net.ximatai.muyun.spring.iam.tenant.TenantLoginContext;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import net.ximatai.muyun.spring.platform.web.PlatformStaticActionDeclaration;
 import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
+import net.ximatai.muyun.spring.common.platform.AnonymousEndpoint;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -53,6 +54,7 @@ public class LoginWebController {
         this.currentUserProfileService = currentUserProfileService;
     }
 
+    @AnonymousEndpoint
     @PostMapping("/login")
     public LoginResult login(@RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         validateLoginRequest(request);
@@ -67,6 +69,7 @@ public class LoginWebController {
         userSessionService.changeOwnPassword(currentUser.userId(), request.currentPassword(), request.newPassword());
     }
 
+    @AnonymousEndpoint
     @PostMapping("/logout")
     public void logout(HttpServletRequest request) {
         userSessionService.logout(bearerToken(request));

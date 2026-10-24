@@ -78,6 +78,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     private final UserSessionPresenceService userSessionPresenceService;
     private final SecureRandom secureRandom = new SecureRandom();
     private PlatformInitialAdminSettings initialAdminSettings = PlatformInitialAdminSettings.defaults();
+    private LoginLockoutPolicy loginLockoutPolicy = LoginLockoutPolicy.defaults();
     private static final ActionExecutionPolicy CHANGE_PASSWORD_POLICY = new ActionExecutionPolicy(
             "changePassword",
             PlatformActionLevel.RECORD,
@@ -106,6 +107,11 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     @Autowired
     public void setInitialAdminSettings(Optional<PlatformInitialAdminSettings> settings) {
         this.initialAdminSettings = settings.orElseGet(PlatformInitialAdminSettings::defaults);
+    }
+
+    @Autowired
+    public void setLoginLockoutPolicy(Optional<LoginLockoutPolicy> policy) {
+        this.loginLockoutPolicy = policy.orElseGet(LoginLockoutPolicy::defaults);
     }
 
     @Override
@@ -253,10 +259,21 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     @Override
     public void beforeInsert(UserAccount user) {
         syncSelfAuthUser(user);
-        validatePasswordPolicy(user.getPassword());
-        user.setPasswordHash(passwordHashingService.hash(user.getPassword()));
-        user.setPasswordStatus(user.getPasswordStatus() == null ? PasswordStatus.INITIAL : user.getPasswordStatus());
-        user.setPasswordChangedAt(user.getPasswordChangedAt() == null ? Instant.now() : user.getPasswordChangedAt());
+        if (user.getPasswordStatus() == PasswordStatus.NONE) {
+            if (user.getPassword() != null) {
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "iam.rejection.user-account.passwordless-account-must-not-carry-password",
+                        "account without local password must not carry a password"), Map.of());
+            }
+            user.setPasswordHash(null);
+            user.setPasswordChangedAt(null);
+            user.setPasswordExpiresAt(null);
+        } else {
+            validatePasswordPolicy(user.getPassword());
+            user.setPasswordHash(passwordHashingService.hash(user.getPassword()));
+            user.setPasswordStatus(user.getPasswordStatus() == null ? PasswordStatus.INITIAL : user.getPasswordStatus());
+            user.setPasswordChangedAt(user.getPasswordChangedAt() == null ? Instant.now() : user.getPasswordChangedAt());
+        }
         user.setFailedLoginCount(user.getFailedLoginCount() == null ? 0 : user.getFailedLoginCount());
         rejectDuplicateUsername(user);
     }
@@ -328,6 +345,13 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
 
     public String createUser(UserAccount user, String password) {
         user.setPassword(password);
+        return insert(user);
+    }
+
+    /** Creates an account that can only sign in through a non-password authentication method. */
+    public String createPasswordlessUser(UserAccount user) {
+        user.setPassword(null);
+        user.setPasswordStatus(PasswordStatus.NONE);
         return insert(user);
     }
 
@@ -459,17 +483,38 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
             user.setLastLoginIp(normalizeLength(ip, 64));
             user.setLastLoginUserAgent(normalizeLength(userAgent, 512));
             user.setFailedLoginCount(0);
+            user.setLockedUntil(null);
         });
     }
 
+    /**
+     * Counts a failed credential attempt. Reaching the lockout threshold locks the account and restarts
+     * the count, so an expired lock grants a fresh attempt budget instead of relocking on the next miss.
+     */
     public void recordLoginFailure(UserAccount user, Instant failedAt) {
         if (user == null || user.getId() == null || user.getId().isBlank()) {
             return;
         }
+        LoginLockoutPolicy policy = loginLockoutPolicy;
         VersionedRecordMutation.update(getDao(), () -> selectActiveRaw(user.getId()), latest -> {
             latest.setLastFailedLoginAt(failedAt);
-            latest.setFailedLoginCount((latest.getFailedLoginCount() == null ? 0 : latest.getFailedLoginCount()) + 1);
+            int failures = (latest.getFailedLoginCount() == null ? 0 : latest.getFailedLoginCount()) + 1;
+            if (policy.enabled() && failures >= policy.maxFailedAttempts()) {
+                latest.setLockedUntil(failedAt.plus(policy.lockDuration()));
+                latest.setFailedLoginCount(0);
+            } else {
+                latest.setFailedLoginCount(failures);
+            }
         });
+    }
+
+    public boolean loginLocked(UserAccount user, Instant now) {
+        return user != null && user.getLockedUntil() != null && now.isBefore(user.getLockedUntil());
+    }
+
+    public boolean hasLocalPassword(UserAccount user) {
+        return user != null && effectivePasswordStatus(user) != PasswordStatus.NONE
+                && user.getPasswordHash() != null && !user.getPasswordHash().isBlank();
     }
 
     public UserAccount requireActiveUser(String username) {

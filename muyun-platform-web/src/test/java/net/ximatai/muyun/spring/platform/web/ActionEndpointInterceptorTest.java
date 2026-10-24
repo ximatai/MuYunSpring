@@ -8,6 +8,8 @@ import net.ximatai.muyun.spring.common.identity.ActingContext;
 import net.ximatai.muyun.spring.common.identity.ActingContextHolder;
 import net.ximatai.muyun.spring.common.identity.BusinessPrincipal;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.platform.AnonymousEndpoint;
+import net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.ApplicationNotOpenedException;
@@ -73,6 +75,50 @@ class ActionEndpointInterceptorTest {
         ActionExecutionContextHolder.clear();
         RequestContextHolder.resetRequestAttributes();
         MDC.clear();
+    }
+
+    @Test
+    void shouldRequireLoginForEndpointWithoutAccessDeclaration() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/undeclared/data");
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new UndeclaredAccessController(), UndeclaredAccessController.class.getMethod("data"))))
+                .isInstanceOf(AuthenticationRequiredException.class);
+        assertThat(policyService.context).isNull();
+    }
+
+    @Test
+    void shouldAllowLoggedInUserOnEndpointWithoutAccessDeclaration() throws Exception {
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.tenantUser("u1", "User", "t1"))) {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/undeclared/data");
+
+            assertThat(interceptor.preHandle(request, new MockHttpServletResponse(),
+                    handler(new UndeclaredAccessController(), UndeclaredAccessController.class.getMethod("data"))))
+                    .isTrue();
+        }
+        assertThat(policyService.context).isNull();
+    }
+
+    @Test
+    void shouldAllowAnonymousCallerOnlyOnExplicitlyAnonymousEndpoint() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/public");
+
+        assertThat(interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new UndeclaredAccessController(), UndeclaredAccessController.class.getMethod("publicCatalog"))))
+                .isTrue();
+        assertThat(interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new AnonymousTypeController(), AnonymousTypeController.class.getMethod("exchange"))))
+                .isTrue();
+    }
+
+    @Test
+    void shouldNotRequireLoginForErrorDispatch() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/error");
+        request.setDispatcherType(jakarta.servlet.DispatcherType.ERROR);
+
+        assertThat(interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new UndeclaredAccessController(), UndeclaredAccessController.class.getMethod("data"))))
+                .isTrue();
     }
 
     @Test
@@ -802,11 +848,13 @@ class ActionEndpointInterceptorTest {
 
 
     @Test
-    void shouldIgnoreEndpointWithoutActionAnnotation() throws Exception {
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/iam.organization/actions");
+    void shouldSkipActionAuthorizationForLoggedInEndpointWithoutActionAnnotation() throws Exception {
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.tenantUser("u1", "User", "t1"))) {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/iam.organization/actions");
 
-        interceptor.preHandle(request, new MockHttpServletResponse(),
-                handler(new StaticScopedWeb(), ActionWeb.class.getMethod("actions")));
+            interceptor.preHandle(request, new MockHttpServletResponse(),
+                    handler(new StaticScopedWeb(), ActionWeb.class.getMethod("actions")));
+        }
 
         assertThat(policyService.context).isNull();
     }
@@ -914,6 +962,24 @@ class ActionEndpointInterceptorTest {
 
         @ActionEndpoint(PlatformAction.QUERY)
         public void standardQuery(WebQueryRequest request) {
+        }
+    }
+
+    private static final class UndeclaredAccessController {
+        public String data() {
+            return "data";
+        }
+
+        @AnonymousEndpoint
+        public String publicCatalog() {
+            return "catalog";
+        }
+    }
+
+    @AnonymousEndpoint
+    private static final class AnonymousTypeController {
+        public String exchange() {
+            return "exchange";
         }
     }
 

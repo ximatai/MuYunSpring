@@ -78,7 +78,10 @@ class UserLoginStateRepositoryIT {
             for (Future<?> future : futures) future.get(30, TimeUnit.SECONDS);
         }
         UserAccount stored = dao.findById(user.getId());
-        assertThat(stored.getFailedLoginCount()).isEqualTo(workers * writes);
+        // Every increment survives contention: each lock restarts the count, leaving only the remainder.
+        assertThat(stored.getFailedLoginCount())
+                .isEqualTo(workers * writes % LoginLockoutPolicy.DEFAULT_MAX_FAILED_ATTEMPTS);
+        assertThat(stored.getLockedUntil()).isNotNull();
         assertThat(stored.getVersion()).isEqualTo(workers * writes + 1);
         assertThat(stored.getPasswordHash()).isEqualTo("changed-password-hash");
         assertThat(stored.getPasswordStatus()).isEqualTo(PasswordStatus.RESET_REQUIRED);
@@ -104,6 +107,27 @@ class UserLoginStateRepositoryIT {
         assertThat(stored.getLastLoginAt()).isEqualTo(time);
         assertThat(stored.getLastLoginIp()).isEqualTo("127.0.0.1");
         assertThat(stored.getPasswordHash()).isEqualTo("original-hash");
+    }
+
+    @Test
+    void reachingFailureThresholdLocksAccountUntilSuccessfulLoginClearsIt() {
+        UserAccount user = insertUser("tenant-login-lockout");
+        Instant time = Instant.parse("2026-09-24T12:00:00Z");
+        try (var ignored = TenantContext.use(user.getTenantId())) {
+            for (int i = 0; i < LoginLockoutPolicy.DEFAULT_MAX_FAILED_ATTEMPTS; i++) {
+                service.recordLoginFailure(user, time);
+            }
+        }
+        UserAccount locked = dao.findById(user.getId());
+        assertThat(locked.getLockedUntil()).isEqualTo(time.plus(LoginLockoutPolicy.DEFAULT_LOCK_DURATION));
+        assertThat(locked.getFailedLoginCount()).isZero();
+        assertThat(service.loginLocked(locked, time.plusSeconds(1))).isTrue();
+        assertThat(service.loginLocked(locked, locked.getLockedUntil())).isFalse();
+
+        try (var ignored = TenantContext.use(user.getTenantId())) {
+            service.recordLoginSuccess(user.getId(), locked.getLockedUntil(), "127.0.0.1", "test-browser");
+        }
+        assertThat(dao.findById(user.getId()).getLockedUntil()).isNull();
     }
 
     @Test

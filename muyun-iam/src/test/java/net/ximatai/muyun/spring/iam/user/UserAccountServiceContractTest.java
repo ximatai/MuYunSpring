@@ -119,6 +119,43 @@ class UserAccountServiceContractTest {
     }
 
     @Test
+    void shouldCreatePasswordlessAccountWithoutHashOrPasswordPolicy() {
+        UserAccountDao dao = mock(UserAccountDao.class);
+        when(dao.insert(any())).thenAnswer(invocation -> invocation.<UserAccount>getArgument(0).getId());
+        UserAccountService service = userAccountService(dao, tenantId -> {
+        }, passwordHashingService);
+        UserAccount user = new UserAccount();
+        user.setUsername("alice");
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            service.createPasswordlessUser(user);
+        }
+
+        assertThat(user.getPasswordStatus()).isEqualTo(PasswordStatus.NONE);
+        assertThat(user.getPasswordHash()).isNull();
+        assertThat(user.getPasswordChangedAt()).isNull();
+        assertThat(service.hasLocalPassword(user)).isFalse();
+        assertThat(service.passwordChangeRequired(user, java.time.Instant.now())).isFalse();
+    }
+
+    @Test
+    void shouldRejectPasswordlessAccountCarryingPassword() {
+        UserAccountDao dao = mock(UserAccountDao.class);
+        UserAccountService service = userAccountService(dao, tenantId -> {
+        }, passwordHashingService);
+        UserAccount user = new UserAccount();
+        user.setUsername("alice");
+        user.setPasswordStatus(PasswordStatus.NONE);
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThatThrownBy(() -> service.createUser(user, "secret1"))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class);
+        }
+
+        verify(dao, never()).insert(any());
+    }
+
+    @Test
     void shouldDefaultUserTitleFromUsernameWhenMissing() {
         UserAccountDao dao = mock(UserAccountDao.class);
         when(dao.insert(any())).thenAnswer(invocation -> invocation.<UserAccount>getArgument(0).getId());

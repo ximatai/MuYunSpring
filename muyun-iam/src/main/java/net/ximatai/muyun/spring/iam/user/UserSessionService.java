@@ -82,93 +82,129 @@ public class UserSessionService {
     }
 
     public LoginResult login(String tenantId, String username, String password, String ip, String userAgent) {
-        String normalizedTenantId = normalizeBlank(tenantId);
-        String reasonCode = "LOGIN_FAILED";
-        UserAccount user = null;
-        boolean auditRecorded = false;
-        try (TenantContext.Scope ignored = loginTenantScope(normalizedTenantId)) {
-            if (normalizedTenantId != null) {
-                reasonCode = "TENANT_UNAVAILABLE";
-                verifyActiveTenantForLogin(normalizedTenantId);
+        LoginAttempt attempt = new LoginAttempt(normalizeBlank(tenantId), username, AuthenticationMethod.PASSWORD,
+                ip, userAgent);
+        try (TenantContext.Scope ignored = loginTenantScope(attempt.tenantId)) {
+            if (attempt.tenantId != null) {
+                attempt.reasonCode = "TENANT_UNAVAILABLE";
+                verifyActiveTenantForLogin(attempt.tenantId);
             }
-            user = userAccountService.findUserForLogin(normalizedTenantId, username);
+            UserAccount user = userAccountService.findUserForLogin(attempt.tenantId, username);
+            attempt.user = user;
             if (user == null) {
-                reasonCode = "UNKNOWN_ACCOUNT";
-                throw new AuthenticationFailedException("invalid username or password");
+                throw attempt.rejected("UNKNOWN_ACCOUNT");
             }
             if (!Boolean.TRUE.equals(user.getEnabled())) {
-                reasonCode = "ACCOUNT_UNAVAILABLE";
-                throw new AuthenticationFailedException("invalid username or password");
+                throw attempt.rejected("ACCOUNT_UNAVAILABLE");
+            }
+            Instant attemptedAt = now();
+            // A locked account never evaluates the password, so the lock cannot be used as a guessing oracle.
+            if (userAccountService.loginLocked(user, attemptedAt)) {
+                throw attempt.rejected("ACCOUNT_LOCKED");
+            }
+            if (!userAccountService.hasLocalPassword(user)) {
+                throw attempt.rejected("PASSWORD_NOT_SET");
             }
             if (!userAccountService.passwordMatches(user, password)) {
-                reasonCode = "BAD_CREDENTIALS";
-                try {
-                    userAccountService.recordLoginFailure(user, now());
-                } catch (RuntimeException exception) {
-                    reasonCode = "ACCOUNT_LOGIN_STATE_WRITE_FAILED";
-                    throw exception;
-                }
-                throw new AuthenticationFailedException("invalid username or password");
+                recordLoginFailure(attempt, user, attemptedAt);
+                throw attempt.rejected("BAD_CREDENTIALS");
             }
-            String token = newToken();
-            Instant issuedAt = now();
-            if (userAccountService.resetPasswordExpired(user, issuedAt)) {
-                reasonCode = "TEMPORARY_PASSWORD_EXPIRED";
-                try {
-                    userAccountService.recordLoginFailure(user, issuedAt);
-                } catch (RuntimeException exception) {
-                    reasonCode = "ACCOUNT_LOGIN_STATE_WRITE_FAILED";
-                    throw exception;
-                }
-                throw new AuthenticationFailedException("invalid username or password");
+            if (userAccountService.resetPasswordExpired(user, attemptedAt)) {
+                recordLoginFailure(attempt, user, attemptedAt);
+                throw attempt.rejected("TEMPORARY_PASSWORD_EXPIRED");
             }
-            boolean passwordChangeRequired = userAccountService.passwordChangeRequired(user, issuedAt);
-            CurrentUser currentUser = currentUserOf(user, passwordChangeRequired);
-            Instant maxExpiresAt = issuedAt.plus(SESSION_ABSOLUTE_TTL);
-            UserSession session = new UserSession();
-            session.setTenantId(currentUser.tenantId());
-            session.setUserId(currentUser.userId());
-            session.setUsername(currentUser.username());
-            session.setOrganizationId(currentUser.organizationId());
-            session.setTokenHash(tokenHash(token));
-            session.setIssuedAt(issuedAt);
-            session.setExpiresAt(nextIdleExpiresAt(issuedAt, maxExpiresAt));
-            session.setMaxExpiresAt(maxExpiresAt);
-            session.setLastSeenAt(issuedAt);
-            session.setPasswordChangeRequired(passwordChangeRequired);
-            session.setLoginIp(normalizeBlank(ip));
-            session.setLoginUserAgent(normalizeBlank(userAgent));
-            String sessionId;
-            try {
-                sessionId = userSessionRecordService.issue(session);
-            } catch (RuntimeException exception) {
-                reasonCode = "SESSION_ISSUE_FAILED";
-                throw exception;
-            }
-            if (session.getId() == null || session.getId().isBlank()) {
-                session.setId(sessionId);
-            }
-            try {
-                userAccountService.recordLoginSuccess(user.getId(), issuedAt, ip, userAgent);
-            } catch (RuntimeException exception) {
-                reasonCode = "ACCOUNT_LOGIN_STATE_WRITE_FAILED";
-                throw exception;
-            }
-            recordLoginAudit(user, normalizedTenantId, username, ip, issuedAt, LoginLogDetails.LoginOutcome.SUCCESS,
-                    null, currentUser.organizationId());
-            auditRecorded = true;
-            userSessionLifecycleEventPublisher.get()
-                    .publish(UserSessionLifecycleEvent.loggedIn(currentUser.userId(), session.getId()));
-            return LoginResult.bearer(token, session.getId(), issuedAt, currentUser,
-                    passwordChangeRequired,
-                    userAccountService.effectivePasswordStatus(user),
-                    user.getPasswordExpiresAt());
+            return issueSession(attempt, user);
         } catch (RuntimeException exception) {
-            if (!auditRecorded) {
-                recordLoginAudit(user, normalizedTenantId, username, ip, now(), LoginLogDetails.LoginOutcome.FAILURE,
-                        reasonCode, null);
-            }
+            attempt.recordFailureAudit();
             throw exception;
+        }
+    }
+
+    /**
+     * The single exit through which every authentication method obtains a platform session. Callers must
+     * have verified the credential and confirmed the account is active and unlocked in its tenant scope;
+     * this records the session, login state, audit and lifecycle event consistently for all methods.
+     */
+    private LoginResult issueSession(LoginAttempt attempt, UserAccount user) {
+        String token = newToken();
+        Instant issuedAt = now();
+        // Forced password change only constrains sessions that were opened with the password itself.
+        boolean passwordChangeRequired = attempt.method.isPassword()
+                && userAccountService.passwordChangeRequired(user, issuedAt);
+        CurrentUser currentUser = currentUserOf(user, passwordChangeRequired);
+        Instant maxExpiresAt = issuedAt.plus(SESSION_ABSOLUTE_TTL);
+        UserSession session = new UserSession();
+        session.setTenantId(currentUser.tenantId());
+        session.setUserId(currentUser.userId());
+        session.setUsername(currentUser.username());
+        session.setOrganizationId(currentUser.organizationId());
+        session.setTokenHash(tokenHash(token));
+        session.setIssuedAt(issuedAt);
+        session.setExpiresAt(nextIdleExpiresAt(issuedAt, maxExpiresAt));
+        session.setMaxExpiresAt(maxExpiresAt);
+        session.setLastSeenAt(issuedAt);
+        session.setPasswordChangeRequired(passwordChangeRequired);
+        session.setAuthenticationMethod(attempt.method.code());
+        session.setLoginIp(normalizeBlank(attempt.ip));
+        session.setLoginUserAgent(normalizeBlank(attempt.userAgent));
+        attempt.reasonCode = "SESSION_ISSUE_FAILED";
+        String sessionId = userSessionRecordService.issue(session);
+        if (session.getId() == null || session.getId().isBlank()) {
+            session.setId(sessionId);
+        }
+        attempt.reasonCode = "ACCOUNT_LOGIN_STATE_WRITE_FAILED";
+        userAccountService.recordLoginSuccess(user.getId(), issuedAt, attempt.ip, attempt.userAgent);
+        attempt.recordSuccessAudit(issuedAt, currentUser.organizationId());
+        userSessionLifecycleEventPublisher.get()
+                .publish(UserSessionLifecycleEvent.loggedIn(currentUser.userId(), session.getId()));
+        return LoginResult.bearer(token, session.getId(), issuedAt, currentUser,
+                passwordChangeRequired,
+                userAccountService.effectivePasswordStatus(user),
+                user.getPasswordExpiresAt());
+    }
+
+    private void recordLoginFailure(LoginAttempt attempt, UserAccount user, Instant failedAt) {
+        attempt.reasonCode = "ACCOUNT_LOGIN_STATE_WRITE_FAILED";
+        userAccountService.recordLoginFailure(user, failedAt);
+    }
+
+    /** Audit state of one login attempt; every rejection reaches clients as the same authentication failure. */
+    private final class LoginAttempt {
+        private final String tenantId;
+        private final String claimedAccount;
+        private final AuthenticationMethod method;
+        private final String ip;
+        private final String userAgent;
+        private UserAccount user;
+        private String reasonCode = "LOGIN_FAILED";
+        private boolean auditRecorded;
+
+        private LoginAttempt(String tenantId, String claimedAccount, AuthenticationMethod method,
+                             String ip, String userAgent) {
+            this.tenantId = tenantId;
+            this.claimedAccount = claimedAccount;
+            this.method = method;
+            this.ip = ip;
+            this.userAgent = userAgent;
+        }
+
+        private AuthenticationFailedException rejected(String reason) {
+            reasonCode = reason;
+            return new AuthenticationFailedException("invalid username or password");
+        }
+
+        private void recordSuccessAudit(Instant occurredAt, String organizationId) {
+            recordLoginAudit(user, tenantId, claimedAccount, method, ip, occurredAt,
+                    LoginLogDetails.LoginOutcome.SUCCESS, null, organizationId);
+            auditRecorded = true;
+        }
+
+        private void recordFailureAudit() {
+            if (!auditRecorded) {
+                recordLoginAudit(user, tenantId, claimedAccount, method, ip, now(),
+                        LoginLogDetails.LoginOutcome.FAILURE, reasonCode, null);
+                auditRecorded = true;
+            }
         }
     }
 
@@ -423,8 +459,8 @@ public class UserSessionService {
         return lookup == null ? UserSessionPresenceLookup.NONE : lookup;
     }
 
-    private void recordLoginAudit(UserAccount user, String tenantId, String username, String ip, Instant occurredAt,
-                                  LoginLogDetails.LoginOutcome outcome, String reasonCode,
+    private void recordLoginAudit(UserAccount user, String tenantId, String username, AuthenticationMethod method,
+                                  String ip, Instant occurredAt, LoginLogDetails.LoginOutcome outcome, String reasonCode,
                                   String operatorOrganizationId) {
         try {
             String confirmedAccount = user == null ? null : user.getUsername();
@@ -436,7 +472,7 @@ public class UserSessionService {
                             logTraceId(), limit(tenantId, 128),
                             user == null ? null : user.getId(), limit(confirmedAccount, 256), organizationId,
                             "iam.user", "login"),
-                    new LoginLogDetails("password", outcome, reasonCode, limit(ip, 64),
+                    new LoginLogDetails(method.code(), outcome, reasonCode, limit(ip, 64),
                             limit(username, 256), limit(confirmedAccount, 256)));
             LoginAuditLogger logger = loginAuditLogger.get();
             (logger == null ? LoginAuditLogger.NOOP : logger).record(event);

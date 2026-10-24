@@ -18,7 +18,7 @@ class OrganizationWebControllerTest {
 
         assertThat(page.navigator()).isNull();
         assertThat(page.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
-                .containsExactly("title", "code", "parentId", "managerEmployeeId", "enabled");
+                .containsExactly("title", "code", "organizationType", "parentId", "managerEmployeeId", "enabled");
     }
 
     @Test

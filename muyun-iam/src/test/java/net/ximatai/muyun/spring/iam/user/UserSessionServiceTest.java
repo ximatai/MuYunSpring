@@ -250,6 +250,121 @@ class UserSessionServiceTest {
     }
 
     @Test
+    void shouldLockAccountWhenConsecutiveFailuresReachThreshold() {
+        UserAccount user = activeUser();
+        user.setFailedLoginCount(LoginLockoutPolicy.DEFAULT_MAX_FAILED_ATTEMPTS - 1);
+        UserAccountDao dao = userDao();
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        UserSessionService sessionService = sessionService(userService, sessionDao, clock);
+
+        assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "wrong-password"))
+                .isInstanceOf(AuthenticationFailedException.class)
+                .hasMessageContaining("invalid username or password");
+
+        assertThat(writtenUser(dao).getLockedUntil())
+                .isEqualTo(clock.instant().plus(LoginLockoutPolicy.DEFAULT_LOCK_DURATION));
+        assertThat(writtenUser(dao).getFailedLoginCount()).isZero();
+        verify(sessionDao, never()).insert(any());
+    }
+
+    @Test
+    void shouldKeepCountingFailuresWhenLockoutIsDisabled() {
+        UserAccount user = activeUser();
+        user.setFailedLoginCount(LoginLockoutPolicy.DEFAULT_MAX_FAILED_ATTEMPTS - 1);
+        UserAccountDao dao = userDao();
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
+        userService.setLoginLockoutPolicy(Optional.of(LoginLockoutPolicy.of(0, null)));
+        UserSessionService sessionService = sessionService(userService, mock(UserSessionDao.class), clock);
+
+        assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "wrong-password"))
+                .isInstanceOf(AuthenticationFailedException.class);
+
+        assertThat(writtenUser(dao).getLockedUntil()).isNull();
+        assertThat(writtenUser(dao).getFailedLoginCount()).isEqualTo(LoginLockoutPolicy.DEFAULT_MAX_FAILED_ATTEMPTS);
+    }
+
+    @Test
+    void shouldRejectLockedAccountWithoutEvaluatingPasswordOrCountingFailure() {
+        UserAccount user = activeUser();
+        user.setLockedUntil(clock.instant().plusSeconds(60));
+        UserAccountDao dao = userDao();
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
+        UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock);
+
+        assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "secret1"))
+                .isInstanceOf(AuthenticationFailedException.class)
+                .hasMessageContaining("invalid username or password");
+
+        assertThat(auditLogger.events).singleElement()
+                .satisfies(event -> assertThat(event.details().reasonCode()).isEqualTo("ACCOUNT_LOCKED"));
+        verify(dao, never()).updateByIdAndVersion(any(UserAccount.class), any());
+        verify(sessionDao, never()).insert(any());
+    }
+
+    @Test
+    void shouldLoginAfterLockExpiresAndClearTheLock() {
+        UserAccount user = activeUser();
+        user.setLockedUntil(clock.instant());
+        UserAccountDao dao = userDao();
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        captureInsertedSession(sessionDao);
+        UserSessionService sessionService = sessionService(userService, sessionDao, clock);
+
+        sessionService.login("tenant-a", "alice", "secret1");
+
+        assertThat(writtenUser(dao).getLockedUntil()).isNull();
+        assertThat(writtenUser(dao).getFailedLoginCount()).isZero();
+    }
+
+    @Test
+    void shouldRejectPasswordLoginForAccountWithoutLocalPassword() {
+        UserAccount user = activeUser();
+        user.setPasswordStatus(PasswordStatus.NONE);
+        user.setPasswordHash(null);
+        UserAccountDao dao = userDao();
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
+        UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock);
+
+        assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "any-password"))
+                .isInstanceOf(AuthenticationFailedException.class)
+                .hasMessageContaining("invalid username or password");
+
+        assertThat(auditLogger.events).singleElement()
+                .satisfies(event -> assertThat(event.details().reasonCode()).isEqualTo("PASSWORD_NOT_SET"));
+        verify(dao, never()).updateByIdAndVersion(any(UserAccount.class), any());
+        verify(sessionDao, never()).insert(any());
+    }
+
+    @Test
+    void shouldRecordPasswordAuthenticationMethodOnSessionAndAudit() {
+        UserAccount user = activeUser();
+        UserAccountDao dao = userDao();
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        AtomicReference<UserSession> persistedSession = captureInsertedSession(sessionDao);
+        RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
+        UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock);
+
+        sessionService.login("tenant-a", "alice", "secret1");
+
+        assertThat(persistedSession.get().getAuthenticationMethod()).isEqualTo("password");
+        assertThat(auditLogger.events).singleElement()
+                .satisfies(event -> assertThat(event.details().authenticationMethod()).isEqualTo("password"));
+    }
+
+    @Test
     void shouldAuditSuccessfulLoginOnlyAfterSessionAndAccountStateAreWritten() {
         UserAccount user = activeUser();
         UserAccountDao dao = userDao();
@@ -688,6 +803,7 @@ class UserSessionServiceTest {
                         active.getMaxExpiresAt(),
                         active.getLastSeenAt(),
                         active.getPasswordChangeRequired(),
+                        null,
                         "127.0.0.1",
                         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/150.0.0.0 Safari/537.36",
                         "desktopWeb",
