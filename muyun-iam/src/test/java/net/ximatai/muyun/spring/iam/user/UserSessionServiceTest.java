@@ -160,8 +160,9 @@ class UserSessionServiceTest {
         UserAccount enabled = activeUser();
         UserAccount disabled = activeUser();
         disabled.setEnabled(Boolean.FALSE);
+        // Login reads the account for the credential check and again when admitting it for issuance.
         when(dao.query(any(Criteria.class), any(PageRequest.class)))
-                .thenReturn(List.of(enabled))
+                .thenReturn(List.of(enabled), List.of(enabled))
                 .thenReturn(List.of(disabled));
         UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
@@ -322,6 +323,47 @@ class UserSessionServiceTest {
 
         assertThat(writtenUser(dao).getLockedUntil()).isNull();
         assertThat(writtenUser(dao).getFailedLoginCount()).isZero();
+    }
+
+    @Test
+    void shouldNotIssueSessionWhenAccountLockedAfterCredentialCheck() {
+        UserAccount user = activeUser();
+        UserAccount lockedMeanwhile = activeUser();
+        lockedMeanwhile.setLockedUntil(clock.instant().plusSeconds(60));
+        UserAccountDao dao = userDao();
+        // The login lookup sees the account unlocked; a racing failure locks it before the success write.
+        when(dao.query(any(Criteria.class), any(PageRequest.class)))
+                .thenReturn(List.of(user), List.of(lockedMeanwhile));
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
+        UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock);
+
+        assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "secret1"))
+                .isInstanceOf(AuthenticationFailedException.class)
+                .hasMessageContaining("invalid username or password");
+
+        assertThat(auditLogger.events).singleElement()
+                .satisfies(event -> assertThat(event.details().reasonCode()).isEqualTo("ACCOUNT_STATE_CHANGED"));
+        verify(dao, never()).updateByIdAndVersion(any(UserAccount.class), any());
+        verify(sessionDao, never()).insert(any());
+    }
+
+    @Test
+    void shouldNotCountRacingFailureAgainstAlreadyLockedAccount() {
+        UserAccount user = activeUser();
+        UserAccount lockedMeanwhile = activeUser();
+        lockedMeanwhile.setLockedUntil(clock.instant().plusSeconds(60));
+        UserAccountDao dao = userDao();
+        when(dao.query(any(Criteria.class), any(PageRequest.class)))
+                .thenReturn(List.of(user), List.of(lockedMeanwhile));
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
+        UserSessionService sessionService = sessionService(userService, mock(UserSessionDao.class), clock);
+
+        assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "wrong-password"))
+                .isInstanceOf(AuthenticationFailedException.class);
+
+        verify(dao, never()).updateByIdAndVersion(any(UserAccount.class), any());
     }
 
     @Test

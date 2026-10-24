@@ -121,9 +121,11 @@ public class UserSessionService {
     }
 
     /**
-     * The single exit through which every authentication method obtains a platform session. Callers must
-     * have verified the credential and confirmed the account is active and unlocked in its tenant scope;
-     * this records the session, login state, audit and lifecycle event consistently for all methods.
+     * The single exit through which every authentication method obtains a platform session. Callers verify
+     * the credential inside the account's tenant scope; this entry then re-admits the account against its
+     * latest stored state before any session exists, so a lock or disablement that raced the credential
+     * check still prevents issuance, and records session, audit and lifecycle event the same way for all
+     * methods.
      */
     private LoginResult issueSession(LoginAttempt attempt, UserAccount user) {
         String token = newToken();
@@ -147,13 +149,17 @@ public class UserSessionService {
         session.setAuthenticationMethod(attempt.method.code());
         session.setLoginIp(normalizeBlank(attempt.ip));
         session.setLoginUserAgent(normalizeBlank(attempt.userAgent));
+        // Login state is written before the session: login is not transactional, so a session must never
+        // be persisted for an account whose admission check below fails.
+        attempt.reasonCode = "ACCOUNT_LOGIN_STATE_WRITE_FAILED";
+        if (!userAccountService.recordLoginSuccess(user.getId(), issuedAt, attempt.ip, attempt.userAgent)) {
+            throw attempt.rejected("ACCOUNT_STATE_CHANGED");
+        }
         attempt.reasonCode = "SESSION_ISSUE_FAILED";
         String sessionId = userSessionRecordService.issue(session);
         if (session.getId() == null || session.getId().isBlank()) {
             session.setId(sessionId);
         }
-        attempt.reasonCode = "ACCOUNT_LOGIN_STATE_WRITE_FAILED";
-        userAccountService.recordLoginSuccess(user.getId(), issuedAt, attempt.ip, attempt.userAgent);
         attempt.recordSuccessAudit(issuedAt, currentUser.organizationId());
         userSessionLifecycleEventPublisher.get()
                 .publish(UserSessionLifecycleEvent.loggedIn(currentUser.userId(), session.getId()));

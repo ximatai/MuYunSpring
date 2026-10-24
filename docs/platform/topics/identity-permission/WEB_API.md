@@ -16,7 +16,7 @@
 
 后续请求通过 `Authorization: Bearer <token>` 解析当前用户。服务端在 `iam_user_session` 中保存 token hash，不保存明文 token；session 使用滑动过期并受绝对过期时间约束；同一用户允许多端登录。解析成功后，Web Filter 会写入 `CurrentUserContext`；租户用户同步写入 `TenantContext`，系统用户进入系统态。登出和修改密码会撤销对应 session。
 
-`/iam.auth/login` 和 `/iam.auth/logout` 显式声明匿名访问；`/iam.auth/context`、`/iam.auth/changeOwnPassword` 等其余未声明平台动作的入口默认要求登录。连续登录失败达到阈值后账号锁定，锁定期内的登录请求与密码错误返回同样的认证失败；未设置本地密码的账号不能使用密码登录。
+`/iam.auth/login` 和 `/iam.auth/logout` 以 `@AnonymousEndpoint` 声明匿名访问，`/iam.auth/login-context` 以匿名平台动作声明；`/iam.auth/context`、`/iam.auth/changeOwnPassword` 等其余入口要求登录。连续登录失败达到阈值后账号锁定，锁定期内的登录请求与密码错误返回同样的认证失败，`changeOwnPassword` 的当前密码校验同样受锁定约束；未设置本地密码的账号不能使用密码登录。
 
 ## 通用管理接口
 

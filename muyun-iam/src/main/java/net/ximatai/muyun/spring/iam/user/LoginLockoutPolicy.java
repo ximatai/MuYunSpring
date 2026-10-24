@@ -5,6 +5,8 @@ import java.time.Duration;
 /**
  * Account lockout after consecutive credential failures. A locked account rejects every credential
  * attempt until the lock expires, and the attempt outcome stays indistinguishable from a bad password.
+ * Applications configure it through {@code muyun.iam.login.lockout.*}; it is not a bean replacement
+ * extension point.
  */
 public interface LoginLockoutPolicy {
     int DEFAULT_MAX_FAILED_ATTEMPTS = 5;

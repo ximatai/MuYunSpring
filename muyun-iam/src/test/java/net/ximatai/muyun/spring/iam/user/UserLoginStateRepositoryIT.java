@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.iam.employee.EmployeeDelegationService;
 import net.ximatai.muyun.spring.common.schema.PlatformEntityManagers;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -28,6 +29,7 @@ import javax.sql.DataSource;
 import java.time.Instant;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -54,6 +56,8 @@ class UserLoginStateRepositoryIT {
     @Test
     void concurrentFailuresKeepEveryIncrementAndConcurrentCredentialChanges() throws Exception {
         UserAccount user = insertUser("tenant-login-concurrent");
+        // Lockout restarts the count; disable it so every increment stays observable.
+        service.setLoginLockoutPolicy(Optional.of(LoginLockoutPolicy.of(0, null)));
         int workers = 6;
         int writes = 12;
         CountDownLatch start = new CountDownLatch(1);
@@ -78,10 +82,8 @@ class UserLoginStateRepositoryIT {
             for (Future<?> future : futures) future.get(30, TimeUnit.SECONDS);
         }
         UserAccount stored = dao.findById(user.getId());
-        // Every increment survives contention: each lock restarts the count, leaving only the remainder.
-        assertThat(stored.getFailedLoginCount())
-                .isEqualTo(workers * writes % LoginLockoutPolicy.DEFAULT_MAX_FAILED_ATTEMPTS);
-        assertThat(stored.getLockedUntil()).isNotNull();
+        assertThat(stored.getFailedLoginCount()).isEqualTo(workers * writes);
+        assertThat(stored.getLockedUntil()).isNull();
         assertThat(stored.getVersion()).isEqualTo(workers * writes + 1);
         assertThat(stored.getPasswordHash()).isEqualTo("changed-password-hash");
         assertThat(stored.getPasswordStatus()).isEqualTo(PasswordStatus.RESET_REQUIRED);
@@ -107,6 +109,24 @@ class UserLoginStateRepositoryIT {
         assertThat(stored.getLastLoginAt()).isEqualTo(time);
         assertThat(stored.getLastLoginIp()).isEqualTo("127.0.0.1");
         assertThat(stored.getPasswordHash()).isEqualTo("original-hash");
+    }
+
+    @AfterEach
+    void restoreLockoutPolicy() {
+        service.setLoginLockoutPolicy(Optional.empty());
+    }
+
+    @Test
+    void passwordlessAccountPersistsWithoutPasswordHash() {
+        UserAccount user = new UserAccount();
+        user.setUsername(UUID.randomUUID().toString());
+        user.setPasswordStatus(PasswordStatus.NONE);
+        try (var ignored = TenantContext.use("tenant-login-passwordless")) {
+            service.insert(user);
+        }
+        UserAccount stored = dao.findById(user.getId());
+        assertThat(stored.getPasswordStatus()).isEqualTo(PasswordStatus.NONE);
+        assertThat(stored.getPasswordHash()).isNull();
     }
 
     @Test
@@ -169,6 +189,7 @@ class UserLoginStateRepositoryIT {
         user.setTitle(user.getUsername());
         user.setPasswordHash("original-hash");
         user.setFailedLoginCount(0);
+        user.setEnabled(Boolean.TRUE);
         user.setTenantId(tenant);
         EntityLifecycle.prepareInsert(user, Instant.now());
         dao.insert(user);

@@ -7,18 +7,25 @@
 ### Added
 
 - 公开 `TenantScopeExplorer` 与 `ManagementExplorerColumn`，供自定义业务页复用平台租户列表和可折叠导航；补充只依赖公开包的执行租户示例及安装包消费者契约，保留普通用户固定租户、请求范围隔离和迟到响应防护。
+- 账号连续登录失败达到阈值后锁定，锁定期内不校验密码、对外统一返回认证失败；默认 5 次失败锁定 15 分钟，可通过 `muyun.iam.login.lockout.max-failed-attempts`（0 表示关闭）与 `muyun.iam.login.lockout.lock-duration` 配置。修改本人密码时的当前密码校验同样受锁定约束并计入失败次数；管理员设置或重置密码会解除锁定。
+- 账号支持无本地密码状态（`passwordStatus=none`），此类账号不能使用密码登录；会话与登录审计记录登录方式。
+- 机构新增可选的字典字段“机构类型”（`iam.organization_type`），平台预置公司、分支机构、事业部，租户可在本租户字典中扩展。
+- 新增 `@AnonymousEndpoint`，用于显式声明不属于平台动作、允许匿名访问的单个 HTTP 方法。
 
 ### Changed
 
-- 未声明平台动作且未标注 `@AnonymousEndpoint` 的 HTTP 入口改为默认要求登录，不再对匿名请求静默放行；`/iam.auth/login`、`/iam.auth/logout` 与语言目录显式声明匿名访问。二开应用中确需匿名访问的接口（如外部回调）须在方法或类上标注 `@AnonymousEndpoint`。
-- 账号连续登录失败达到阈值后锁定，锁定期内不校验密码、统一返回认证失败；默认 5 次失败锁定 15 分钟，可通过 `muyun.iam.login.lockout.max-failed-attempts`（0 表示关闭）与 `muyun.iam.login.lockout.lock-duration` 调整。
-- 账号支持无本地密码状态（`passwordStatus=none`），此类账号不能使用密码登录；会话与登录审计记录登录方式，`iam_user.password_hash` 改为可空，`iam_user_session` 新增 `authentication_method`，机构新增可选的字典字段“机构类型”。
 - 业务提醒保留单卡片外观，统一为最新可处理提醒在左上方的右下堆叠；右下铃铛统一承接数量及卡片展开、收起，展开后直接排列独立卡片，不增加面板外框；展开、收起使用逐张移位过渡并遵循减少动态效果设置；铃铛提示本次页面提醒刷新后清空。关闭卡片仅移出本次展示，不代表业务处理；重复推送去重，过期、撤回及业务明确完成时同步更新集合与数量，不增加消息持久化或历史能力。
 
 ### Fixed
 
 - 标准模块从抽屉内继续打开引用详情时，不再先打开加载占位抽屉再替换为目标抽屉，避免闪烁及重复滑入；普通只读引用的加载提示和引用失败展示保持原有行为。
 - 管理导航的手动展开和收起优先于自动宽度策略，并在当前页面会话内保持；手动展开恢复标准并排布局，支持多个导航同时展开，宽度不足时通过最小宽度和横向滚动承接，不再使用浮层。
+
+### Compatibility
+
+- 未声明平台动作且未标注 `@AnonymousEndpoint` 的 HTTP 入口改为默认要求登录，不再对匿名请求静默放行。二开应用中确需匿名访问的接口（如外部回调）须在对应方法上标注 `@AnonymousEndpoint`；属于平台动作的入口继续使用 `ActionAccessMode.ANONYMOUS_ALLOWED`，两者不能同时声明。
+- `iam_user.password_hash` 改为可空，`iam_user_session` 新增 `authentication_method`，`iam_organization` 新增 `organization_type`。开发态 schema 自动迁移；严格迁移模式不会自动放宽非空约束，升级已有库需先执行 `ALTER TABLE iam_user ALTER COLUMN password_hash DROP NOT NULL`。
+- `UserSessionView` 在 `passwordChangeRequired` 之后新增 `authenticationMethod` 组件，直接调用其构造器的代码需要补充参数；`PasswordStatus` 新增 `NONE`，按状态穷举处理的代码需要覆盖该值。
 
 ## 0.26.23 - 2026-10-23
 

@@ -106,19 +106,36 @@ class ActionEndpointInterceptorTest {
         assertThat(interceptor.preHandle(request, new MockHttpServletResponse(),
                 handler(new UndeclaredAccessController(), UndeclaredAccessController.class.getMethod("publicCatalog"))))
                 .isTrue();
-        assertThat(interceptor.preHandle(request, new MockHttpServletResponse(),
-                handler(new AnonymousTypeController(), AnonymousTypeController.class.getMethod("exchange"))))
-                .isTrue();
     }
 
     @Test
-    void shouldNotRequireLoginForErrorDispatch() throws Exception {
+    void shouldRequireLoginWhenErrorDispatchTargetsOrdinaryController() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/undeclared/data");
+        request.setDispatcherType(jakarta.servlet.DispatcherType.ERROR);
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new UndeclaredAccessController(), UndeclaredAccessController.class.getMethod("data"))))
+                .isInstanceOf(AuthenticationRequiredException.class);
+    }
+
+    @Test
+    void shouldNotRequireLoginForContainerErrorController() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/error");
         request.setDispatcherType(jakarta.servlet.DispatcherType.ERROR);
 
         assertThat(interceptor.preHandle(request, new MockHttpServletResponse(),
-                handler(new UndeclaredAccessController(), UndeclaredAccessController.class.getMethod("data"))))
+                handler(new ContainerErrorController(), ContainerErrorController.class.getMethod("error"))))
                 .isTrue();
+    }
+
+    @Test
+    void shouldRejectAnonymousMarkerCombinedWithActionDeclaration() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/conflict");
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new ConflictingAnonymousController(), ConflictingAnonymousController.class.getMethod("query"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("anonymous endpoint cannot also declare a platform action");
     }
 
     @Test
@@ -976,10 +993,17 @@ class ActionEndpointInterceptorTest {
         }
     }
 
-    @AnonymousEndpoint
-    private static final class AnonymousTypeController {
-        public String exchange() {
-            return "exchange";
+    private static final class ContainerErrorController implements org.springframework.boot.webmvc.error.ErrorController {
+        public String error() {
+            return "error";
+        }
+    }
+
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class, alias = "platform.workflow_admin", title = "Workflow Admin")
+    private static final class ConflictingAnonymousController {
+        @AnonymousEndpoint
+        @net.ximatai.muyun.spring.common.platform.CustomActionEndpoint("workflowAdminQuery")
+        public void query() {
         }
     }
 

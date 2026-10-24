@@ -16,6 +16,7 @@ import net.ximatai.muyun.spring.iam.role.EmploymentRoleGrantDao;
 import net.ximatai.muyun.spring.iam.role.RoleActionDao;
 import net.ximatai.muyun.spring.iam.role.RoleService;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
+import net.ximatai.muyun.spring.iam.user.LoginLockoutPolicy;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategory;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService;
@@ -47,6 +48,25 @@ class MuYunSpringIdentityConfigurationTest {
     private final ApplicationContextRunner bootstrapContextRunner = new ApplicationContextRunner()
             .withUserConfiguration(MuYunSpringBootstrapConfiguration.class,
                     MenuInitialDataAbilityConfiguration.class);
+
+    @Test
+    void shouldBindLoginLockoutPolicyFromProperties() {
+        identityContextRunner.run(context -> {
+            LoginLockoutPolicy policy = context.getBean(LoginLockoutPolicy.class);
+            assertThat(policy.maxFailedAttempts()).isEqualTo(LoginLockoutPolicy.DEFAULT_MAX_FAILED_ATTEMPTS);
+            assertThat(policy.lockDuration()).isEqualTo(LoginLockoutPolicy.DEFAULT_LOCK_DURATION);
+        });
+        identityContextRunner.withPropertyValues(
+                        "muyun.iam.login.lockout.max-failed-attempts=0",
+                        "muyun.iam.login.lockout.lock-duration=30m")
+                .run(context -> {
+                    LoginLockoutPolicy policy = context.getBean(LoginLockoutPolicy.class);
+                    assertThat(policy.enabled()).isFalse();
+                    assertThat(policy.lockDuration()).isEqualTo(java.time.Duration.ofMinutes(30));
+                });
+        identityContextRunner.withPropertyValues("muyun.iam.login.lockout.lock-duration=0s")
+                .run(context -> assertThat(context).hasFailed());
+    }
 
     @Test
     void shouldCollectMenuServicesAsInitialDataAbilities() {

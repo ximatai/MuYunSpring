@@ -330,6 +330,24 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void requiresLoginForUndeclaredEndpointsAndKeepsTheAnonymousSurfaceExplicit() {
+        var denied = restTemplate.getForEntity("/platform.menu/mine", JsonNode.class);
+        assertThat(denied.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(denied.getBody().path("code").asText()).isEqualTo("AUTH_REQUIRED");
+
+        var mappings = applicationContext.getBean("requestMappingHandlerMapping",
+                org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping.class);
+        var anonymousPaths = mappings.getHandlerMethods().entrySet().stream()
+                .filter(entry -> entry.getValue().hasMethodAnnotation(
+                        net.ximatai.muyun.spring.common.platform.AnonymousEndpoint.class))
+                .flatMap(entry -> entry.getKey().getPatternValues().stream())
+                .collect(java.util.stream.Collectors.toSet());
+        // Adding an anonymous endpoint is a security decision; extend this list deliberately.
+        assertThat(anonymousPaths).containsExactlyInAnyOrder(
+                "/iam.auth/login", "/iam.auth/logout", "/platform.localization/catalog");
+    }
+
+    @Test
     void exposesDeploymentLanguagesBeforeLoginAndBindsTheEffectiveRequestLanguage() {
         var headers = new org.springframework.http.HttpHeaders();
         headers.set("Accept-Language", "en-US");
