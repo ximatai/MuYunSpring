@@ -69,7 +69,7 @@ muyun:
 
 平台按事件发生时间计算排他截止点，仅删除 `occurredAt` 严格早于截止点的事实；等于截止点的事件继续保留。立即清理使用该日志类型当前配置的保留天数，即使其自动清理开关关闭也可以人工执行。每次执行受单批数量和每类策略最大批次数双重限制，达到上限会明确报告未完成并等待下次调度或人工继续，不用一次大事务清空历史数据。PostgreSQL 适配器使用数据库 advisory lock 保证集群内同一时刻只有一个清理执行者。
 
-清理能力拆分为存储中立的 `BusinessLogRetentionStore`、`BusinessLogRetentionPolicyStore`、平台治理服务和 Starter 调度适配。自定义日志存储只有同时显式实现物理清理与策略持久化能力后才会装配完整治理服务；普通 `BusinessLogStore` 不会被假定支持物理删除。日志清理仍是日志专题能力，不包装成通用任务中心。
+清理能力拆分为存储中立的 `BusinessLogRetentionStore`、`BusinessLogRetentionPolicyStore`、平台治理服务和 Starter 调度适配。自定义日志存储只有同时显式实现物理清理与策略持久化能力后才会装配完整治理服务；普通 `BusinessLogStore` 不会被假定支持物理删除。日志清理仍是日志专题能力；自动调度按 [后台作业与定时调度设计](BACKGROUND_JOB_SCHEDULING.md) 迁为平台级定时作业，迁移后清理逻辑、批次上限、存储层互斥与 `scheduled-enabled` 语义保持不变。
 
 ```yaml
 muyun:

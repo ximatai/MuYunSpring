@@ -6,7 +6,7 @@
 
 当前目录是平台内部建设和交接的主入口。临时专项记录和已收口清单不长期保留；如果后续发现新的平台缺口，应优先判断它属于哪个业务专题，只有跨专题且尚未形成稳定边界时才临时记录为技术债或专项治理项。
 
-跨专题边界优先放在平台根文档中沉淀。例如 [审计与专题流水边界](AUDIT_AND_PROCESS_LOG_BOUNDARY.md) 用于判断平台运行审计和业务专题流水的职责分工，[外部写入接入边界](EXTERNAL_WRITE_BOUNDARY.md) 用于约束第三方系统、外围平台和后台集成写入平台的方式，[后台任务与异步批次边界](BACKGROUND_JOB_AND_BATCH_BOUNDARY.md) 用于约束长耗时执行、重试、补偿和进度留痕。
+跨专题边界优先放在平台根文档中沉淀。例如 [审计与专题流水边界](AUDIT_AND_PROCESS_LOG_BOUNDARY.md) 用于判断平台运行审计和业务专题流水的职责分工，[外部写入接入边界](EXTERNAL_WRITE_BOUNDARY.md) 用于约束第三方系统、外围平台和后台集成写入平台的方式，[后台任务与异步批次边界](BACKGROUND_JOB_AND_BATCH_BOUNDARY.md) 用于判断哪些执行进入平台后台作业，[后台作业与定时调度设计](BACKGROUND_JOB_SCHEDULING.md) 说明计划、运行、执行身份和失败处理的统一机制。
 
 ## 阅读方式
 
@@ -53,7 +53,8 @@
 | [日志系统专项治理](LOGGING_GOVERNANCE.md)                                   | 记录已交付的登录审计、访问与动作统计、请求错误和程序日志核心后端能力，以及存储适配边界和明确限制。 |
 | [软删除、回收站与删除日志治理](SOFT_DELETION_AND_RECYCLE_BIN_GOVERNANCE.md) | 说明软删除、业务回收站、递归级联、恢复、唯一键冲突提示与删除运维审计的统一边界。                                     |
 | [外部写入接入边界](EXTERNAL_WRITE_BOUNDARY.md)                              | 说明外部写入应复用标准模块动作、权限、租户、校验、生命周期和运行审计；幂等、回执、重试和报文治理按触发条件后续建设。 |
-| [后台任务与异步批次边界](BACKGROUND_JOB_AND_BATCH_BOUNDARY.md)              | 说明同步批量动作、异步导入、补偿任务、进度查询、重试和批次模型的建设触发条件。                                       |
+| [后台任务与异步批次边界](BACKGROUND_JOB_AND_BATCH_BOUNDARY.md)              | 说明同步动作、后台作业、节点本地调度的归属判断，以及作业运行与专题事实、运行审计的分工。                             |
+| [后台作业与定时调度设计](BACKGROUND_JOB_SCHEDULING.md)                      | 说明定时作业、排队作业与动态配置作业共用的计划、运行、集群执行、执行身份、失败提醒、留存与现有调度迁移（待实现）。   |
 | [动作结果与数据变更契约](ACTION_RESULT_AND_DATA_CHANGE.md)                  | 说明业务动作成功回执、可读消息、数据变化事实、HTTP 包装和异步广播之间的统一契约。                                    |
 | [平台实时通信设计](REALTIME_COMMUNICATION.md)                               | 说明 WebSocket/STOMP 实时通信底座、前后端封装边界、数据变化广播、双向通信预留和后续可靠性演进。                      |
 | [实时业务提醒后端接入](BUSINESS_NOTIFICATION_BACKEND_INTEGRATION.md)        | 说明业务服务发布在线提醒、按 IAM 范围接收、导航/命令动作和可靠性边界。                                               |
