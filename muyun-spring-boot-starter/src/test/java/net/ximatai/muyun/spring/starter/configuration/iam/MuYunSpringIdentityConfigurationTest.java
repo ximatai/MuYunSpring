@@ -69,6 +69,25 @@ class MuYunSpringIdentityConfigurationTest {
     }
 
     @Test
+    void shouldBindExternalIdentityFederationAddressesAndRejectUnsafeOnes() {
+        identityContextRunner.withPropertyValues(
+                        "muyun.iam.federation.api-base-url=https://platform.example.com/api",
+                        "muyun.iam.federation.workbench-url=https://platform.example.com/app/",
+                        "muyun.iam.federation.transaction-ttl=2m")
+                .run(context -> {
+                    var settings = context.getBean(
+                            net.ximatai.muyun.spring.iam.federation.ExternalIdentityFederationSettings.class);
+                    assertThat(settings.apiBaseUrl()).hasToString("https://platform.example.com/api");
+                    assertThat(settings.workbenchUrl()).hasToString("https://platform.example.com/app/");
+                    assertThat(settings.transactionTtl()).isEqualTo(java.time.Duration.ofMinutes(2));
+                });
+        identityContextRunner.withPropertyValues("muyun.iam.federation.workbench-url=javascript:alert(1)")
+                .run(context -> assertThat(context).hasFailed());
+        identityContextRunner.withPropertyValues("muyun.iam.federation.workbench-url=https://evil.example/?next=x")
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
     void shouldCollectMenuServicesAsInitialDataAbilities() {
         bootstrapContextRunner.run(context -> {
             Map<String, InitialDataAbility> abilities = context.getBeansOfType(InitialDataAbility.class);

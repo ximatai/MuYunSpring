@@ -28,6 +28,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -121,6 +122,49 @@ public class UserSessionService {
     }
 
     /**
+     * Opens a session for an account whose identity a trusted platform flow has already verified through
+     * another authentication method, such as external identity federation.
+     *
+     * @hidden Internal IAM collaborator: the caller must have verified the identity server-side and resolved
+     * it to {@code userId} inside {@code tenantId}; business code signs users in through the HTTP login entries.
+     */
+    public LoginResult loginWithVerifiedIdentity(String tenantId, String userId, AuthenticationMethod method,
+                                                 String claimedAccount, String ip, String userAgent) {
+        if (Objects.requireNonNull(method, "method").isPassword()) {
+            throw new IllegalArgumentException("password login must verify the password through login()");
+        }
+        LoginAttempt attempt = new LoginAttempt(normalizeBlank(tenantId), claimedAccount, method, ip, userAgent);
+        if (attempt.tenantId == null) {
+            // Platform super administrators only sign in with their local password.
+            throw attempt.rejected("SYSTEM_ACCOUNT_NOT_ALLOWED");
+        }
+        try (TenantContext.Scope ignored = TenantContext.use(attempt.tenantId)) {
+            attempt.reasonCode = "TENANT_UNAVAILABLE";
+            verifyActiveTenantForLogin(attempt.tenantId);
+            UserAccount user = userAccountService.select(userId);
+            attempt.user = user;
+            if (user == null) {
+                throw attempt.rejected("UNKNOWN_ACCOUNT");
+            }
+            if (!Boolean.TRUE.equals(user.getEnabled())) {
+                throw attempt.rejected("ACCOUNT_UNAVAILABLE");
+            }
+            return issueSession(attempt, user);
+        } catch (RuntimeException exception) {
+            attempt.recordFailureAudit();
+            throw exception;
+        }
+    }
+
+    /** Whether the session behind {@code token} is active and was issued within {@code window}. */
+    public boolean authenticatedWithin(String token, Duration window) {
+        UserSession session = sessionByToken(token);
+        Instant now = now();
+        return isActive(session, now) && session.getIssuedAt() != null
+                && !session.getIssuedAt().isBefore(now.minus(window));
+    }
+
+    /**
      * The single exit through which every authentication method obtains a platform session. Callers verify
      * the credential inside the account's tenant scope; this entry then re-admits the account against its
      * latest stored state before any session exists, so a lock, disablement or password change that raced
@@ -133,7 +177,8 @@ public class UserSessionService {
         Instant maxExpiresAt = issuedAt.plus(SESSION_ABSOLUTE_TTL);
         attempt.reasonCode = "ACCOUNT_LOGIN_STATE_WRITE_FAILED";
         // Admission and the session insert share one transaction: the session is built from the admitted
-        // latest account, and no session is ever persisted for an account whose admission fails.
+        // latest account, and no session is ever persisted for an account whose admission fails. The login
+        // lock defends the local password, so it neither blocks nor is cleared by other methods.
         IssuedSession issued = userAccountService.admitLogin(verified, attempt.method.isPassword(), issuedAt,
                 attempt.ip, attempt.userAgent, user -> {
                     attempt.reasonCode = "SESSION_ISSUE_FAILED";

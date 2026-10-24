@@ -31,14 +31,6 @@ public class BearerTokenCurrentUserProvider implements CurrentUserProvider {
     }
 
     private String bearerToken(HttpServletRequest request) {
-        String header = request.getHeader("Authorization");
-        if (header == null || header.isBlank()) {
-            return null;
-        }
-        String prefix = "Bearer ";
-        if (!header.regionMatches(true, 0, prefix, 0, prefix.length())) {
-            return null;
-        }
-        return header.substring(prefix.length()).trim();
+        return BearerTokens.from(request);
     }
 }

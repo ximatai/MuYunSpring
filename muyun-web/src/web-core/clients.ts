@@ -2,12 +2,15 @@ import type {
   ChangeOwnPasswordRequest,
   CurrentUserProfile,
   CurrentUser,
+  ExternalLoginRedemption,
+  ExternalLoginStart,
   LoginRequest,
   LoginResult,
   UpdateCurrentUserProfileRequest,
   MenuMineResponse,
   MenuOpenMode,
   MenuTreeNode,
+  OwnExternalIdentities,
   PageBootstrap,
   TenantBranding,
   TenantLoginContext,
@@ -34,6 +37,15 @@ export interface AuthClient {
   currentProfile(token: string): Promise<CurrentUserProfile>;
   updateCurrentProfile(request: UpdateCurrentUserProfileRequest, token: string): Promise<CurrentUserProfile>;
   logout(token?: string): Promise<void>;
+}
+
+/** External identity sign-in and the current user's bindings; available only when federation is enabled. */
+export interface ExternalLoginClient {
+  startLogin(providerId: string, tenantId: string): Promise<ExternalLoginStart>;
+  startBind(providerId: string, token: string): Promise<ExternalLoginStart>;
+  redeem(transactionId: string, browserProof: string): Promise<ExternalLoginRedemption>;
+  identities(token: string): Promise<OwnExternalIdentities>;
+  unbind(identityId: string, token: string): Promise<void>;
 }
 
 /** Resolves the public context used by a tenant-locked login entry. */
@@ -132,6 +144,39 @@ function normalizeMenuEntryType(value: unknown): 'module' | 'route' | 'link' | u
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+export function createExternalLoginClient(http: HttpClient): ExternalLoginClient {
+  const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
+  const segment = (value: string) => encodeURIComponent(value);
+  return {
+    startLogin: (providerId, tenantId) =>
+      http.request<ExternalLoginStart>({
+        method: 'POST',
+        path: `/iam.auth/external/${segment(providerId)}/login`,
+        body: { tenantId },
+      }),
+    startBind: (providerId, token) =>
+      http.request<ExternalLoginStart>({
+        method: 'POST',
+        path: `/iam.auth/external/${segment(providerId)}/bind`,
+        headers: bearer(token),
+      }),
+    redeem: (transactionId, browserProof) =>
+      http.request<ExternalLoginRedemption>({
+        method: 'POST',
+        path: `/iam.auth/external/transactions/${segment(transactionId)}/redeem`,
+        body: { browserProof },
+      }),
+    identities: (token) =>
+      http.request<OwnExternalIdentities>({ path: '/iam.auth/external/identities', headers: bearer(token) }),
+    unbind: (identityId, token) =>
+      http.request<void>({
+        method: 'POST',
+        path: `/iam.auth/external/identities/${segment(identityId)}/delete`,
+        headers: bearer(token),
+      }),
+  };
 }
 
 export function createAuthClient(http: HttpClient): AuthClient {

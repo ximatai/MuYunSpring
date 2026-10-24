@@ -1,0 +1,51 @@
+package net.ximatai.muyun.spring.iam.federation;
+
+import lombok.Getter;
+import lombok.Setter;
+import net.ximatai.muyun.database.core.annotation.Column;
+import net.ximatai.muyun.database.core.annotation.Default;
+import net.ximatai.muyun.database.core.annotation.TrueOrFalse;
+import net.ximatai.muyun.database.core.annotation.Table;
+import net.ximatai.muyun.database.core.builder.ColumnType;
+import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
+import net.ximatai.muyun.spring.common.model.constraint.Required;
+import net.ximatai.muyun.spring.common.model.constraint.TenantUniqueConstraint;
+import net.ximatai.muyun.spring.common.model.standard.StandardEnabledSortableEntity;
+import net.ximatai.muyun.spring.common.option.OptionField;
+import net.ximatai.muyun.spring.common.option.OptionLoad;
+import net.ximatai.muyun.spring.common.option.OptionSourceType;
+
+/** A tenant's decision to accept one identity provider and how its users may use it. */
+@Getter
+@Setter
+@Table(name = "iam_tenant_identity_policy", comment = "Tenant external identity policy")
+@TenantUniqueConstraint(fields = "providerId")
+public class TenantIdentityPolicy extends StandardEnabledSortableEntity {
+    @Column(name = "provider_id", type = ColumnType.VARCHAR, length = 64, nullable = false,
+            comment = "Identity provider id")
+    @ReferenceTo(target = IdentityProviderService.class, tenantScope = ReferenceTenantScope.GLOBAL)
+    @Required
+    private String providerId;
+
+    @ReferenceLoad(source = "providerId", field = "title")
+    private transient String providerTitle;
+
+    @Column(name = "login_enabled", type = ColumnType.BOOLEAN, nullable = false,
+            comment = "Whether users may sign in with this provider", defaultVal = @Default(bool = TrueOrFalse.TRUE))
+    private Boolean loginEnabled = Boolean.TRUE;
+
+    @Column(name = "binding_enabled", type = ColumnType.BOOLEAN, nullable = false,
+            comment = "Whether signed-in users may bind this provider", defaultVal = @Default(bool = TrueOrFalse.TRUE))
+    private Boolean bindingEnabled = Boolean.TRUE;
+
+    @OptionField(type = OptionSourceType.ENUM)
+    @Column(name = "provisioning_mode", type = ColumnType.VARCHAR, length = 32, nullable = false,
+            comment = "Handling of verified identities without a local account",
+            defaultVal = @Default(varchar = "disabled"))
+    private ProvisioningMode provisioningMode = ProvisioningMode.DISABLED;
+
+    @OptionLoad(source = "provisioningMode")
+    private transient String provisioningModeTitle;
+}

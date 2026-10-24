@@ -3,13 +3,99 @@ import { createLanguageContext, provideLanguageContext } from '@muyun/web-core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import LoginView from '@/app/LoginView.vue';
-import type { AuthClient, LoginContextClient } from '@/web-core/clients';
+import { navigateToExternalAuthorization } from '@/app/externalLoginReturn';
+
+vi.mock('@/app/externalLoginReturn', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/app/externalLoginReturn')>()),
+  navigateToExternalAuthorization: vi.fn(),
+}));
+import type { AuthClient, ExternalLoginClient, LoginContextClient } from '@/web-core/clients';
 import { AppError, platformErrorCodes } from '@/web-core/errors';
-import type { TenantBranding } from '@/web-contracts';
+import type { ExternalLoginMethod, TenantBranding } from '@/web-contracts';
 
 describe('LoginView', () => {
   afterEach(() => {
     window.history.replaceState({}, '', '/');
+    window.sessionStorage.clear();
+  });
+
+  it('offers the tenant external sign-in methods and keeps the browser proof out of the address', async () => {
+    window.history.replaceState({}, '', '/?tenant=tenant-a');
+    const external = externalLoginClient();
+    const wrapper = mount(LoginView, {
+      props: {
+        authClient: authClient(),
+        loginContextClient: loginContextClient(undefined, [
+          { providerId: 'welink', title: 'WeLink', providerType: 'welink' },
+        ]),
+        externalLoginClient: external,
+      },
+    });
+    await flushPromises();
+
+    const button = wrapper
+      .findAll('button')
+      .find((candidate) => candidate.text().includes('使用 WeLink 登录'));
+    expect(button).toBeDefined();
+    await button!.trigger('click');
+    await flushPromises();
+
+    expect(external.startLogin).toHaveBeenCalledWith('welink', 'tenant-a');
+    expect(navigateToExternalAuthorization).toHaveBeenCalledWith('https://idp.test/authorize?state=s');
+    expect(window.sessionStorage.getItem('muyun.externalLogin.pending')).toContain('proof-1');
+  });
+
+  it('signs in with the redeemed external session when the provider returns this browser', async () => {
+    window.sessionStorage.setItem(
+      'muyun.externalLogin.pending',
+      JSON.stringify([{ transactionId: 'tx-1', browserProof: 'proof-1', purpose: 'login' }]),
+    );
+    window.history.replaceState({}, '', '/?_muyunTenantId=tenant-a&_muyunExternalLogin=tx-1');
+    const login = {
+      token: 'token-1',
+      tokenType: 'Bearer',
+      issuedAt: '2026-10-24T00:00:00Z',
+      currentUser: {},
+    };
+    const external = externalLoginClient({
+      redeem: vi.fn().mockResolvedValue({ status: 'succeeded', purpose: 'login', login }),
+    });
+    const wrapper = mount(LoginView, {
+      props: {
+        authClient: authClient(),
+        loginContextClient: loginContextClient(),
+        externalLoginClient: external,
+      },
+    });
+    await flushPromises();
+
+    expect(external.redeem).toHaveBeenCalledWith('tx-1', 'proof-1');
+    expect(wrapper.emitted('authenticated')?.[0]).toEqual([login]);
+    expect(window.location.search).toBe('?_muyunTenantId=tenant-a');
+  });
+
+  it('explains an unbound external identity instead of signing in', async () => {
+    window.sessionStorage.setItem(
+      'muyun.externalLogin.pending',
+      JSON.stringify([{ transactionId: 'tx-1', browserProof: 'proof-1', purpose: 'login' }]),
+    );
+    window.history.replaceState({}, '', '/?_muyunTenantId=tenant-a&_muyunExternalLogin=tx-1');
+    const external = externalLoginClient({
+      redeem: vi
+        .fn()
+        .mockResolvedValue({ status: 'denied', purpose: 'login', failureCode: 'IDENTITY_NOT_BOUND' }),
+    });
+    const wrapper = mount(LoginView, {
+      props: {
+        authClient: authClient(),
+        loginContextClient: loginContextClient(),
+        externalLoginClient: external,
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.emitted('authenticated')).toBeUndefined();
+    expect(wrapper.find('.login-error').text()).toContain('尚未绑定');
   });
 
   it('switches labels and an existing failure while preserving credentials and the login contract', async () => {
@@ -162,11 +248,29 @@ function loginContextClient(
     title: '租户 A',
     subtitle: '租户专属工作台',
   },
+  externalLoginMethods: ExternalLoginMethod[] = [],
 ): LoginContextClient {
   return {
     loginContext: vi.fn().mockResolvedValue({
       tenantId: 'tenant-a',
       branding,
+      externalLoginMethods,
     }),
+  };
+}
+
+function externalLoginClient(overrides: Partial<ExternalLoginClient> = {}): ExternalLoginClient {
+  return {
+    startLogin: vi.fn().mockResolvedValue({
+      transactionId: 'tx-1',
+      authorizationUrl: 'https://idp.test/authorize?state=s',
+      browserProof: 'proof-1',
+      expiresAt: '2026-10-24T00:03:00Z',
+    }),
+    startBind: vi.fn(),
+    redeem: vi.fn(),
+    identities: vi.fn(),
+    unbind: vi.fn(),
+    ...overrides,
   };
 }

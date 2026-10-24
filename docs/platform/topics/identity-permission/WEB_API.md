@@ -18,6 +18,22 @@
 
 `/iam.auth/login` 和 `/iam.auth/logout` 以 `@AnonymousEndpoint` 声明匿名访问，`/iam.auth/login-context` 以匿名平台动作声明；`/iam.auth/context`、`/iam.auth/changeOwnPassword` 等其余入口要求登录。连续登录失败达到阈值后账号锁定，锁定期内的登录请求与密码错误返回同样的认证失败，`changeOwnPassword` 的当前密码校验同样受锁定约束；未设置本地密码的账号不能使用密码登录。
 
+## 外部身份登录与绑定
+
+仅在 `muyun.iam.federation.enabled=true` 时装配，设计见 [外部身份联邦设计](EXTERNAL_IDENTITY_FEDERATION.md)。
+
+| 方法   | URL                                                          | 功能                                                                                                                                         |
+| ------ | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/iam.auth/external/{providerId}/login`                      | 匿名。请求体 `tenantId`；为锁定租户建立登录事务，返回事务标识、授权地址、仅供本浏览器保存的 `browserProof` 和过期时间。                      |
+| `POST` | `/iam.auth/external/{providerId}/bind`                       | 要求登录且当前会话在 5 分钟内建立；为当前账号建立绑定事务，返回同上。                                                                        |
+| `GET`  | `/iam.auth/external/{providerId}/callback`                   | 匿名。身份源回调；平台完成事务后 302 重定向到工作台，地址只附加 `_muyunTenantId` 与 `_muyunExternalLogin`（事务标识）。                     |
+| `POST` | `/iam.auth/external/transactions/{transactionId}/redeem`     | 匿名。请求体 `browserProof`；一次性兑换事务结果，返回 `status`、`failureCode`，登录成功时附 `login`（与密码登录结果相同），绑定成功时附 `binding`。 |
+| `GET`  | `/iam.auth/external/identities`                              | 要求登录。返回当前账号的绑定和仍可绑定的身份源。                                                                                             |
+| `POST` | `/iam.auth/external/identities/{identityId}/delete`          | 要求登录且会话在 5 分钟内建立；解除本人绑定，不允许解除无本地密码账号的最后一个登录方式。                                                    |
+| `GET`  | `/iam.auth/external/mock/authorize`                          | 匿名，仅开发模式且开启模拟身份源时存在。模拟身份源的授权页，只接受回调到本平台的 `redirect_uri`。                                            |
+
+管理模块：`/iam.identity_provider`（平台超级管理员维护身份源，标准 CRUD 与启停）、`/iam.tenant_identity_policy`（租户维护外部登录方式，开户策略当前只接受 `disabled`）、`/iam.external_identity`（绑定只读查询，可通过标准删除动作解除）。
+
 ## 通用管理接口
 
 下列模块复用通用 CRUD、启停、排序或树接口：

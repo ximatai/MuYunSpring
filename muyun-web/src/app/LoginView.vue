@@ -8,11 +8,19 @@ import {
   normalizeError,
   userFacingErrorMessage,
   type AuthClient,
+  type ExternalLoginClient,
   type LoginContextClient,
 } from '@muyun/web-core';
-import type { LoginResult, TenantBranding } from '@muyun/web-contracts';
+import type { ExternalLoginMethod, LoginResult, TenantBranding } from '@muyun/web-contracts';
 import { UiButton, UiInput } from '@muyun/vue-ui-antdv';
 import { normalizeInitialValue, resolveLoginTenantDefaults } from './loginTenant';
+import {
+  externalLoginFailureMessage,
+  navigateToExternalAuthorization,
+  rememberExternalLogin,
+  stripExternalLoginReturnFromLocation,
+  takeReturningExternalLogin,
+} from './externalLoginReturn';
 
 const language = useLanguageContext();
 
@@ -21,6 +29,8 @@ defineOptions({ name: 'LoginView' });
 const props = defineProps<{
   authClient: AuthClient;
   loginContextClient?: LoginContextClient;
+  /** Enables external sign-in on tenant-locked entries that offer it. */
+  externalLoginClient?: ExternalLoginClient;
   loading?: boolean;
   error?: string;
   /** Used only when the form is first created; URL-locked tenants always take precedence. */
@@ -48,6 +58,8 @@ const confirmPassword = ref('');
 const tenantBranding = ref<TenantBranding>();
 const loginContextLoading = ref(false);
 const loginContextError = ref<() => string>();
+const externalMethods = ref<ExternalLoginMethod[]>([]);
+const externalBusy = ref(false);
 const canSubmit = computed(() => !tenantLocked || (!loginContextLoading.value && !loginContextError.value));
 const showLoginTitleArea = computed(() => tenantBranding.value?.mode !== 'logoOnly');
 const loginTitle = computed(
@@ -56,6 +68,7 @@ const loginTitle = computed(
 const loginSubtitle = computed(() => tenantBranding.value?.subtitle);
 
 onMounted(async () => {
+  await redeemReturningExternalLogin();
   if (!tenantLocked || !tenantId.value) {
     return;
   }
@@ -66,6 +79,7 @@ onMounted(async () => {
     }
     const context = await props.loginContextClient.loginContext(tenantId.value);
     tenantBranding.value = context.branding;
+    externalMethods.value = props.externalLoginClient ? (context.externalLoginMethods ?? []) : [];
   } catch {
     loginContextError.value = () =>
       language.t(
@@ -76,6 +90,52 @@ onMounted(async () => {
     loginContextLoading.value = false;
   }
 });
+
+/** Finishes a sign-in this browser started before the provider round trip. */
+async function redeemReturningExternalLogin() {
+  const pending = takeReturningExternalLogin();
+  stripExternalLoginReturnFromLocation();
+  if (!pending || !props.externalLoginClient) {
+    return;
+  }
+  if (pending.purpose !== 'login') {
+    formError.value = () =>
+      language.t(
+        'platform.screen.ExternalLogin.bind-needs-sign-in',
+        '登录状态已失效，绑定未完成，请登录后重新绑定',
+      );
+    return;
+  }
+  externalBusy.value = true;
+  try {
+    const redemption = await props.externalLoginClient.redeem(pending.transactionId, pending.browserProof);
+    if (redemption.status === 'succeeded' && redemption.login) {
+      emit('authenticated', redemption.login);
+      return;
+    }
+    formError.value = () => externalLoginFailureMessage(redemption, language);
+  } catch (cause) {
+    formError.value = () => loginErrorMessage(cause);
+  } finally {
+    externalBusy.value = false;
+  }
+}
+
+async function startExternalLogin(method: ExternalLoginMethod) {
+  if (!props.externalLoginClient) {
+    return;
+  }
+  formError.value = undefined;
+  externalBusy.value = true;
+  try {
+    const start = await props.externalLoginClient.startLogin(method.providerId, tenantId.value);
+    rememberExternalLogin(start, 'login');
+    navigateToExternalAuthorization(start.authorizationUrl);
+  } catch (cause) {
+    formError.value = () => loginErrorMessage(cause);
+    externalBusy.value = false;
+  }
+}
 
 async function submit() {
   formError.value = undefined;
@@ -226,7 +286,25 @@ async function submitPasswordChange() {
           }}
         </UiButton>
       </form>
-      <form v-else class="login-form" @submit.prevent="submitPasswordChange">
+      <div v-if="!passwordChangeRequired && externalMethods.length > 0" class="login-external">
+        <p class="login-external-divider">
+          {{ language.t('platform.screen.ExternalLogin.or-sign-in-with', '或使用以下方式登录') }}
+        </p>
+        <UiButton
+          v-for="method in externalMethods"
+          :key="method.providerId"
+          class="login-submit"
+          :loading="externalBusy"
+          @click="startExternalLogin(method)"
+        >
+          {{
+            language.t('platform.screen.ExternalLogin.sign-in-with', '使用 {provider} 登录', {
+              provider: method.title,
+            })
+          }}
+        </UiButton>
+      </div>
+      <form v-else-if="passwordChangeRequired" class="login-form" @submit.prevent="submitPasswordChange">
         <p class="login-context">
           {{
             language.t(
@@ -348,6 +426,18 @@ label {
 .login-submit {
   width: 100%;
   min-height: 40px;
+}
+
+.login-external {
+  display: grid;
+  gap: 10px;
+}
+
+.login-external-divider {
+  margin: 0;
+  color: var(--muyun-support-text-muted);
+  font-size: 12px;
+  text-align: center;
 }
 
 button:disabled {

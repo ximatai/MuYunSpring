@@ -3660,7 +3660,24 @@
       "platform.workflow-config.enable-confirm": "启用此流程？",
       "platform.read-view.refresh": "刷新",
       "platform.read-view.empty": "暂无符合条件的记录",
-      "platform.form.server-error-row": "{relation}第 {row} 行：{field}"
+      "platform.form.server-error-row": "{relation}第 {row} 行：{field}",
+      "platform.screen.ExternalLogin.authorization-expired": "授权已超时，请重新发起",
+      "platform.screen.ExternalLogin.identity-not-bound": "该外部账号尚未绑定本系统账号，请先用账号密码登录，在个人信息中绑定后再使用",
+      "platform.screen.ExternalLogin.identity-conflict": "该外部账号已绑定其他账号",
+      "platform.screen.ExternalLogin.already-bound": "当前账号已绑定该身份源",
+      "platform.screen.ExternalLogin.enterprise-mismatch": "该外部账号不属于允许的企业",
+      "platform.screen.ExternalLogin.provider-unavailable": "身份源暂时不可用，请稍后重试",
+      "platform.screen.ExternalLogin.authorization-failed": "外部授权未通过，请重试或联系管理员",
+      "platform.screen.ExternalLogin.bind-needs-sign-in": "登录状态已失效，绑定未完成，请登录后重新绑定",
+      "platform.screen.ExternalLogin.or-sign-in-with": "或使用以下方式登录",
+      "platform.screen.ExternalLogin.sign-in-with": "使用 {provider} 登录",
+      "platform.screen.ExternalLogin.bound": "已绑定 {provider}",
+      "platform.screen.ExternalIdentityBindings.title": "外部账号绑定",
+      "platform.screen.ExternalIdentityBindings.unbind-title": "解除外部账号绑定",
+      "platform.screen.ExternalIdentityBindings.unbind-content": "解除后将无法再通过 {provider} 登录当前账号。",
+      "platform.screen.ExternalIdentityBindings.unbind": "解除绑定",
+      "platform.screen.ExternalIdentityBindings.not-bound": "未绑定",
+      "platform.screen.ExternalIdentityBindings.bind": "去绑定"
     }
   },
   "en": {
@@ -7325,7 +7342,24 @@
       "platform.workflow-config.enable-confirm": "Enable this workflow?",
       "platform.read-view.refresh": "Refresh",
       "platform.read-view.empty": "No matching records",
-      "platform.form.server-error-row": "{relation}, row {row}: {field}"
+      "platform.form.server-error-row": "{relation}, row {row}: {field}",
+      "platform.screen.ExternalLogin.authorization-expired": "The authorization timed out. Please start again.",
+      "platform.screen.ExternalLogin.identity-not-bound": "This external account is not linked to an account here. Sign in with your password and link it under My profile first.",
+      "platform.screen.ExternalLogin.identity-conflict": "This external account is already linked to another account.",
+      "platform.screen.ExternalLogin.already-bound": "Your account is already linked to this identity provider.",
+      "platform.screen.ExternalLogin.enterprise-mismatch": "This external account does not belong to an allowed organization.",
+      "platform.screen.ExternalLogin.provider-unavailable": "The identity provider is temporarily unavailable. Please try again later.",
+      "platform.screen.ExternalLogin.authorization-failed": "External authorization failed. Try again or contact your administrator.",
+      "platform.screen.ExternalLogin.bind-needs-sign-in": "Your session ended before linking finished. Sign in and link the account again.",
+      "platform.screen.ExternalLogin.or-sign-in-with": "Or sign in with",
+      "platform.screen.ExternalLogin.sign-in-with": "Sign in with {provider}",
+      "platform.screen.ExternalLogin.bound": "Linked {provider}",
+      "platform.screen.ExternalIdentityBindings.title": "Linked external accounts",
+      "platform.screen.ExternalIdentityBindings.unbind-title": "Unlink external account",
+      "platform.screen.ExternalIdentityBindings.unbind-content": "After unlinking, you can no longer sign in to this account with {provider}.",
+      "platform.screen.ExternalIdentityBindings.unbind": "Unlink",
+      "platform.screen.ExternalIdentityBindings.not-bound": "Not linked",
+      "platform.screen.ExternalIdentityBindings.bind": "Link"
     }
   },
   "fr": {

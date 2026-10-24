@@ -307,6 +307,52 @@ export interface TenantBranding {
 export interface TenantLoginContext {
   tenantId: string;
   branding?: TenantBranding;
+  /** External identity providers the tenant offers on its sign-in entry; empty when federation is off. */
+  externalLoginMethods?: ExternalLoginMethod[];
+}
+
+export interface ExternalLoginMethod {
+  providerId: string;
+  title: string;
+  providerType: string;
+}
+
+/**
+ * A started external sign-in or bind transaction. `browserProof` must stay in the initiating browser and is
+ * required to redeem the result; it is never put into a URL.
+ */
+export interface ExternalLoginStart {
+  transactionId: string;
+  authorizationUrl: string;
+  browserProof: string;
+  expiresAt: string;
+}
+
+export type ExternalLoginStatus = 'pending' | 'succeeded' | 'denied' | 'expired';
+export type ExternalLoginPurpose = 'login' | 'bind';
+
+export interface ExternalIdentityView {
+  id: string;
+  providerId: string;
+  providerTitle: string;
+  externalUserId: string;
+  displayName?: string;
+  boundAt: string;
+  lastAuthenticatedAt?: string;
+}
+
+export interface ExternalLoginRedemption {
+  status: ExternalLoginStatus;
+  purpose: ExternalLoginPurpose;
+  /** Stable denial code such as `IDENTITY_NOT_BOUND` or `IDENTITY_CONFLICT`. */
+  failureCode?: string;
+  login?: LoginResult;
+  binding?: ExternalIdentityView;
+}
+
+export interface OwnExternalIdentities {
+  bindings: ExternalIdentityView[];
+  bindableProviders: ExternalLoginMethod[];
 }
 
 export interface LoginRequest {

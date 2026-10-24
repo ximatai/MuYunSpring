@@ -38,6 +38,7 @@ import {
 } from '@muyun/vue-ui-antdv';
 import {
   presentPlatformError,
+  presentPlatformMessage,
   presentPlatformSuccess,
   providePlatformTimeZoneContext,
   BusinessNotificationPanel,
@@ -51,6 +52,7 @@ import {
   createAssistantConversationClient,
   createMenuClient,
   createLoginContextClient,
+  createExternalLoginClient,
   invokeBusinessNotificationRecordAction,
   businessNotificationExpired,
   provideModuleContextConfig,
@@ -103,6 +105,12 @@ import CurrentUserProfileDialog from './app/CurrentUserProfileDialog.vue';
 import { useCurrentUserProfile } from './app/useCurrentUserProfile';
 import { useAssistantAvailability } from './app/useAssistantAvailability';
 import LoginView from './app/LoginView.vue';
+import {
+  externalLoginFailureMessage,
+  hasExternalLoginReturn,
+  stripExternalLoginReturnFromLocation,
+  takeReturningExternalLogin,
+} from './app/externalLoginReturn';
 import ThemeSkinPreferencesDialog from './app/ThemeSkinPreferencesDialog.vue';
 import {
   closeMenuTab,
@@ -521,6 +529,10 @@ const assistantAvailability = useAssistantAvailability({
   load: (signal) => readAssistantAvailability(createBackendHttpClient(), signal),
 });
 const loginContextClient = createLoginContextClient(anonymousHttpClient);
+const externalLoginClient = createExternalLoginClient(anonymousHttpClient);
+const profileAuthToken = computed(() =>
+  profileOpen.value ? effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN) : undefined,
+);
 
 configureAuthenticationRecovery((error, token) => {
   if (!isCurrentAuthToken(token)) {
@@ -541,7 +553,41 @@ onMounted(async () => {
     return;
   }
   await loadWorkbench();
+  await completeReturningExternalLogin();
 });
+
+/**
+ * Finishes an external round trip the signed-in user started, such as binding an account. Sign-in returns
+ * without a session are finished by the login view instead.
+ */
+async function completeReturningExternalLogin() {
+  if (!hasExternalLoginReturn()) {
+    return;
+  }
+  const pending = takeReturningExternalLogin();
+  stripExternalLoginReturnFromLocation();
+  if (!pending) {
+    return;
+  }
+  try {
+    const redemption = await externalLoginClient.redeem(pending.transactionId, pending.browserProof);
+    if (redemption.status === 'succeeded' && pending.purpose === 'bind') {
+      presentPlatformSuccess(
+        platformLanguageContext.t('platform.screen.ExternalLogin.bound', '已绑定 {provider}', {
+          provider: redemption.binding?.providerTitle ?? '',
+        }),
+      );
+      return;
+    }
+    if (redemption.status === 'succeeded' && redemption.login) {
+      await handleAuthenticated(redemption.login);
+      return;
+    }
+    presentPlatformMessage(externalLoginFailureMessage(redemption, platformLanguageContext));
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'external-login', phase: 'action' });
+  }
+}
 
 onUnmounted(() => {
   clearSecurityLogoutTimer();
@@ -1551,6 +1597,7 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
         v-if="loginRequired"
         :auth-client="authClient"
         :login-context-client="loginContextClient"
+        :external-login-client="externalLoginClient"
         :loading="loginLoading"
         :error="error"
         @authenticated="handleAuthenticated"
@@ -1632,6 +1679,8 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
         :loading="profileLoading"
         :saving="profileSaving"
         :error="profileError?.()"
+        :external-login-client="externalLoginClient"
+        :auth-token="profileAuthToken"
         @close="closeCurrentUserProfile"
         @submit="submitCurrentUserProfile"
       />
