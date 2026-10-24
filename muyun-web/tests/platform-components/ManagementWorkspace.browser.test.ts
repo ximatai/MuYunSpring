@@ -1,10 +1,11 @@
 import { mount } from '@vue/test-utils';
 import { defineComponent, h, inject, ref } from 'vue';
 import { expect, it, vi } from 'vitest';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import ManagementWorkspace from '@/platform-components/ManagementWorkspace.vue';
 import ManagementExplorerColumn from '@/platform-components/ManagementExplorerColumn.vue';
 import RecordDetailPanel from '@/platform-components/RecordDetailPanel.vue';
+import RecordExplorerPanel from '@/platform-components/RecordExplorerPanel.vue';
 import '@/styles.css';
 import { providePageLayout } from '@/platform-components/pageLayoutContext';
 import { MANAGEMENT_EXPLORER_COLUMN_CONTEXT } from '@/platform-components/managementExplorerContext';
@@ -155,7 +156,7 @@ it.each([1280, 1004, 600])(
       if (width < 1144) {
         await page.getByRole('button', { name: '展开租户', exact: true }).click();
         await expect
-          .poll(() => wrapper.find('.management-explorer-column--preview-open').exists())
+          .poll(() => wrapper.find('.management-explorer-column--overlay-open').exists())
           .toBe(true);
         expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
       }
@@ -176,3 +177,83 @@ it.each([1280, 1004, 600])(
     }
   },
 );
+
+it('keeps clicked tenant and project overlays exclusive and closable across responsive layouts', async () => {
+  await page.viewport(900, 800);
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        providePageLayout('workspace');
+        return () =>
+          h('div', { style: 'width:calc(100vw - 40px);height:520px' }, [
+            h(ManagementWorkspace, { explorerCount: 2 }, () => [
+              ...['租户', '项目'].map((title) =>
+                h(ManagementExplorerColumn, { title, collapsible: true }, () =>
+                  h(RecordExplorerPanel, { title }, () => h('button', `选择${title}`)),
+                ),
+              ),
+              h(
+                'main',
+                { class: 'test-primary', style: 'min-width:0;text-align:right' },
+                h('button', '业务列表'),
+              ),
+            ]),
+          ]);
+      },
+    }),
+    { attachTo: document.body },
+  );
+  try {
+    const columns = wrapper.findAll('.management-explorer-column');
+    const overlays = () => wrapper.findAll('.management-explorer-column--overlay-open');
+    const visibility = (index: number) =>
+      getComputedStyle(columns[index]!.get('.management-explorer-column-content').element).visibility;
+    await expect.poll(() => wrapper.findAll('.management-explorer-column--collapsed').length).toBe(2);
+    await page.getByRole('button', { name: '展开租户', exact: true }).hover();
+    expect(overlays()).toHaveLength(0);
+    await page.getByRole('button', { name: '展开租户', exact: true }).click();
+    await page.getByRole('button', { name: '业务列表', exact: true }).hover();
+    // Wait past the former pointer-leave timer while interacting with the primary surface.
+    await page.getByRole('button', { name: '业务列表', exact: true }).click();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await expect.poll(() => visibility(0)).toBe('visible');
+    expect(overlays()).toHaveLength(1);
+    await page.getByRole('button', { name: '选择租户', exact: true }).click();
+    await page.getByRole('button', { name: '展开项目', exact: true }).click();
+    await expect.poll(() => visibility(0)).toBe('hidden');
+    expect(visibility(1)).toBe('visible');
+    expect(overlays()).toHaveLength(1);
+    const content = columns[1]!.get('.management-explorer-column-content').element;
+    const host = wrapper.get<HTMLElement>('.management-workspace').element;
+    await expect
+      .poll(() => content.getBoundingClientRect().top)
+      .toBeCloseTo(host.getBoundingClientRect().top, 0);
+    expect(content.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      host.getBoundingClientRect().bottom + 1,
+    );
+    expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
+
+    await page.viewport(1500, 800);
+    await expect.poll(() => wrapper.findAll('.management-explorer-column--collapsed').length).toBe(0);
+    expect(overlays()).toHaveLength(0);
+    await page.viewport(620, 700);
+    await expect.poll(() => overlays().length).toBe(1);
+    expect(visibility(1)).toBe('visible');
+    expect(visibility(0)).toBe('hidden');
+    await page.viewport(620, 400);
+    await page.getByRole('button', { name: '业务列表', exact: true }).click();
+    await userEvent.keyboard('{Escape}');
+    expect(overlays()).toHaveLength(1);
+    await page.getByRole('button', { name: '收起项目', exact: true }).click();
+    await expect.poll(() => visibility(1)).toBe('hidden');
+    expect(overlays()).toHaveLength(0);
+    await page.getByRole('button', { name: '展开租户', exact: true }).click();
+    await userEvent.keyboard('{Escape}');
+    await expect.poll(() => overlays().length).toBe(0);
+    expect(document.activeElement?.getAttribute('title')).toBe('展开租户');
+    await page.viewport(1500, 800);
+    await expect.poll(() => wrapper.findAll('.management-explorer-column--collapsed').length).toBe(2);
+  } finally {
+    wrapper.unmount();
+  }
+});

@@ -46,6 +46,10 @@
 
 管理页 explorer 标题使用单行标题，不显示业务分组 eyebrow。业务分组属于页面导航或详情区语义，不进入 explorer header。
 
+`ManagementExplorerColumn` 在窄工作区自动折叠，点击展开后以浮层持续显示，鼠标移出不收起，也不通过悬停自动打开。
+同一工作区只显示一个导航浮层；点击其他导航展开会切换浮层。收起按钮或导航内的 Escape 主动关闭，标准标题在浮层中保留收起按钮。
+宽度恢复后导航回到正常栏位，再次变窄时保持最近一次主动展开的导航；显式收起状态同样跨宽窄布局保留。
+
 标准页面的导航交互统一由 `PageNavigatorExplorer` 承载。平面管理、列表详情和树管理布局只安排导航位置及编辑器插槽，复用同一套选择、搜索、范围就绪、排序和管理动作语义。
 
 `editor` slot 只承载显式 create/edit 态的轻量抽屉，不承载选中记录的常驻详情展示。选中记录是 explorer body 与右侧详情区的上下文，不应让 `RecordExplorerPanel` 因为 `selected` 存在就打开 editor。常见写法是由父页面用 `mode !== 'view'` 控制 editor 可见性。

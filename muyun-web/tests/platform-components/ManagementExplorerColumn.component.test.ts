@@ -26,7 +26,10 @@ const WorkspaceHarness = defineComponent({
 });
 
 describe('ManagementExplorerColumn', () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it('exposes the composer layout preset without changing its explorer registration contract', () => {
     const wrapper = mount(ManagementWorkspace, {
@@ -70,7 +73,7 @@ describe('ManagementExplorerColumn', () => {
       'management-explorer-column-tab--selected',
     );
     await wrapper.find('.management-explorer-column--collapsed').trigger('pointerenter');
-    expect(wrapper.find('.management-explorer-column--preview-open').exists()).toBe(true);
+    expect(wrapper.find('.management-explorer-column--overlay-open').exists()).toBe(false);
     await wrapper.find('.management-explorer-column-tab').trigger('click');
     expect(wrapper.find('.management-explorer-column-tab').exists()).toBe(true);
     const expand = wrapper
@@ -79,7 +82,7 @@ describe('ManagementExplorerColumn', () => {
     expect(expand).toBeDefined();
     await expand!.trigger('click');
     expect(wrapper.find('.management-explorer-column-tab').exists()).toBe(false);
-    expect(wrapper.find('.management-explorer-column--preview-open').exists()).toBe(false);
+    expect(wrapper.find('.management-explorer-column--overlay-open').exists()).toBe(false);
     expect(workspace.classes()).not.toContain('management-workspace--with-collapsed-explorer');
     expect(wrapper.find('.management-explorer-column').attributes('style')).toContain(
       '--muyun-management-tab-transition-width: 36px',
@@ -95,7 +98,7 @@ describe('ManagementExplorerColumn', () => {
     await collapseAgain!.trigger('click');
     vi.advanceTimersByTime(288);
     await nextTick();
-    expect(wrapper.find('.management-explorer-column--preview-open').exists()).toBe(false);
+    expect(wrapper.find('.management-explorer-column--overlay-open').exists()).toBe(false);
 
     const collapseOrganization = wrapper
       .findAllComponents({ name: 'UiButton' })
@@ -110,32 +113,47 @@ describe('ManagementExplorerColumn', () => {
     );
   });
 
-  it('keeps the hover preview open while moving from its tab into the panel', async () => {
+  it('keeps one clicked overlay open until explicitly closed in a narrow workspace', async () => {
     vi.useFakeTimers();
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(private callback: ResizeObserverCallback) {}
+        observe() {
+          this.callback(
+            [{ contentRect: { width: 600, height: 520 } }] as ResizeObserverEntry[],
+            this as unknown as ResizeObserver,
+          );
+        }
+        disconnect() {}
+      },
+    );
     const wrapper = mount(WorkspaceHarness);
-    const collapse = wrapper
-      .findAllComponents({ name: 'UiButton' })
-      .find((button) => button.props('title') === '收起租户');
-    await collapse!.trigger('click');
-    vi.advanceTimersByTime(288);
     await nextTick();
-
-    const column = wrapper.find('.management-explorer-column--collapsed');
-    const tab = wrapper.find('.management-explorer-column-tab-trigger');
+    const columns = wrapper.findAll('.management-explorer-column--collapsed');
+    expect(columns).toHaveLength(2);
+    const column = columns[0]!;
     await column.trigger('pointerenter');
-    expect(wrapper.find('.management-explorer-column--preview-open').exists()).toBe(true);
-
-    // The transparent bridge belongs to the same hover region, so a slow move
-    // across the rail gap must not schedule a close.
-    await tab.trigger('pointerleave');
-    vi.advanceTimersByTime(160);
-    await nextTick();
-
-    expect(wrapper.find('.management-explorer-column--preview-open').exists()).toBe(true);
-
+    expect(wrapper.find('.management-explorer-column--overlay-open').exists()).toBe(false);
+    await column.get('button[title="展开租户"]').trigger('click');
     await column.trigger('pointerleave');
-    vi.advanceTimersByTime(160);
+    vi.advanceTimersByTime(1000);
     await nextTick();
-    expect(wrapper.find('.management-explorer-column--preview-open').exists()).toBe(false);
+    expect(column.classes()).toContain('management-explorer-column--overlay-open');
+    expect(column.find('button[title="收起租户"]').exists()).toBe(true);
+    const consumedEscape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    consumedEscape.preventDefault();
+    column.get('button[title="收起租户"]').element.dispatchEvent(consumedEscape);
+    await nextTick();
+    expect(column.classes()).toContain('management-explorer-column--overlay-open');
+
+    await columns[1]!.get('button[title="展开机构树"]').trigger('click');
+    expect(column.classes()).not.toContain('management-explorer-column--overlay-open');
+    expect(wrapper.findAll('.management-explorer-column--overlay-open')).toHaveLength(1);
+    await columns[1]!.get('button[title="收起机构树"]').trigger('click');
+    await nextTick();
+    expect(wrapper.find('.management-explorer-column--overlay-open').exists()).toBe(false);
+    await columns[1]!.trigger('pointerenter');
+    expect(wrapper.find('.management-explorer-column--overlay-open').exists()).toBe(false);
   });
 });

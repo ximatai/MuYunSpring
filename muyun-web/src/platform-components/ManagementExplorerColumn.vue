@@ -1,16 +1,6 @@
 <script setup lang="ts">
 import { useLanguageContext } from '@muyun/web-core';
-import {
-  computed,
-  getCurrentInstance,
-  inject,
-  nextTick,
-  onMounted,
-  onUnmounted,
-  provide,
-  ref,
-  watch,
-} from 'vue';
+import { computed, getCurrentInstance, inject, nextTick, onUnmounted, provide, ref, watch } from 'vue';
 import { UiButton } from '@muyun/vue-ui-antdv';
 import {
   MANAGEMENT_EXPLORER_COLUMN_CONTEXT,
@@ -46,7 +36,6 @@ const navigationDisabled = inject(
 const workspace = inject(MANAGEMENT_WORKSPACE_CONTEXT, undefined);
 const instance = getCurrentInstance();
 const id = `management-explorer-${instance?.uid ?? Math.random().toString(36).slice(2)}`;
-const previewOpen = ref(false);
 const collapsing = ref(false);
 const collapseLeaving = ref(false);
 const expanding = ref(false);
@@ -54,7 +43,6 @@ const contentElement = ref<HTMLElement>();
 const tabTriggerElement = ref<HTMLElement>();
 const tabTransitionOffset = ref(0);
 const tabTransitionWidth = ref<number>(MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.railWidth);
-let previewCloseTimer: ReturnType<typeof setTimeout> | undefined;
 let collapseTimer: ReturnType<typeof setTimeout> | undefined;
 let collapseStartTimer: ReturnType<typeof setTimeout> | undefined;
 let expandStartTimer: ReturnType<typeof setTimeout> | undefined;
@@ -76,10 +64,11 @@ type WorkspacePushEffect = {
 
 const isCollapsible = computed(() => props.collapsible && workspace != null);
 const collapsed = computed(() => isCollapsible.value && workspace!.isExplorerCollapsed(id));
+const overlayOpen = computed(() => isCollapsible.value && workspace!.isExplorerOverlayOpen(id));
 const collapsedOffset = computed(() => (workspace ? workspace.collapsedExplorerOffset(id) : 0));
 const collapseContext: ManagementExplorerColumnContext = {
   collapsible: isCollapsible,
-  collapsed,
+  collapsed: computed(() => collapsed.value && !overlayOpen.value),
   collapse,
 };
 
@@ -97,13 +86,12 @@ watch(
   { immediate: true },
 );
 
-function dismissPreview(event: KeyboardEvent) {
-  if (event.key === 'Escape' && previewOpen.value) closePreview();
+function dismissOverlay(event: KeyboardEvent) {
+  if (event.defaultPrevented || !overlayOpen.value || navigationDisabled.value) return;
+  event.preventDefault();
+  collapse();
 }
-onMounted(() => document.addEventListener('keydown', dismissPreview));
 onUnmounted(() => {
-  document.removeEventListener('keydown', dismissPreview);
-  closePreview();
   clearCollapseTimers();
   if (expandStartTimer) clearTimeout(expandStartTimer);
   clearWorkspacePushAnimations();
@@ -117,14 +105,9 @@ function restore() {
   const measuredTabWidth = tabTriggerElement.value?.getBoundingClientRect().width ?? 0;
   tabTransitionWidth.value =
     measuredTabWidth > 0 ? measuredTabWidth : MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.railWidth;
-  // A narrow host keeps the navigator in an overlay instead of pushing the
-  // primary card outside the workspace. Clicking also works without hover.
-  workspace?.toggleExplorer(id);
-  if (collapsed.value) {
-    openPreview();
-    return;
-  }
-  closePreview();
+  workspace?.expandExplorer(id);
+  // A narrow host preserves the primary surface and keeps the clicked navigator open as an overlay.
+  if (collapsed.value) return;
   expanding.value = true;
   void nextTick(() => {
     animateWorkspacePush(workspaceLayoutBeforeRestore);
@@ -139,15 +122,19 @@ function restore() {
 }
 
 function collapse() {
-  if (collapsed.value || collapsing.value) return;
+  if (collapsing.value || (collapsed.value && !overlayOpen.value)) return;
+  if (overlayOpen.value) {
+    workspace?.collapseExplorer(id);
+    void nextTick(() => tabTriggerElement.value?.querySelector('button')?.focus());
+    return;
+  }
   const workspaceLayoutBeforeCollapse = captureWorkspaceLayout();
   if (expandStartTimer) clearTimeout(expandStartTimer);
   expandStartTimer = undefined;
   expanding.value = false;
   clearWorkspacePushAnimations();
-  closePreview();
   collapsing.value = true;
-  workspace?.toggleExplorer(id);
+  workspace?.collapseExplorer(id);
   void nextTick(() => {
     animateWorkspacePush(workspaceLayoutBeforeCollapse);
     // Keep the departing panel at its former position until the released grid
@@ -237,34 +224,6 @@ function clearWorkspacePushAnimations() {
   workspacePushCleanupTimer = undefined;
   workspacePushEffects = [];
 }
-
-function closePreview() {
-  clearPreviewCloseTimer();
-  previewOpen.value = false;
-}
-
-function openPreview() {
-  if (!collapsed.value) return;
-  clearPreviewCloseTimer();
-  previewOpen.value = true;
-}
-
-function schedulePreviewClose() {
-  clearPreviewCloseTimer();
-  previewCloseTimer = setTimeout(() => {
-    previewOpen.value = false;
-    previewCloseTimer = undefined;
-  }, 140);
-}
-
-function clearPreviewCloseTimer() {
-  if (previewCloseTimer) clearTimeout(previewCloseTimer);
-  previewCloseTimer = undefined;
-}
-
-watch(collapsed, (isCollapsed) => {
-  if (!isCollapsed) closePreview();
-});
 </script>
 
 <template>
@@ -278,15 +237,14 @@ watch(collapsed, (isCollapsed) => {
       'management-explorer-column--collapsing': collapsing,
       'management-explorer-column--collapse-leaving': collapseLeaving,
       'management-explorer-column--expanding': expanding,
-      'management-explorer-column--preview-open': previewOpen,
+      'management-explorer-column--overlay-open': overlayOpen,
     }"
     :style="{
       '--muyun-management-collapsed-offset': `${collapsedOffset}px`,
       '--muyun-management-tab-transition-offset': `${tabTransitionOffset}px`,
       '--muyun-management-tab-transition-width': `${tabTransitionWidth}px`,
     }"
-    @pointerenter="openPreview"
-    @pointerleave="schedulePreviewClose"
+    @keydown.esc="dismissOverlay"
   >
     <Transition name="management-explorer-tab">
       <div v-if="collapsed" ref="tabTriggerElement" class="management-explorer-column-tab-trigger">
@@ -474,8 +432,8 @@ watch(collapsed, (isCollapsed) => {
     var(--muyun-management-explorer-width, 280px),
     calc(100cqw - var(--muyun-management-collapsed-rail-offset, 48px))
   );
-  height: min(600px, calc(100vh - 120px));
-  min-height: 320px;
+  height: min(600px, calc(100vh - 120px), var(--muyun-management-workspace-height, 600px));
+  min-height: 0;
   border-radius: 8px;
   opacity: 0;
   pointer-events: none;
@@ -483,7 +441,7 @@ watch(collapsed, (isCollapsed) => {
   transition:
     opacity 0.18s ease,
     transform 0.18s cubic-bezier(0.2, 0, 0, 1),
-    visibility 0s linear 0.18s;
+    visibility 0s;
 }
 
 .management-explorer-column--collapsed.management-explorer-column--collapsing
@@ -504,7 +462,12 @@ watch(collapsed, (isCollapsed) => {
   transform: translateX(-36px);
 }
 
-.management-explorer-column--preview-open .management-explorer-column-content {
+.management-explorer-column--overlay-open {
+  z-index: 4;
+}
+
+.management-explorer-column--overlay-open .management-explorer-column-content {
+  top: calc(0px - var(--muyun-management-collapsed-offset, 0px));
   visibility: visible;
   opacity: 1;
   pointer-events: auto;

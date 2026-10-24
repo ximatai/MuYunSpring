@@ -57,12 +57,16 @@ provide(
 
 const hostElement = ref<HTMLElement>();
 const hostWidth = ref(0);
+const hostHeight = ref(0);
 let resizeObserver: ResizeObserver | undefined;
 onMounted(() => {
   if (!hostElement.value || typeof ResizeObserver === 'undefined') return;
   hostWidth.value = hostElement.value.clientWidth;
+  hostHeight.value = hostElement.value.clientHeight;
   resizeObserver = new ResizeObserver(([entry]) => {
-    if (entry) hostWidth.value = entry.contentRect.width;
+    if (!entry) return;
+    hostWidth.value = entry.contentRect.width;
+    hostHeight.value = entry.contentRect.height;
   });
   resizeObserver.observe(hostElement.value);
 });
@@ -72,6 +76,8 @@ const explorerCount = computed(() => Math.max(0, Math.trunc(props.explorerCount)
 type ExplorerState = ManagementWorkspaceExplorerRegistration & { collapsed: boolean; order: number };
 
 const explorers = reactive<Record<string, ExplorerState>>({});
+// One explicit expansion survives responsive folds, without overlapping other navigators.
+const openedExplorerId = ref<string>();
 let nextExplorerOrder = 0;
 // Composer owns its positional canvas layout. Ordinary management navigation
 // yields space to its primary surface, without persisting automatic decisions.
@@ -124,15 +130,29 @@ function registerExplorer(registration: ManagementWorkspaceExplorerRegistration)
 
 function unregisterExplorer(id: string) {
   delete explorers[id];
+  if (openedExplorerId.value === id) openedExplorerId.value = undefined;
 }
 
 function isExplorerCollapsed(id: string) {
   return explorers[id]?.collapsed === true || autoCollapsedIds.value.includes(id);
 }
 
-function toggleExplorer(id: string) {
+function expandExplorer(id: string) {
   const explorer = explorers[id];
-  if (explorer) explorer.collapsed = !isExplorerCollapsed(id);
+  if (!explorer) return;
+  explorer.collapsed = false;
+  openedExplorerId.value = id;
+}
+
+function collapseExplorer(id: string) {
+  const explorer = explorers[id];
+  if (!explorer) return;
+  explorer.collapsed = true;
+  if (openedExplorerId.value === id) openedExplorerId.value = undefined;
+}
+
+function isExplorerOverlayOpen(id: string) {
+  return openedExplorerId.value === id && isExplorerCollapsed(id);
 }
 
 function collapsedExplorerOffset(id: string) {
@@ -148,7 +168,9 @@ provide(MANAGEMENT_WORKSPACE_CONTEXT, {
   registerExplorer,
   unregisterExplorer,
   isExplorerCollapsed,
-  toggleExplorer,
+  expandExplorer,
+  collapseExplorer,
+  isExplorerOverlayOpen,
   collapsedExplorerOffset,
   hasCollapsedExplorers,
 });
@@ -175,6 +197,7 @@ const pageLayout = usePageLayout();
       class="management-workspace__grid"
       :style="{
         '--muyun-management-explorer-count': String(effectiveExplorerCount),
+        '--muyun-management-workspace-height': hostHeight > 0 ? `${hostHeight}px` : undefined,
         '--muyun-management-composer-columns': composerColumns,
         '--muyun-management-composer-rows': composerRows,
         '--muyun-management-collapsed-rail-width': hasCollapsedExplorers
