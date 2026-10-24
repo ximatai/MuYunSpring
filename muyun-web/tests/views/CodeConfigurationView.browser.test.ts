@@ -125,7 +125,7 @@ it.each([
         await page.getByRole('button', { name: '展开所属模块', exact: true }).click();
       }
       await page.getByText('采购申请', { exact: true }).click();
-      if (width === 600) await userEvent.keyboard('{Escape}');
+      if (width === 600) await page.getByRole('button', { name: '收起所属模块', exact: true }).click();
     }
     await flushPromises();
     expect(wrapper.find('.code-config > header').exists()).toBe(false);

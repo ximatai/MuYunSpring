@@ -57,28 +57,35 @@ provide(
 
 const hostElement = ref<HTMLElement>();
 const hostWidth = ref(0);
-const hostHeight = ref(0);
 let resizeObserver: ResizeObserver | undefined;
 onMounted(() => {
   if (!hostElement.value || typeof ResizeObserver === 'undefined') return;
   hostWidth.value = hostElement.value.clientWidth;
-  hostHeight.value = hostElement.value.clientHeight;
   resizeObserver = new ResizeObserver(([entry]) => {
     if (!entry) return;
     hostWidth.value = entry.contentRect.width;
-    hostHeight.value = entry.contentRect.height;
   });
   resizeObserver.observe(hostElement.value);
 });
 onUnmounted(() => resizeObserver?.disconnect());
 
 const explorerCount = computed(() => Math.max(0, Math.trunc(props.explorerCount)));
-type ExplorerState = ManagementWorkspaceExplorerRegistration & { collapsed: boolean; order: number };
+type ExplorerState = ManagementWorkspaceExplorerRegistration & { collapsed?: boolean; order: number };
 
 const explorers = reactive<Record<string, ExplorerState>>({});
-// One explicit expansion survives responsive folds, without overlapping other navigators.
-const openedExplorerId = ref<string>();
 let nextExplorerOrder = 0;
+const primaryMinWidth = computed(() =>
+  props.detailSurface
+    ? MANAGEMENT_WORKSPACE_LAYOUT.listMinWidth +
+      MANAGEMENT_WORKSPACE_LAYOUT.detailMinWidth +
+      MANAGEMENT_WORKSPACE_LAYOUT.columnGap
+    : props.listSurface
+      ? MANAGEMENT_WORKSPACE_LAYOUT.listMinWidth
+      : MANAGEMENT_WORKSPACE_LAYOUT.detailMinWidth,
+);
+const hasManualExpansion = computed(() =>
+  Object.values(explorers).some((explorer) => explorer.collapsed === false),
+);
 // Composer owns its positional canvas layout. Ordinary management navigation
 // yields space to its primary surface, without persisting automatic decisions.
 const autoCollapsedIds = computed(() =>
@@ -86,13 +93,7 @@ const autoCollapsedIds = computed(() =>
     width: props.layout === 'composer' ? 0 : hostWidth.value,
     explorerCount: explorerCount.value,
     explorers: Object.values(explorers).sort((a, b) => a.order - b.order),
-    primaryMinWidth: props.detailSurface
-      ? MANAGEMENT_WORKSPACE_LAYOUT.listMinWidth +
-        MANAGEMENT_WORKSPACE_LAYOUT.detailMinWidth +
-        MANAGEMENT_WORKSPACE_LAYOUT.columnGap
-      : props.listSurface
-        ? MANAGEMENT_WORKSPACE_LAYOUT.listMinWidth
-        : MANAGEMENT_WORKSPACE_LAYOUT.detailMinWidth,
+    primaryMinWidth: primaryMinWidth.value,
   }),
 );
 const adaptive = computed(() => props.layout !== 'composer' && Object.keys(explorers).length > 0);
@@ -125,34 +126,28 @@ function registerExplorer(registration: ManagementWorkspaceExplorerRegistration)
     current.hasSelection = registration.hasSelection;
     return;
   }
-  explorers[registration.id] = { ...registration, collapsed: false, order: nextExplorerOrder++ };
+  explorers[registration.id] = { ...registration, order: nextExplorerOrder++ };
 }
 
 function unregisterExplorer(id: string) {
   delete explorers[id];
-  if (openedExplorerId.value === id) openedExplorerId.value = undefined;
 }
 
 function isExplorerCollapsed(id: string) {
-  return explorers[id]?.collapsed === true || autoCollapsedIds.value.includes(id);
+  // Only an unset value follows responsive defaults; both explicit choices survive resizing.
+  return explorers[id]?.collapsed ?? autoCollapsedIds.value.includes(id);
 }
 
 function expandExplorer(id: string) {
   const explorer = explorers[id];
   if (!explorer) return;
   explorer.collapsed = false;
-  openedExplorerId.value = id;
 }
 
 function collapseExplorer(id: string) {
   const explorer = explorers[id];
   if (!explorer) return;
   explorer.collapsed = true;
-  if (openedExplorerId.value === id) openedExplorerId.value = undefined;
-}
-
-function isExplorerOverlayOpen(id: string) {
-  return openedExplorerId.value === id && isExplorerCollapsed(id);
 }
 
 function collapsedExplorerOffset(id: string) {
@@ -170,7 +165,6 @@ provide(MANAGEMENT_WORKSPACE_CONTEXT, {
   isExplorerCollapsed,
   expandExplorer,
   collapseExplorer,
-  isExplorerOverlayOpen,
   collapsedExplorerOffset,
   hasCollapsedExplorers,
 });
@@ -197,7 +191,7 @@ const pageLayout = usePageLayout();
       class="management-workspace__grid"
       :style="{
         '--muyun-management-explorer-count': String(effectiveExplorerCount),
-        '--muyun-management-workspace-height': hostHeight > 0 ? `${hostHeight}px` : undefined,
+        '--muyun-management-primary-min-width': hasManualExpansion ? `${primaryMinWidth}px` : '0px',
         '--muyun-management-composer-columns': composerColumns,
         '--muyun-management-composer-rows': composerRows,
         '--muyun-management-collapsed-rail-width': hasCollapsedExplorers
@@ -353,7 +347,7 @@ const pageLayout = usePageLayout();
 .management-workspace--adaptive:not(.management-workspace--detail-surface) > .management-workspace__grid {
   grid-template-columns:
     repeat(var(--muyun-management-explorer-count), var(--muyun-management-explorer-width))
-    minmax(0, 1fr);
+    minmax(var(--muyun-management-primary-min-width, 0px), 1fr);
   grid-template-rows: minmax(0, 1fr);
 }
 </style>

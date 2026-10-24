@@ -72,8 +72,6 @@ describe('ManagementExplorerColumn', () => {
     expect(wrapper.find('.management-explorer-column-tab').classes()).toContain(
       'management-explorer-column-tab--selected',
     );
-    await wrapper.find('.management-explorer-column--collapsed').trigger('pointerenter');
-    expect(wrapper.find('.management-explorer-column--overlay-open').exists()).toBe(false);
     await wrapper.find('.management-explorer-column-tab').trigger('click');
     expect(wrapper.find('.management-explorer-column-tab').exists()).toBe(true);
     const expand = wrapper
@@ -82,7 +80,6 @@ describe('ManagementExplorerColumn', () => {
     expect(expand).toBeDefined();
     await expand!.trigger('click');
     expect(wrapper.find('.management-explorer-column-tab').exists()).toBe(false);
-    expect(wrapper.find('.management-explorer-column--overlay-open').exists()).toBe(false);
     expect(workspace.classes()).not.toContain('management-workspace--with-collapsed-explorer');
     expect(wrapper.find('.management-explorer-column').attributes('style')).toContain(
       '--muyun-management-tab-transition-width: 36px',
@@ -98,7 +95,6 @@ describe('ManagementExplorerColumn', () => {
     await collapseAgain!.trigger('click');
     vi.advanceTimersByTime(288);
     await nextTick();
-    expect(wrapper.find('.management-explorer-column--overlay-open').exists()).toBe(false);
 
     const collapseOrganization = wrapper
       .findAllComponents({ name: 'UiButton' })
@@ -113,7 +109,7 @@ describe('ManagementExplorerColumn', () => {
     );
   });
 
-  it('keeps one clicked overlay open until explicitly closed in a narrow workspace', async () => {
+  it('restores multiple columns into the grid when manually expanded in a narrow workspace', async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       'ResizeObserver',
@@ -128,32 +124,42 @@ describe('ManagementExplorerColumn', () => {
         disconnect() {}
       },
     );
-    const wrapper = mount(WorkspaceHarness);
+    const wrapper = mount(WorkspaceHarness, { attachTo: document.body });
     await nextTick();
-    const columns = wrapper.findAll('.management-explorer-column--collapsed');
-    expect(columns).toHaveLength(2);
-    const column = columns[0]!;
-    await column.trigger('pointerenter');
-    expect(wrapper.find('.management-explorer-column--overlay-open').exists()).toBe(false);
-    await column.get('button[title="展开租户"]').trigger('click');
-    await column.trigger('pointerleave');
+    const columns = wrapper.findAll('.management-explorer-column');
+    expect(wrapper.findAll('.management-explorer-column--collapsed')).toHaveLength(2);
+    const tenant = columns[0]!;
+    await tenant.get('button[title="展开租户"]').trigger('click');
+    await tenant.trigger('pointerleave');
     vi.advanceTimersByTime(1000);
     await nextTick();
-    expect(column.classes()).toContain('management-explorer-column--overlay-open');
-    expect(column.find('button[title="收起租户"]').exists()).toBe(true);
-    const consumedEscape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
-    consumedEscape.preventDefault();
-    column.get('button[title="收起租户"]').element.dispatchEvent(consumedEscape);
-    await nextTick();
-    expect(column.classes()).toContain('management-explorer-column--overlay-open');
+    expect(tenant.classes()).not.toContain('management-explorer-column--collapsed');
+    expect(wrapper.get('.management-workspace__grid').attributes('style')).toContain(
+      '--muyun-management-explorer-count: 1',
+    );
+    expect(tenant.find('button[title="收起租户"]').exists()).toBe(true);
+    await wrapper.setData({ tenantSelected: false });
+    expect(tenant.classes()).not.toContain('management-explorer-column--collapsed');
 
     await columns[1]!.get('button[title="展开机构树"]').trigger('click');
-    expect(column.classes()).not.toContain('management-explorer-column--overlay-open');
-    expect(wrapper.findAll('.management-explorer-column--overlay-open')).toHaveLength(1);
+    expect(wrapper.findAll('.management-explorer-column--collapsed')).toHaveLength(0);
+    expect(wrapper.get('.management-workspace__grid').attributes('style')).toContain(
+      '--muyun-management-explorer-count: 2',
+    );
     await columns[1]!.get('button[title="收起机构树"]').trigger('click');
+    vi.advanceTimersByTime(288);
     await nextTick();
-    expect(wrapper.find('.management-explorer-column--overlay-open').exists()).toBe(false);
-    await columns[1]!.trigger('pointerenter');
-    expect(wrapper.find('.management-explorer-column--overlay-open').exists()).toBe(false);
+    expect(wrapper.findAll('.management-explorer-column--collapsed')).toHaveLength(1);
+    expect(tenant.classes()).not.toContain('management-explorer-column--collapsed');
+    await tenant.get('button[title="搜索租户"]').trigger('click');
+    expect(tenant.find('input').exists()).toBe(true);
+    await tenant.get('button[title="收起租户"]').trigger('click');
+    vi.advanceTimersByTime(288);
+    await nextTick();
+    expect(tenant.get('.management-explorer-column-content').isVisible()).toBe(false);
+    await tenant.get('button[title="展开租户"]').trigger('click');
+    vi.advanceTimersByTime(48);
+    await nextTick();
+    expect(tenant.get('input').isVisible()).toBe(true);
   });
 });

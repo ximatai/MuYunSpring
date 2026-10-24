@@ -19,11 +19,8 @@ describe('management workspace layout', () => {
   });
 });
 
-it('budgets the rail and folds ancestors first while preserving manual state', () => {
-  const explorers = [
-    { id: 'tenant', collapsed: false },
-    { id: 'module', collapsed: false },
-  ];
+it('budgets the rail and folds ancestors first for automatic defaults', () => {
+  const explorers = [{ id: 'tenant' }, { id: 'module' }];
   const fold = (width: number) =>
     workspaceAutoCollapsedIds({ width, explorerCount: 2, explorers, primaryMinWidth: 560 });
   expect(fold(1144)).toEqual([]);
@@ -31,8 +28,4 @@ it('budgets the rail and folds ancestors first while preserving manual state', (
   expect(fold(900)).toEqual(['tenant']);
   expect(fold(899)).toEqual(['tenant', 'module']);
   expect(fold(0)).toEqual([]);
-  explorers[1]!.collapsed = true;
-  expect(fold(900)).toEqual(['tenant']);
-  expect(fold(899)).toEqual(['tenant', 'module']);
-  expect(explorers[0]!.collapsed).toBe(false);
 });

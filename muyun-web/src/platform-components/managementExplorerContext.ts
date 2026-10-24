@@ -6,7 +6,6 @@ import type { ComputedRef, InjectionKey } from 'vue';
  */
 export interface ManagementExplorerColumnContext {
   collapsible: ComputedRef<boolean>;
-  /** Content visibility, independent of whether responsive layout reserves a column. */
   collapsed: ComputedRef<boolean>;
   collapse: () => void;
 }

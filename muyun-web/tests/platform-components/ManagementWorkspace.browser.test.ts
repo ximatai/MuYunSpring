@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { defineComponent, h, inject, ref } from 'vue';
 import { expect, it, vi } from 'vitest';
-import { page, userEvent } from 'vitest/browser';
+import { page } from 'vitest/browser';
 import ManagementWorkspace from '@/platform-components/ManagementWorkspace.vue';
 import ManagementExplorerColumn from '@/platform-components/ManagementExplorerColumn.vue';
 import RecordDetailPanel from '@/platform-components/RecordDetailPanel.vue';
@@ -146,19 +146,10 @@ it.each([1280, 1004, 600])(
       await expect.poll(() => folded().length).toBe(width >= 1144 ? 0 : width >= 900 ? 1 : 2);
       expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
       expect(primary.getBoundingClientRect().width).toBeGreaterThanOrEqual(Math.min(560, width - 48));
-      if (width === 1004) {
-        await page.getByRole('button', { name: '收起模块', exact: true }).click();
-        await expect.poll(() => folded().length).toBe(2);
-        await expect.poll(() => primary.getBoundingClientRect().width).toBe(width - 48);
-        await page.getByRole('button', { name: '展开模块', exact: true }).click();
-        await expect.poll(() => folded().length).toBe(1);
-      }
       if (width < 1144) {
         await page.getByRole('button', { name: '展开租户', exact: true }).click();
-        await expect
-          .poll(() => wrapper.find('.management-explorer-column--overlay-open').exists())
-          .toBe(true);
-        expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
+        await expect.poll(() => folded().length).toBe(width >= 900 ? 0 : 1);
+        if (width === 600) expect(host.scrollWidth).toBeGreaterThan(host.clientWidth);
       }
       hostWidth.value = 1280;
       await expect.poll(() => folded().length).toBe(0);
@@ -178,82 +169,87 @@ it.each([1280, 1004, 600])(
   },
 );
 
-it('keeps clicked tenant and project overlays exclusive and closable across responsive layouts', async () => {
+it('preserves independent manual expansion and collapse across resizes and resets on a new page session', async () => {
   await page.viewport(900, 800);
-  const wrapper = mount(
-    defineComponent({
-      setup() {
-        providePageLayout('workspace');
-        return () =>
-          h('div', { style: 'width:calc(100vw - 40px);height:520px' }, [
-            h(ManagementWorkspace, { explorerCount: 2 }, () => [
-              ...['租户', '项目'].map((title) =>
-                h(ManagementExplorerColumn, { title, collapsible: true }, () =>
-                  h(RecordExplorerPanel, { title }, () => h('button', `选择${title}`)),
-                ),
+  const Harness = defineComponent({
+    setup() {
+      providePageLayout('workspace');
+      return () =>
+        h('div', { style: 'width:calc(100vw - 40px);height:520px' }, [
+          h(ManagementWorkspace, { explorerCount: 2, listSurface: true }, () => [
+            ...['租户', '项目'].map((title) =>
+              h(ManagementExplorerColumn, { title, collapsible: true }, () =>
+                h(RecordExplorerPanel, { title }, () => h('button', `选择${title}`)),
               ),
-              h(
-                'main',
-                { class: 'test-primary', style: 'min-width:0;text-align:right' },
-                h('button', '业务列表'),
-              ),
-            ]),
-          ]);
-      },
-    }),
-    { attachTo: document.body },
-  );
+            ),
+            h('main', { class: 'test-primary', style: 'min-width:0' }, h('button', '业务列表')),
+          ]),
+        ]);
+    },
+  });
+  const wrapper = mount(Harness, { attachTo: document.body });
   try {
     const columns = wrapper.findAll('.management-explorer-column');
-    const overlays = () => wrapper.findAll('.management-explorer-column--overlay-open');
-    const visibility = (index: number) =>
-      getComputedStyle(columns[index]!.get('.management-explorer-column-content').element).visibility;
-    await expect.poll(() => wrapper.findAll('.management-explorer-column--collapsed').length).toBe(2);
-    await page.getByRole('button', { name: '展开租户', exact: true }).hover();
-    expect(overlays()).toHaveLength(0);
-    await page.getByRole('button', { name: '展开租户', exact: true }).click();
-    await page.getByRole('button', { name: '业务列表', exact: true }).hover();
-    // Wait past the former pointer-leave timer while interacting with the primary surface.
-    await page.getByRole('button', { name: '业务列表', exact: true }).click();
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    await expect.poll(() => visibility(0)).toBe('visible');
-    expect(overlays()).toHaveLength(1);
-    await page.getByRole('button', { name: '选择租户', exact: true }).click();
-    await page.getByRole('button', { name: '展开项目', exact: true }).click();
-    await expect.poll(() => visibility(0)).toBe('hidden');
-    expect(visibility(1)).toBe('visible');
-    expect(overlays()).toHaveLength(1);
-    const content = columns[1]!.get('.management-explorer-column-content').element;
+    const folded = () => wrapper.findAll('.management-explorer-column--collapsed');
     const host = wrapper.get<HTMLElement>('.management-workspace').element;
-    await expect
-      .poll(() => content.getBoundingClientRect().top)
-      .toBeCloseTo(host.getBoundingClientRect().top, 0);
-    expect(content.getBoundingClientRect().bottom).toBeLessThanOrEqual(
-      host.getBoundingClientRect().bottom + 1,
-    );
-    expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
-
-    await page.viewport(1500, 800);
-    await expect.poll(() => wrapper.findAll('.management-explorer-column--collapsed').length).toBe(0);
-    expect(overlays()).toHaveLength(0);
-    await page.viewport(620, 700);
-    await expect.poll(() => overlays().length).toBe(1);
-    expect(visibility(1)).toBe('visible');
-    expect(visibility(0)).toBe('hidden');
-    await page.viewport(620, 400);
-    await page.getByRole('button', { name: '业务列表', exact: true }).click();
-    await userEvent.keyboard('{Escape}');
-    expect(overlays()).toHaveLength(1);
-    await page.getByRole('button', { name: '收起项目', exact: true }).click();
-    await expect.poll(() => visibility(1)).toBe('hidden');
-    expect(overlays()).toHaveLength(0);
+    const primary = wrapper.get<HTMLElement>('.test-primary').element;
+    const isInline = (index: number) => getComputedStyle(columns[index]!.element).position === 'relative';
+    await expect.poll(() => folded().length).toBe(2);
+    expect(host.scrollHeight).toBeLessThanOrEqual(host.clientHeight + 1);
     await page.getByRole('button', { name: '展开租户', exact: true }).click();
-    await userEvent.keyboard('{Escape}');
-    await expect.poll(() => overlays().length).toBe(0);
-    expect(document.activeElement?.getAttribute('title')).toBe('展开租户');
-    await page.viewport(1500, 800);
-    await expect.poll(() => wrapper.findAll('.management-explorer-column--collapsed').length).toBe(2);
+    await expect.poll(() => folded().length).toBe(1);
+    expect(isInline(0)).toBe(true);
+    await expect.poll(() => host.scrollWidth).toBeGreaterThan(host.clientWidth);
+    expect(Math.round(primary.getBoundingClientRect().width)).toBeGreaterThanOrEqual(720);
+    await expect
+      .poll(() => primary.getBoundingClientRect().left - columns[0]!.element.getBoundingClientRect().right)
+      .toBeGreaterThanOrEqual(0);
+    await page.getByRole('button', { name: '展开项目', exact: true }).click();
+    await expect.poll(() => folded().length).toBe(0);
+    expect(isInline(0) && isInline(1)).toBe(true);
+    await expect
+      .poll(
+        () =>
+          columns[1]!.element.getBoundingClientRect().left -
+          columns[0]!.element.getBoundingClientRect().right,
+      )
+      .toBeGreaterThanOrEqual(0);
+    await expect
+      .poll(() => primary.getBoundingClientRect().left - columns[1]!.element.getBoundingClientRect().right)
+      .toBeGreaterThanOrEqual(0);
+
+    for (const width of [620, 1500, 620]) {
+      await page.viewport(width, 800);
+      await expect.poll(() => host.clientWidth).toBe(width - 40);
+      expect(folded()).toHaveLength(0);
+      expect(isInline(0) && isInline(1)).toBe(true);
+      expect(Math.round(primary.getBoundingClientRect().width)).toBeGreaterThanOrEqual(720);
+    }
+    await page.getByRole('button', { name: '业务列表', exact: true }).click();
+    expect(host.scrollLeft).toBeGreaterThan(0);
+    host.scrollLeft = 0;
+    await page.getByRole('button', { name: '收起项目', exact: true }).click();
+    await expect.poll(() => folded().length).toBe(1);
+    expect(columns[0]!.classes()).not.toContain('management-explorer-column--collapsed');
+    for (const width of [1500, 620]) {
+      await page.viewport(width, 800);
+      await expect.poll(() => host.clientWidth).toBe(width - 40);
+      expect(folded()).toHaveLength(1);
+      expect(columns[1]!.classes()).toContain('management-explorer-column--collapsed');
+    }
+    host.scrollLeft = 0;
+    await page.getByRole('button', { name: '收起租户', exact: true }).click();
+    await expect.poll(() => folded().length).toBe(2);
+    await expect.poll(() => host.scrollHeight).toBeLessThanOrEqual(host.clientHeight + 1);
   } finally {
     wrapper.unmount();
+  }
+  const reopened = mount(Harness, { attachTo: document.body });
+  try {
+    await expect.poll(() => reopened.findAll('.management-explorer-column--collapsed').length).toBe(2);
+    await page.viewport(1500, 800);
+    await expect.poll(() => reopened.findAll('.management-explorer-column--collapsed').length).toBe(0);
+  } finally {
+    reopened.unmount();
   }
 });

@@ -64,11 +64,10 @@ type WorkspacePushEffect = {
 
 const isCollapsible = computed(() => props.collapsible && workspace != null);
 const collapsed = computed(() => isCollapsible.value && workspace!.isExplorerCollapsed(id));
-const overlayOpen = computed(() => isCollapsible.value && workspace!.isExplorerOverlayOpen(id));
 const collapsedOffset = computed(() => (workspace ? workspace.collapsedExplorerOffset(id) : 0));
 const collapseContext: ManagementExplorerColumnContext = {
   collapsible: isCollapsible,
-  collapsed: computed(() => collapsed.value && !overlayOpen.value),
+  collapsed,
   collapse,
 };
 
@@ -86,11 +85,6 @@ watch(
   { immediate: true },
 );
 
-function dismissOverlay(event: KeyboardEvent) {
-  if (event.defaultPrevented || !overlayOpen.value || navigationDisabled.value) return;
-  event.preventDefault();
-  collapse();
-}
 onUnmounted(() => {
   clearCollapseTimers();
   if (expandStartTimer) clearTimeout(expandStartTimer);
@@ -106,8 +100,6 @@ function restore() {
   tabTransitionWidth.value =
     measuredTabWidth > 0 ? measuredTabWidth : MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.railWidth;
   workspace?.expandExplorer(id);
-  // A narrow host preserves the primary surface and keeps the clicked navigator open as an overlay.
-  if (collapsed.value) return;
   expanding.value = true;
   void nextTick(() => {
     animateWorkspacePush(workspaceLayoutBeforeRestore);
@@ -122,12 +114,7 @@ function restore() {
 }
 
 function collapse() {
-  if (collapsing.value || (collapsed.value && !overlayOpen.value)) return;
-  if (overlayOpen.value) {
-    workspace?.collapseExplorer(id);
-    void nextTick(() => tabTriggerElement.value?.querySelector('button')?.focus());
-    return;
-  }
+  if (collapsing.value || collapsed.value) return;
   const workspaceLayoutBeforeCollapse = captureWorkspaceLayout();
   if (expandStartTimer) clearTimeout(expandStartTimer);
   expandStartTimer = undefined;
@@ -237,14 +224,12 @@ function clearWorkspacePushAnimations() {
       'management-explorer-column--collapsing': collapsing,
       'management-explorer-column--collapse-leaving': collapseLeaving,
       'management-explorer-column--expanding': expanding,
-      'management-explorer-column--overlay-open': overlayOpen,
     }"
     :style="{
       '--muyun-management-collapsed-offset': `${collapsedOffset}px`,
       '--muyun-management-tab-transition-offset': `${tabTransitionOffset}px`,
       '--muyun-management-tab-transition-width': `${tabTransitionWidth}px`,
     }"
-    @keydown.esc="dismissOverlay"
   >
     <Transition name="management-explorer-tab">
       <div v-if="collapsed" ref="tabTriggerElement" class="management-explorer-column-tab-trigger">
@@ -274,7 +259,8 @@ function clearWorkspacePushAnimations() {
         </div>
       </div>
     </Transition>
-    <div ref="contentElement" class="management-explorer-column-content">
+    <!-- Retain navigator state without letting closed content contribute hidden scroll overflow. -->
+    <div v-show="!collapsed || collapsing" ref="contentElement" class="management-explorer-column-content">
       <slot />
     </div>
   </section>
@@ -407,7 +393,7 @@ function clearWorkspacePushAnimations() {
   color: var(--muyun-theme-text, var(--muyun-text));
 }
 
-/* The collapsed layout commits first; this overlay then exits as the rest of the workspace backfills. */
+/* The collapsed layout commits first; the departing panel exits as the rest of the workspace backfills. */
 .management-explorer-column--collapse-leaving .management-explorer-column-content {
   will-change: opacity, transform;
   opacity: 0;
@@ -432,7 +418,7 @@ function clearWorkspacePushAnimations() {
     var(--muyun-management-explorer-width, 280px),
     calc(100cqw - var(--muyun-management-collapsed-rail-offset, 48px))
   );
-  height: min(600px, calc(100vh - 120px), var(--muyun-management-workspace-height, 600px));
+  height: min(600px, calc(100vh - 120px));
   min-height: 0;
   border-radius: 8px;
   opacity: 0;
@@ -460,23 +446,5 @@ function clearWorkspacePushAnimations() {
   .management-explorer-column-content {
   opacity: 0;
   transform: translateX(-36px);
-}
-
-.management-explorer-column--overlay-open {
-  z-index: 4;
-}
-
-.management-explorer-column--overlay-open .management-explorer-column-content {
-  top: calc(0px - var(--muyun-management-collapsed-offset, 0px));
-  visibility: visible;
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0);
-  box-shadow: 0 14px 28px rgb(15 23 42 / 13%);
-  transition:
-    box-shadow 0.18s ease,
-    opacity 0.18s ease,
-    transform 0.18s cubic-bezier(0.2, 0, 0, 1),
-    visibility 0s;
 }
 </style>

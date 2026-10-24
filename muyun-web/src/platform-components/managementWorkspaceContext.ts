@@ -12,7 +12,6 @@ export interface ManagementWorkspaceContext {
   isExplorerCollapsed: (id: string) => boolean;
   expandExplorer: (id: string) => void;
   collapseExplorer: (id: string) => void;
-  isExplorerOverlayOpen: (id: string) => boolean;
   collapsedExplorerOffset: (id: string) => number;
   hasCollapsedExplorers: ComputedRef<boolean>;
 }
