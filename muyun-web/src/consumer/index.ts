@@ -153,6 +153,8 @@ export { default as LanguageSelector } from '../platform-workbench/LanguageSelec
 // Specialized business pages compose the same surfaces as the standard module runner.
 export {
   ManagementWorkspace,
+  ManagementExplorerColumn,
+  TenantScopeExplorer,
   RecordQueryListSurface,
   RecordQueryListCell,
   RecordDetailPanel,

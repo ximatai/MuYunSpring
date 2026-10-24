@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Added
+
+- 公开 `TenantScopeExplorer` 与 `ManagementExplorerColumn`，供自定义业务页复用平台租户列表和可折叠导航；补充只依赖公开包的执行租户示例及安装包消费者契约，保留普通用户固定租户、请求范围隔离和迟到响应防护。
+
 ## 0.26.23 - 2026-10-23
 
 ### Added

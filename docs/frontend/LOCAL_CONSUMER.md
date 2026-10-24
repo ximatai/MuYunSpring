@@ -75,6 +75,41 @@ npm link <muyun-spring-repository>/build/consumer-npm/staging/web-app
 
 完整接入片段与组件见[顶栏业务入口示例](../../muyun-web/examples/business-web/README.md#工作台顶栏业务入口)。框架宿主中的演示图标仅在开发环境显示，业务 App 通过插槽自行装配；界面显隐不替代服务端授权。
 
+## 自定义业务页的执行租户选择
+
+公开入口提供 `TenantScopeExplorer` 与 `ManagementExplorerColumn`，复用内部标准页面的租户列表、
+远程搜索、刷新和折叠交互。所需 `ModuleContext`、`QueryListRecord`、`CurrentUser`、`HttpClient`
+同样从 `@ximatai/muyun-web-app` 导入，无需内部文件路径或源码 alias。
+
+完整最小页面见 [TenantScopedOverviewExample.vue](../../muyun-web/examples/business-web/src/views/TenantScopedOverviewExample.vue)。
+业务应用拥有该页面，传入当前身份、宿主 HTTP 客户端和自己的概览接口：
+
+```vue
+<TenantScopedOverviewExample
+  :current-user="currentUser"
+  :http="http"
+  overview-path="/business.overview"
+/>
+```
+
+接入约定：
+
+- 系统身份已加载且 `system === true` 时显示选择器。候选通过
+  `createModuleContext<QueryListRecord>({ moduleAlias: 'iam.tenant', runtimeAccess: 'REFERENCE', http })`
+  读取，继续接受 `iam.tenant` 的授权引用校验；不使用管理查询或客户端自造的租户目录。
+- 折叠列必须放在 `ManagementWorkspace` 内，显式设置 `collapsible`；`explorerCount` 与实际显示列数一致。
+  普通租户用户隐藏选择列，固定使用身份中的 `tenantId`；身份或执行租户缺失时暂停业务读取。
+- 租户目录使用未绑定执行租户的宿主客户端。业务请求为当前范围创建
+  `withHttpHeaders(http, { 'X-MuYun-Tenant-Id': tenantId })`，不改写全局客户端、登录身份或其他页签。
+- 身份、租户或接口改变时同步清空旧内容，取消旧请求，并拒绝已失效会话的迟到成功或错误。
+  同一轮宿主更新完成后才发送请求，避免组合中间状态。即使传输层忽略取消，旧响应也不能回填；
+  页面卸载使用同一释放边界。
+
+此选择只确定请求执行范围，不授予跨租户权限。业务接口仍须执行动作授权、有效租户校验和领域范围约束；
+候选读取成功不保证某个业务动作可执行。业务自有的详情请求、角色内容差异与编辑门禁由业务处理。
+
+安装包消费者验证会检查示例的 Vue 类型、独立构建与组件交互，不替代业务后端授权验收。
+
 ## 宿主请求与认证恢复
 
 标准模块、角色范围导航和用户在线状态共用宿主注入的 HTTP factory。辅助模块 API 通过
