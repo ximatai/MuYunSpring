@@ -106,7 +106,7 @@ watch(() => props.notifications.map((item) => [item.id, item.expiresAt]), schedu
 watch(
   () => [...latest.value.keys()],
   (ids) => {
-    handled.value = new Set([...handled.value].filter((id) => ids.includes(id)));
+    // Completion marks, like dismissals, live for the page session so a re-push cannot re-run a handled record.
     executing.value = new Map([...executing.value].filter(([id]) => ids.includes(id)));
   },
 );
@@ -175,7 +175,10 @@ async function run(notice: WebBusinessNotification, action: WebBusinessNotificat
   }
 }
 async function openPanel() {
-  if (await deckMotion.arrange(true)) panelElement.value?.focus();
+  if (!(await deckMotion.arrange(true))) return;
+  // Hand focus to the list only if the user has not moved it elsewhere while the deck was dealing.
+  const focused = document.activeElement;
+  if (!focused || focused === document.body || focused === bell.value) panelElement.value?.focus();
 }
 async function closePanel() {
   restoredTopId.value = top.value?.id;

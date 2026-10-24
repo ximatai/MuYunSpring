@@ -298,6 +298,33 @@ describe('BusinessNotificationPanel', () => {
     wrapper.unmount();
   });
 
+  it('keeps a handled persistent record action disabled after the same reminder is withdrawn and pushed again', async () => {
+    const navigate = {
+      kind: 'navigate' as const,
+      key: 'view',
+      label: '查看',
+      moduleAlias: 'demo.call',
+      dismissOnSuccess: false,
+    };
+    const notice = notification('call', false, {
+      displayPolicy: 'persistent',
+      actions: [{ ...command, dismissOnSuccess: false }, navigate],
+    });
+    const executeAction = vi.fn(async () => true);
+    const wrapper = mount(BusinessNotificationPanel, { props: { notifications: [notice], executeAction } });
+    const button = () => document.querySelector<HTMLButtonElement>('.business-notification-actions button');
+    button()!.click();
+    await flushPromises();
+    expect(button()?.disabled).toBe(true);
+    await wrapper.setProps({ notifications: [] });
+    await wrapper.setProps({ notifications: [{ ...notice }] });
+    expect(button()?.disabled).toBe(true);
+    button()!.click();
+    await flushPromises();
+    expect(executeAction).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
   it('defers ordinary cards for overlays but retains persistent presentation and the full active count', async () => {
     const overlay = registerUiBlockingOverlay();
     const wrapper = mountPanel([

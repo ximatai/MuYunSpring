@@ -242,6 +242,29 @@ it('stacks newer cards at the upper left with edge-only layers and a single bell
   }
 });
 
+it('does not pull focus back to the list when the user moves it while the deck is opening', async () => {
+  await commands.treeReducedMotion(false);
+  const wrapper = mount(host(ref([notice('one'), notice('two')])), {
+    attachTo: document.body,
+    global: { stubs: { transition: false, transitionGroup: false } },
+  });
+  try {
+    const bell = wrapper.get<HTMLElement>('.business-notification-bell').element;
+    bell.focus();
+    bell.click();
+    await expect
+      .poll(() => Boolean(document.querySelector('.business-notification-deck--moving')))
+      .toBe(true);
+    const input = wrapper.get<HTMLInputElement>('input').element;
+    input.focus();
+    await settlePresentation();
+    expect(wrapper.find('.business-notification-current').exists()).toBe(true);
+    expect(document.activeElement).toBe(input);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
 it('dismisses cards from this page session and labels the remaining list as temporary without reflowing business content', async () => {
   await page.viewport(1280, 900);
   const notifications = ref([notice('one'), notice('two')]);
