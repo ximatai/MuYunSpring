@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.job;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import net.ximatai.muyun.spring.common.option.OptionField;
+import net.ximatai.muyun.spring.common.option.OptionSourceType;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -36,6 +38,7 @@ public class JobRun extends StandardEntity {
     private Instant scheduledAt;
 
     @Column(name = "trigger_type", type = ColumnType.VARCHAR, length = 16, comment = "triggerType", nullable = false)
+    @OptionField(type = OptionSourceType.ENUM, enumType = JobTriggerType.class)
     private String triggerType;
 
     @Column(name = "triggered_by", type = ColumnType.VARCHAR, length = 64, comment = "triggeredBy")
@@ -43,6 +46,7 @@ public class JobRun extends StandardEntity {
 
     /** Persisted {@link JobIdentityMode} name; SERVICE_ACCOUNT is reserved. */
     @Column(name = "identity_mode", type = ColumnType.VARCHAR, length = 32, comment = "identityMode", nullable = false)
+    @OptionField(type = OptionSourceType.ENUM, enumType = JobIdentityMode.class)
     private String identityMode;
 
     @JsonIgnore
@@ -59,6 +63,7 @@ public class JobRun extends StandardEntity {
     private String channel;
 
     @Column(name = "status", type = ColumnType.VARCHAR, length = 16, comment = "status", nullable = false)
+    @OptionField(type = OptionSourceType.ENUM, enumType = JobRunStatus.class)
     private String status;
 
     @Column(name = "attempts", type = ColumnType.INT, comment = "attempts", nullable = false)
@@ -93,6 +98,7 @@ public class JobRun extends StandardEntity {
     private Integer progress;
 
     @Column(name = "result_code", type = ColumnType.VARCHAR, length = 128, comment = "resultCode")
+    @OptionField(type = OptionSourceType.ENUM, enumType = JobResultCode.class)
     private String resultCode;
 
     @Column(name = "statistics_json", type = ColumnType.TEXT, comment = "statisticsJson")

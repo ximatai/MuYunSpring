@@ -34,6 +34,7 @@ import static org.assertj.core.api.Assertions.*;
 class JobRepositoryIT extends PlatformPostgresIntegrationTest {
     @Autowired JobPlanDao plans;
     @Autowired JobRunDao runs;
+    @Autowired ScheduledActionPlanDao actionPlans;
     @Autowired WorkflowNodeInstanceDao nodes;
     @Autowired WorkflowInstanceDao instances;
     @Autowired WorkflowEventDao events;
@@ -77,6 +78,53 @@ class JobRepositoryIT extends PlatformPostgresIntegrationTest {
                 return JobResult.success("COMPLETE", Map.of("processed", 1L));
             }
         };
+    }
+    @Test void standardPagePayloadSchedulesAndExecutesInSelectedTenant() throws Exception {
+        var json = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        // recordMutationPayload strips tenantId; only the business execution scope crosses the wire.
+        var row = json.readValue("""
+                {"executionTenantId":"demo","identityMode":"SYSTEM","moduleAlias":"test.target",
+                 "actionCode":"execute","initialDelayMillis":0}
+                """, ScheduledActionPlan.class);
+        var beans = new DefaultListableBeanFactory();
+        var invoker = mock(net.ximatai.muyun.spring.platform.module.ModuleActionInvoker.class);
+        beans.registerSingleton("actions", invoker);
+        beans.registerSingleton("access", (JobManagementAccess) tenant -> { });
+        var handler = new ModuleActionJob(JobScope.TENANT,
+                beans.getBeanProvider(net.ximatai.muyun.spring.platform.module.ModuleActionInvoker.class), actionPlans,
+                (module, action) -> true,
+                beans.getBeanProvider(net.ximatai.muyun.spring.common.identity.TrustedExecutionIdentityResolver.class), json);
+        var scheduler = service(new JobRegistry(List.of(handler)), beans);
+        var topic = new ScheduledActionPlanService(actionPlans, scheduler, invoker,
+                beans.getBeanProvider(net.ximatai.muyun.spring.common.identity.TrustedExecutionIdentityResolver.class),
+                (module, action) -> true, tenant -> { }, json, tenant -> {
+                    if (!"demo".equals(tenant)) throw new IllegalArgumentException("Invalid tenant");
+                });
+        doAnswer(call -> {
+            assertThat(TenantContext.currentTenantId()).contains("demo");
+            executions.incrementAndGet(); return null;
+        }).when(invoker).invoke("test.target", "execute", Map.of());
+        try (var user = net.ximatai.muyun.spring.common.identity.CurrentUserContext.use(
+                net.ximatai.muyun.spring.common.identity.CurrentUser.systemUser("admin", "admin"));
+             var scope = TenantContext.system("configure page plan")) {
+            tx.execute(status -> topic.insert(row));
+            assertThat(actionPlans.findById(row.getId()).getExecutionTenantId()).isEqualTo("demo");
+            assertThat(actionPlans.findById(row.getId()).getTenantId()).isEqualTo("demo");
+            assertThat(plans.findById(row.getJobPlanId()).getTenantId()).isEqualTo("demo");
+            var invalid = json.readValue("{\"executionTenantId\":\"missing\"}", ScheduledActionPlan.class);
+            assertThatThrownBy(() -> tx.execute(status -> topic.insert(invalid))).hasMessageContaining("Invalid tenant");
+        }
+        scheduler.scan();
+        assertThat(scheduler.runOne("default", "page-regression")).isTrue();
+        assertThat(executions.get()).isEqualTo(1);
+        global(() -> {
+            var run = runs.query(Criteria.of().eq("planId", row.getJobPlanId()), PageRequest.of(1, 10)).getFirst();
+            assertThat(run.getTenantId()).isEqualTo("demo");
+            assertThat(run.getStatus()).isEqualTo("SUCCEEDED");
+            assertThat(run.getTriggerType()).isEqualTo("SCHEDULE");
+            assertThat(run.getResultCode()).isEqualTo("ACTION_EXECUTED");
+            return null;
+        });
     }
     @Test void concurrentScansGenerateExactlyOneAndAdvanceAtomically() throws Exception {
         first.registerDefaults(); second.registerDefaults();

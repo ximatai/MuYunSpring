@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.job;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import net.ximatai.muyun.spring.common.option.OptionField;
+import net.ximatai.muyun.spring.common.option.OptionSourceType;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -55,6 +57,7 @@ public class JobPlan extends StandardEntity {
 
     /** Persisted {@link JobIdentityMode} name; SERVICE_ACCOUNT is reserved. */
     @Column(name = "identity_mode", type = ColumnType.VARCHAR, length = 32, comment = "identityMode", nullable = false)
+    @OptionField(type = OptionSourceType.ENUM, enumType = JobIdentityMode.class)
     private String identityMode;
 
     @JsonIgnore
@@ -68,6 +71,7 @@ public class JobPlan extends StandardEntity {
     private Integer consecutiveFailures;
 
     @Column(name = "last_status", type = ColumnType.VARCHAR, length = 16, comment = "lastStatus")
+    @OptionField(type = OptionSourceType.ENUM, enumType = JobRunStatus.class)
     private String lastStatus;
 
     @Column(name = "skipped_count", type = ColumnType.BIGINT, comment = "skippedCount", nullable = false)

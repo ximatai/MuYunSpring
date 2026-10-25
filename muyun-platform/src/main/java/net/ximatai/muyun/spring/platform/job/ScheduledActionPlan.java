@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.job;
 
+import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.*;
@@ -12,6 +14,12 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 public class ScheduledActionPlan extends StandardEntity {
     /** An absent update version must stay absent; insert lifecycle initializes persisted version zero. */
     public ScheduledActionPlan() { setVersion(null); }
+
+    /** Business execution scope, validated and mapped to infrastructure tenant ownership on save. */
+    @ReferenceTo(moduleAlias = "iam", entityAlias = "tenant",
+            tenantScope = ReferenceTenantScope.GLOBAL)
+    @Column(name = "execution_tenant_id", type = ColumnType.VARCHAR, length = 64, comment = "executionTenantId")
+    private String executionTenantId;
 
     @Column(name = "module_alias", type = ColumnType.VARCHAR, length = 128, nullable = false, comment = "moduleAlias")
     private String moduleAlias;

@@ -132,3 +132,11 @@ it('never submits disposable business reading metadata as an ordinary business f
   });
   expect(record.title).toBe('原文');
 });
+
+it('submits the scheduled action execution tenant while still stripping system tenant ownership', () => {
+  expect(
+    recordMutationPayload({ tenantId: 'untrusted', executionTenantId: 'demo', identityMode: 'SYSTEM' }, [
+      { fieldRef: { fieldName: 'executionTenantId' }, readOnly: { constant: false } },
+    ]),
+  ).toEqual({ executionTenantId: 'demo', identityMode: 'SYSTEM' });
+});

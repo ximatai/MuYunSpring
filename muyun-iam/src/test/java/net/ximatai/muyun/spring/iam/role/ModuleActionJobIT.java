@@ -125,7 +125,7 @@ class ModuleActionJobIT {
         beans.registerSingleton("notifications", (BusinessNotificationDelivery) alerts::add);
         jobs = new JobService(jobPlans, runs, db, transactions, new JobRegistry(List.of(handler)), beans.getBeanProvider(JobFailureRecipientResolver.class),
                 beans.getBeanProvider(BusinessNotificationDelivery.class), beans.getBeanProvider(JobManagementAccess.class), Duration.ofMinutes(1), 90);
-        plans = new ScheduledActionPlanService(topicPlans, jobs, invoker, beans.getBeanProvider(TrustedExecutionIdentityResolver.class), whitelist, tenant -> { }, json);
+        plans = new ScheduledActionPlanService(topicPlans, jobs, invoker, beans.getBeanProvider(TrustedExecutionIdentityResolver.class), whitelist, tenant -> { }, json, tenant -> { });
         global(() -> {
             for (String alias : List.of("test.target", "test.static")) {
                 var row = new PlatformModule(); row.setAlias(alias); row.setTitle(alias); row.setApplicationAlias("test"); row.setEnabled(true);
@@ -225,7 +225,7 @@ class ModuleActionJobIT {
             var plan = row(module); plans.insert(plan); return plan;
         }
     }
-    private ScheduledActionPlan row(String module) { var row = new ScheduledActionPlan(); row.setTenantId("tenant-a"); row.setModuleAlias(module); row.setActionCode("execute"); row.setArgumentsJson("{\"title\":\"frozen\"}"); row.setInitialDelayMillis(0L); return row; }
+    private ScheduledActionPlan row(String module) { var row = new ScheduledActionPlan(); row.setExecutionTenantId("tenant-a"); row.setModuleAlias(module); row.setActionCode("execute"); row.setArgumentsJson("{\"title\":\"frozen\"}"); row.setInitialDelayMillis(0L); return row; }
     private void whitelist(String code) { try (var admin = CurrentUserContext.use(CurrentUser.systemUser("admin", "admin")); var tenant = TenantContext.system("test")) { var row = new SystemActionWhitelist(); row.setModuleAlias("test.target"); row.setActionCode(code); whitelist.insert(row); } }
     private PlatformModuleAction lookup(String module, String code) { return global(() -> actionRows.query(Criteria.of().eq("moduleAlias", module).eq("actionCode", code), PageRequest.of(1, 1)).stream().findFirst().orElse(null)); }
     private void seed(String tenant, String owner, String title) { try (var scope = TenantContext.use(tenant); var user = CurrentUserContext.use(CurrentUser.tenantUser(owner, owner, tenant))) { var row = runtime.newRecord("test.target", "entry"); row.setValue("title", title); runtime.entityService("test.target", "entry").insert(row); } }

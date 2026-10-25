@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.database.core.orm.*;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.query.*;
-import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
+import net.ximatai.muyun.spring.common.exception.*;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.identity.*;
 import net.ximatai.muyun.spring.common.platform.JobSystemActionPolicy;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
@@ -25,11 +27,12 @@ public class ScheduledActionPlanService extends AbstractAbilityService<Scheduled
     private final JobSystemActionPolicy whitelist;
     private final JobManagementAccess access;
     private final ObjectMapper json;
+    private final ActiveTenantVerifier tenants;
     public ScheduledActionPlanService(ScheduledActionPlanDao rows, JobService jobs, ModuleActionInvoker actions,
             ObjectProvider<TrustedExecutionIdentityResolver> identities, JobSystemActionPolicy whitelist,
-            JobManagementAccess access, ObjectMapper json) {
+            JobManagementAccess access, ObjectMapper json, ActiveTenantVerifier tenants) {
         super(MODULE_ALIAS, ScheduledActionPlan.class, rows); this.rows = Objects.requireNonNull(rows); this.jobs = Objects.requireNonNull(jobs); this.actions = Objects.requireNonNull(actions);
-        this.identities = Objects.requireNonNull(identities); this.whitelist = Objects.requireNonNull(whitelist); this.access = Objects.requireNonNull(access); this.json = Objects.requireNonNull(json);
+        this.identities = Objects.requireNonNull(identities); this.whitelist = Objects.requireNonNull(whitelist); this.access = Objects.requireNonNull(access); this.json = Objects.requireNonNull(json); this.tenants = Objects.requireNonNull(tenants);
     }
     @Override public QueryDescriptor queryDescriptor() {
         var declared = QueryDescriptors.fromModel(MODULE_ALIAS, ScheduledActionPlan.class,
@@ -59,10 +62,11 @@ public class ScheduledActionPlanService extends AbstractAbilityService<Scheduled
             throw new net.ximatai.muyun.spring.ability.OptimisticLockException("Scheduled action plan changed");
         return incoming.getVersion();
     }
-    @Override public void beforeInsert(ScheduledActionPlan row) { row.setJobPlanId(null); save(row); }
+    @Override public void beforeInsert(ScheduledActionPlan row) { row.setJobPlanId(null); resolveExecutionTenant(row); save(row); }
     @Override public void beforeUpdate(ScheduledActionPlan row) {
         var old = rows.findById(row.getId()); requireOwned(old);
-        if (!Objects.equals(old.getTenantId(), row.getTenantId())) throw new PlatformAccessDeniedException("Plan tenant cannot change");
+        resolveExecutionTenant(row);
+        if (!Objects.equals(old.getTenantId(), row.getTenantId())) throw rejection("tenant-immutable", "Plan tenant cannot change");
         row.setJobPlanId(old.getJobPlanId()); save(row);
     }
     @Override public void beforeDelete(String id) {
@@ -71,17 +75,30 @@ public class ScheduledActionPlanService extends AbstractAbilityService<Scheduled
     }
     private void requireOwned(ScheduledActionPlan row) {
         var user = user();
-        if (row == null || !user.system() && !Objects.equals(row.getTenantId(), user.tenantId())) throw new PlatformAccessDeniedException("Plan outside current scope");
+        if (row == null || !user.system() && !Objects.equals(row.getTenantId(), user.tenantId())) throw rejection("outside-scope", "Plan outside current scope");
         if ("SYSTEM".equals(row.getIdentityMode())) SystemActionWhitelistService.requirePlatformAdministrator();
         else if (!user.system()) {
             try { access.requireAdministrator(row.getTenantId()); }
             catch (PlatformAccessDeniedException ordinaryUser) { actions.requireAuthorized(row.getModuleAlias(), row.getActionCode(), arguments(row.getArgumentsJson())); }
         }
     }
+    private void resolveExecutionTenant(ScheduledActionPlan row) {
+        var user = user();
+        String requested = row.getExecutionTenantId();
+        requested = requested == null || requested.isBlank() ? null : requested.trim();
+        if (!user.system()) {
+            if (requested != null && !Objects.equals(requested, user.tenantId()))
+                throw rejection("execution-tenant-denied", "Execution tenant must be the initiator's account tenant");
+            requested = user.tenantId();
+        }
+        if (requested != null) tenants.verifyActiveTenant(requested);
+        row.setExecutionTenantId(requested);
+        row.setTenantId(requested);
+    }
     private void save(ScheduledActionPlan row) {
         var user = user();
         if (!user.system() && (row.getTenantId() == null || !row.getTenantId().equals(user.tenantId())
-                || !row.getTenantId().equals(TenantContext.currentTenantId().orElse(null)))) throw new PlatformAccessDeniedException("Plan must belong to current account tenant");
+                || !row.getTenantId().equals(TenantContext.currentTenantId().orElse(null)))) throw rejection("account-tenant-required", "Plan must belong to current account tenant");
         try (var businessScope = row.getTenantId() == null ? TenantContext.system("configure platform scheduled action") : TenantContext.use(row.getTenantId())) {
             saveInScope(row, user);
         }
@@ -96,14 +113,14 @@ public class ScheduledActionPlanService extends AbstractAbilityService<Scheduled
         input.put("arguments", args); input.put("planKey", row.getId());
         if ("SYSTEM".equals(row.getIdentityMode())) {
             SystemActionWhitelistService.requirePlatformAdministrator();
-            if (!whitelist.allows(row.getModuleAlias(), row.getActionCode())) throw new PlatformAccessDeniedException("System scheduled action is not whitelisted");
+            if (!whitelist.allows(row.getModuleAlias(), row.getActionCode())) throw rejection("system-action-not-whitelisted", "System scheduled action is not whitelisted");
             actions.requireAuthorized(row.getModuleAlias(), row.getActionCode(), args);
             row.setExecutionUserId(null);
         } else {
             var resolver = identities.getIfAvailable();
             var ref = resolver == null ? null : resolver.capture(row.getModuleAlias(), row.getActionCode()).orElse(null);
             if (ref == null || !ref.userId().equals(user.userId()) || ref.accountTenantId() == null || !ref.accountTenantId().equals(row.getTenantId()))
-                throw new PlatformAccessDeniedException("Initiator must be a tenant account in the execution scope");
+                throw rejection("initiator-required", "Initiator must be a tenant account in the execution scope");
             actions.requireAuthorized(row.getModuleAlias(), row.getActionCode(), args);
             input.put("identity", json.convertValue(ref, new TypeReference<Map<String, Object>>() { }));
             row.setExecutionUserId(ref.userId());
@@ -113,6 +130,10 @@ public class ScheduledActionPlanService extends AbstractAbilityService<Scheduled
         plan.setIdentityMode(row.getIdentityMode()); plan.setScheduleKind(row.getScheduleKind()); plan.setExpression(row.getExpression());
         plan.setZoneId(row.getZoneId()); plan.setIntervalMillis(row.getIntervalMillis()); plan.setInitialDelayMillis(row.getInitialDelayMillis()); plan.setEnabled(row.getEnabled());
         row.setJobPlanId(jobs.registerManaged(MODULE_ALIAS, plan, input).getId());
+    }
+    private static PlatformAccessDeniedException rejection(String key, String original) {
+        return new PlatformAccessDeniedException(TextReference.code("platform.rejection.scheduled-action." + key, original),
+                ErrorScope.module(MODULE_ALIAS));
     }
     static Map<String, Object> arguments(String source) {
         if (source != null && source.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 16384)
@@ -130,7 +151,7 @@ public class ScheduledActionPlanService extends AbstractAbilityService<Scheduled
         else if (value instanceof Collection<?> list) list.forEach(ScheduledActionPlanService::rejectCredentials);
     }
     private static CurrentUser user() {
-        var user = CurrentUserContext.currentUser().orElseThrow(() -> new PlatformAccessDeniedException("Authenticated account required"));
-        if (user.passwordChangeRequired()) throw new PlatformAccessDeniedException("Password change required"); return user;
+        var user = CurrentUserContext.currentUser().orElseThrow(() -> rejection("authentication-required", "Authenticated account required"));
+        if (user.passwordChangeRequired()) throw rejection("password-change-required", "Password change required"); return user;
     }
 }
