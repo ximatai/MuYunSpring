@@ -85,6 +85,9 @@ public class ExternalIdentity extends StandardEntity {
 
     @Column(name = "source_status", type = ColumnType.VARCHAR, length = 32, comment = "Authoritative external employment status")
     private String sourceStatus;
+    @Column(name = "source_checked_at", type = ColumnType.TIMESTAMP,
+            comment = "Last authoritative source status observation")
+    private Instant sourceCheckedAt;
     @Column(name = "last_sync_run_id", type = ColumnType.VARCHAR, length = 32, comment = "Last observed directory run")
     private String lastSyncRunId;
 }

@@ -74,6 +74,15 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
     private final ExternalIdentityFederationSettings settings;
     private final Clock clock;
     private final ExternalIdentityAdmissionLocks admissionLocks;
+    private DirectorySyncConfiguration directory;
+    private DirectorySourceLifecycle sourceLifecycle;
+
+    @Autowired
+    void configureSourceStatus(DirectorySyncConfiguration directory, DirectorySourceLifecycle sourceLifecycle) {
+        this.directory = directory;
+        this.sourceLifecycle = sourceLifecycle;
+    }
+
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Autowired
@@ -330,8 +339,29 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                 && !descriptor.externalEnterpriseId().equals(identity.externalEnterpriseId())) {
             return Outcome.denied(ExternalLoginFailure.ENTERPRISE_MISMATCH);
         }
-        // Provider I/O above is outside the transaction. All final facts below are re-read under row locks.
+        // Freeze the identity observation before I/O; an intervening sync must win over this snapshot.
+        ExternalIdentity observed;
+        try (TenantContext.Scope ignored = TenantContext.use(transaction.getTenantId())) {
+            observed = identities.findByExternalIdentity(descriptor.identityNamespace(),
+                    identity.externalEnterpriseId(), identity.externalUserId()).orElse(null);
+        }
+        ExternalDirectoryProtocol.Person refreshed = null;
+        Instant checkedAt = clock.instant();
+        if (transaction.getPurpose() == ExternalLoginPurpose.LOGIN && observed != null
+                && sourceExpired(observed, policy.get(), checkedAt)) {
+            try {
+                refreshed = directory.protocol(descriptor).person(descriptor, identity.externalUserId());
+                if (!identity.externalUserId().equals(refreshed.id())
+                        || !java.util.Set.of("active", "disabled", "departed").contains(refreshed.status()))
+                    return Outcome.denied(ExternalLoginFailure.PROVIDER_REJECTED);
+            } catch (RuntimeException unavailable) {
+                return Outcome.denied(ExternalLoginFailure.PROVIDER_UNAVAILABLE);
+            }
+        }
+        var authoritative = refreshed;
+        // All final facts below are re-read under locks, with no external calls inside this transaction.
         return identities.inAdmissionTransaction(() -> {
+            identities.lockSource(transaction.getTenantId(), transaction.getProviderId());
             if (!admissionLocks.configuration(transaction.getTenantId(), transaction.getProviderId())) {
                 return Outcome.denied(ExternalLoginFailure.POLICY_DISABLED);
             }
@@ -356,6 +386,21 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                     if (!initiator.session()) return Outcome.denied(ExternalLoginFailure.SESSION_ENDED);
                     return resolveBind(transaction, descriptor, identity, existing);
                 }
+                if (existing.isPresent()) {
+                    var binding = existing.get();
+                    if (authoritative != null && observed != null
+                            && Objects.equals(binding.getVersion(), observed.getVersion())) {
+                        binding.setSourceStatus(authoritative.status());
+                        binding.setSourceCheckedAt(checkedAt);
+                        identities.update(binding);
+                        if (!"active".equals(authoritative.status()))
+                            sourceLifecycle.invalidate(binding, authoritative.status(), binding.getLastSyncRunId());
+                    }
+                    if (sourceExpired(binding, latestPolicy.get(), clock.instant())
+                            || !sourceAllowsLogin(binding)
+                            || !admissionLocks.employeeAvailable(transaction.getTenantId(), binding.getUserId()))
+                        return Outcome.denied(ExternalLoginFailure.ACCOUNT_UNAVAILABLE);
+                }
                 Outcome outcome = resolveLogin(existing);
                 if (outcome.status() != ExternalLoginStatus.SUCCEEDED) return outcome;
                 LoginResult login = signIn(transaction, outcome, ip, userAgent, clock.instant());
@@ -363,6 +408,18 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                         : new Outcome(outcome.status(), outcome.failure(), outcome.userId(), outcome.identityId(), login);
             }
         });
+    }
+
+    private static boolean sourceExpired(ExternalIdentity binding, TenantIdentityPolicy policy, Instant now) {
+        Instant checked = binding.getSourceCheckedAt() == null ? binding.getBoundAt() : binding.getSourceCheckedAt();
+        int seconds = policy.getSourceStatusMaxAgeSeconds() == null ? 86400 : policy.getSourceStatusMaxAgeSeconds();
+        return checked == null || !now.isBefore(checked.plusSeconds(seconds));
+    }
+
+    private static boolean sourceAllowsLogin(ExternalIdentity binding) {
+        return "active".equals(binding.getSourceStatus())
+                || (binding.getBindingSource() == ExternalIdentityBindingSource.SELF_BIND
+                    && binding.getSourceStatus() == null);
     }
 
     private Outcome resolveLogin(Optional<ExternalIdentity> existing) {

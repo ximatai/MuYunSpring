@@ -37,6 +37,15 @@ final class ExternalIdentityAdmissionLocks {
                 tenantId, namespace, identity.externalEnterpriseId(), identity.externalUserId()).isEmpty();
     }
 
+    boolean employeeAvailable(String tenantId, String userId) {
+        requireTransaction();
+        var links = database.query("select employee_id from iam_employee_account where tenant_id = ? and user_id = ? for share",
+                tenantId, userId);
+        if (links.isEmpty()) return true;
+        return !database.query("select id from iam_employee where tenant_id = ? and id = ? and enabled = true for share",
+                tenantId, links.getFirst().get("employee_id")).isEmpty();
+    }
+
     Initiator initiator(String tenantId, String userId, String sessionId) {
         requireTransaction();
         // Account before session matches disablement, which revokes sessions after updating the account.

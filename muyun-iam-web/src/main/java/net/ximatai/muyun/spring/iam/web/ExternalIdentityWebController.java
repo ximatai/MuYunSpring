@@ -29,6 +29,7 @@ public class ExternalIdentityWebController extends StaticModuleWebControllerAdap
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(ExternalIdentityService.MODULE_ALIAS)
+                .pageAction("delete", net.ximatai.muyun.spring.platform.web.PageActionAnchor.DETAIL)
                 .page(PageTemplates.flatManagement(page -> page
                         .explorer(explorer -> explorer.title("外部身份绑定").titleField("externalUserId")
                                 .secondaryField("providerTitle"))
@@ -39,7 +40,9 @@ public class ExternalIdentityWebController extends StaticModuleWebControllerAdap
                                 .field("displayName", field -> field.label("外部显示名"))
                                 .field("bindingSourceTitle", field -> field.label("绑定来源"))
                                 .field("boundAt", field -> field.label("绑定时间"))
-                                .field("lastAuthenticatedAt", field -> field.label("最近登录"))))))
+                                .field("lastAuthenticatedAt", field -> field.label("最近登录"))
+                                .field("sourceStatus", field -> field.label("来源状态"))
+                                .field("sourceCheckedAt", field -> field.label("来源核验时间"))))))
                 .build();
     }
 }

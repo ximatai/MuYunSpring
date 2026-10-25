@@ -92,6 +92,7 @@ class ExternalIdentityFederationIT {
     @Autowired net.ximatai.muyun.spring.iam.federation.ExternalIdentityService externalIdentityService;
     @Autowired net.ximatai.muyun.spring.iam.user.UserSessionService userSessionService;
     @Autowired BlockingProtocol blockingProtocol;
+    @Autowired StatusProtocol statusProtocol;
 
     @LocalServerPort int port;
     private TestRestTemplate restTemplate;
@@ -159,6 +160,86 @@ class ExternalIdentityFederationIT {
                 createUser("erin");
             }
         }
+    }
+
+    @Test
+    void refreshesExpiredSourceOutsideTransactionsRejectsFailuresAndRevokesOnDepartureAndUnbind() throws Exception {
+        String providerId = StatusProtocol.TYPE;
+        String userId;
+        String bindingId;
+        try (var current = CurrentUserContext.use(CurrentUser.systemUser("status-it", "status-it"));
+             var system = TenantContext.system("source status integration test")) {
+            var provider = new IdentityProvider();
+            provider.setId(providerId);
+            provider.setTitle("Status provider");
+            provider.setProviderType(providerId);
+            provider.setExternalEnterpriseId("status-corp");
+            provider.setIdentityNamespace("status-test");
+            provider.setEnabled(true);
+            identityProviderService.insert(provider);
+            try (var tenant = TenantContext.use(TENANT)) {
+                var policy = new TenantIdentityPolicy();
+                policy.setProviderId(providerId);
+                policy.setEnabled(true);
+                tenantIdentityPolicyService.insert(policy);
+                createUser("source-status-user");
+                userId = userAccountService.list(Criteria.of().eq("username", "source-status-user"), new PageRequest(0, 1)).getFirst().getId();
+                var binding = new net.ximatai.muyun.spring.iam.federation.ExternalIdentity();
+                binding.setProviderId(providerId);
+                binding.setIdentityNamespace("status-test");
+                binding.setExternalEnterpriseId("status-corp");
+                binding.setExternalUserId("source-status-user");
+                binding.setUserId(userId);
+                binding.setBindingSource(net.ximatai.muyun.spring.iam.federation.ExternalIdentityBindingSource.DIRECTORY_SYNC);
+                binding.setBoundAt(java.time.Instant.now().minusSeconds(172800));
+                binding.setSourceStatus("active");
+                externalIdentityService.insert(binding);
+                bindingId = binding.getId();
+            }
+        }
+        statusProtocol.fail = false;
+        statusProtocol.status = "active";
+        var success = statusCompletion();
+        assertThat(success.path("status").asText()).isEqualTo("succeeded");
+        try (var tenant = TenantContext.use(TENANT)) {
+            assertThat(externalIdentityService.select(bindingId).getSourceCheckedAt()).isNotNull();
+            assertThat(userSessionDao.query(Criteria.of().eq("userId", userId), new PageRequest(0, 20)))
+                    .anyMatch(session -> session.getRevokedAt() == null);
+        }
+        jdbcTemplate.update("update iam_external_identity set source_checked_at = current_timestamp - interval '2 days' where id = ?", bindingId);
+        statusProtocol.fail = true;
+        assertThat(statusCompletion().path("failure").asText()).isEqualTo("providerUnavailable");
+        statusProtocol.fail = false;
+        statusProtocol.status = "departed";
+        assertThat(statusCompletion().path("status").asText()).isEqualTo("denied");
+        try (var tenant = TenantContext.use(TENANT)) {
+            assertThat(externalIdentityService.select(bindingId).getSourceStatus()).isEqualTo("departed");
+            assertThat(userAccountService.select(userId).getEnabled()).isTrue();
+            assertThat(userSessionDao.query(Criteria.of().eq("userId", userId), new PageRequest(0, 20)))
+                    .allMatch(session -> session.getRevokedAt() != null);
+        }
+        // A fresh inactive status must be rejected without refreshing it back to active.
+        statusProtocol.status = "active";
+        int calls = statusProtocol.calls;
+        assertThat(statusCompletion().path("failure").asText()).isEqualTo("accountUnavailable");
+        assertThat(statusProtocol.calls).isEqualTo(calls);
+        passwordLogin("source-status-user");
+        try (var current = CurrentUserContext.use(CurrentUser.systemUser("status-it", "status-it"));
+             var tenant = TenantContext.use(TENANT)) {
+            externalIdentityService.delete(bindingId);
+            assertThat(externalIdentityService.select(bindingId)).isNull();
+            assertThat(externalIdentityService.isAutoRebindBlocked(providerId, "source-status-user")).isTrue();
+            assertThat(userSessionDao.query(Criteria.of().eq("userId", userId), new PageRequest(0, 20)))
+                    .allMatch(session -> session.getRevokedAt() != null);
+        }
+    }
+
+    private JsonNode statusCompletion() {
+        var start = post("/iam.auth/external/" + StatusProtocol.TYPE + "/login", Map.of("tenantId", TENANT), null).getBody();
+        String state = start.path("state").asText();
+        return post("/iam.auth/external/" + StatusProtocol.TYPE + "/complete", Map.of("state", state,
+                "browserProof", start.path("browserProof").asText(),
+                "parameters", Map.of("state", state, "code", "source-status-user")), null).getBody();
     }
 
     @BeforeEach
@@ -640,12 +721,41 @@ class ExternalIdentityFederationIT {
     @TestConfiguration(proxyBeanMethods = false)
     static class ForeignProtocolConfiguration {
         @Bean
+        StatusProtocol statusProtocol() { return new StatusProtocol(); }
+
+        @Bean
         BlockingProtocol blockingProtocol() { return new BlockingProtocol(); }
 
         @Bean
         ExternalLoginProtocol foreignEnterpriseProtocol() {
             return new ForeignEnterpriseProtocol();
         }
+    }
+
+    static final class StatusProtocol implements ExternalLoginProtocol, net.ximatai.muyun.spring.iam.federation.ExternalDirectoryProtocol {
+        static final String TYPE = "status_idp";
+        volatile String status = "active";
+        volatile boolean fail;
+        volatile int calls;
+        @Override public void validateConfiguration(Map<String, String> configuration) { }
+        @Override public java.util.Set<String> identityScopeConfigurationKeys() { return java.util.Set.of(); }
+        @Override public String providerType() { return TYPE; }
+        @Override public URI authorizationUri(IdentityProviderDescriptor provider, ExternalAuthorizationContext context) {
+            return URI.create("https://idp.test/status?state=" + encode(context.state()));
+        }
+        @Override public VerifiedExternalIdentity verify(IdentityProviderDescriptor provider, Map<String, String> parameters,
+                                                        ExternalAuthorizationContext context) {
+            return new VerifiedExternalIdentity("status-corp", parameters.get("code"), null, java.time.Instant.now());
+        }
+        @Override public Person person(IdentityProviderDescriptor provider, String id) {
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            calls++;
+            if (fail) throw new IllegalStateException("status unavailable");
+            return new Person(id, id, null, "root", java.util.List.of("root"), status, null, null);
+        }
+        @Override public Department department(IdentityProviderDescriptor provider, String id) { throw new UnsupportedOperationException(); }
+        @Override public Page<Department> departments(IdentityProviderDescriptor provider, String root, String cursor, int limit) { throw new UnsupportedOperationException(); }
+        @Override public Page<String> departmentPeople(IdentityProviderDescriptor provider, String department, String cursor, int limit) { throw new UnsupportedOperationException(); }
     }
 
     static final class BlockingProtocol implements ExternalLoginProtocol {
