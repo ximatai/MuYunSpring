@@ -337,6 +337,7 @@ export type ExternalLoginFailure =
   | 'enterpriseMismatch'
   | 'policyDisabled'
   | 'accountUnavailable'
+  | 'sessionEnded'
   | 'providerRejected'
   | 'providerUnavailable'
   | 'internalError';

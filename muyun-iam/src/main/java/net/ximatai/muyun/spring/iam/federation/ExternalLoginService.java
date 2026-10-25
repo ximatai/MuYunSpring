@@ -4,6 +4,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.VersionedRecordMutation;
+import net.ximatai.muyun.spring.ability.action.BusinessException;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.common.exception.AuthenticationFailedException;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
@@ -134,12 +135,13 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         if (!Boolean.TRUE.equals(policy.getLoginEnabled())) {
             throw unavailable();
         }
-        return start(ExternalLoginPurpose.LOGIN, tenant, provider, null);
+        return start(ExternalLoginPurpose.LOGIN, tenant, provider, null, null);
     }
 
     public ExternalLoginResults.Start startBind(CurrentUser currentUser, String sessionToken, String providerId) {
         String tenant = requireTenantUser(currentUser);
         requireRecentAuthentication(sessionToken);
+        String sessionId = userSessionService.currentSessionId(sessionToken).orElseThrow(ExternalLoginService::reauthenticationRequired);
         IdentityProvider provider = providers.findUsable(providerId).orElseThrow(ExternalLoginService::unavailable);
         TenantIdentityPolicy policy = policies.enabledPolicy(tenant, provider.getId()).orElseThrow(ExternalLoginService::unavailable);
         if (!Boolean.TRUE.equals(policy.getBindingEnabled())) {
@@ -153,7 +155,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                         "iam.federation.already-bound", "当前账号已绑定该身份源"));
             }
         }
-        return start(ExternalLoginPurpose.BIND, tenant, provider, currentUser.userId());
+        return start(ExternalLoginPurpose.BIND, tenant, provider, currentUser.userId(), sessionId);
     }
 
     /**
@@ -165,6 +167,12 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                                                     Map<String, String> callbackParameters, String ip,
                                                     String userAgent) {
         Instant now = clock.instant();
+        Map<String, String> parameters = callbackParameters == null ? Map.of() : callbackParameters;
+        // A provider that echoes the state must echo this transaction's state; anything else was not returned to
+        // the browser that started it.
+        if (parameters.containsKey("state") && !Objects.equals(parameters.get("state"), state)) {
+            throw stateInvalid();
+        }
         ExternalLoginTransaction transaction = state == null || state.isBlank() ? null : findByState(state);
         if (transaction == null || !transaction.getProviderId().equals(providerId) || browserProof == null
                 || !MessageDigest.isEqual(hash(browserProof).getBytes(StandardCharsets.UTF_8),
@@ -181,7 +189,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         LoginResult login = null;
         try {
             outcome = now.isBefore(claimed.getExpiresAt())
-                    ? resolve(claimed, state, callbackParameters == null ? Map.of() : callbackParameters)
+                    ? resolve(claimed, state, parameters)
                     : Outcome.of(ExternalLoginStatus.EXPIRED, null);
             if (outcome.status() == ExternalLoginStatus.SUCCEEDED && claimed.getPurpose() == ExternalLoginPurpose.LOGIN) {
                 login = signIn(claimed, outcome, ip, userAgent, now);
@@ -198,6 +206,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         Outcome resolved = outcome;
         VersionedRecordMutation.update(transactionDao, () -> transactionDao.findById(claimed.getId()), draft -> {
             draft.setStatus(resolved.status());
+            draft.setPkceVerifier(null);
             draft.setFailure(resolved.failure());
             draft.setResultUserId(resolved.userId());
             draft.setResultIdentityId(resolved.identityId());
@@ -228,7 +237,8 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
     }
 
     /**
-     * Removes one of the current user's bindings, keeping at least one way to sign in. Unbinds of one account
+     * Removes one of the current user's bindings, keeping at least one way to sign in: a local password or
+     * another binding whose provider and tenant policy still allow signing in. Unbinds of one account
      * are serialized so two concurrent requests cannot both remove what they each believed was not the last.
      */
     @Transactional
@@ -245,7 +255,11 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                             TextReference.code("iam.federation.binding-not-found", "绑定不存在或已解除")));
             UserAccount user = userAccountService.select(currentUser.userId());
             boolean hasPassword = user != null && userAccountService.effectivePasswordStatus(user) != PasswordStatus.NONE;
-            if (!hasPassword && bindings.size() <= 1) {
+            // Only bindings that can still sign in to this tenant keep the account reachable after the unbind.
+            boolean otherSignInRemains = bindings.stream()
+                    .filter(candidate -> !candidate.getId().equals(binding.getId()))
+                    .anyMatch(candidate -> canSignIn(tenant, candidate.getProviderId()));
+            if (!hasPassword && !otherSignInRemains) {
                 throw BusinessExceptions.warningText("iam.federation.last-sign-in-method", TextReference.code(
                         "iam.federation.last-sign-in-method", "这是账号唯一的登录方式，请先设置密码或绑定其他身份后再解除"));
             }
@@ -253,25 +267,34 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         }
     }
 
+    private boolean canSignIn(String tenant, String providerId) {
+        return providers.findUsable(providerId).isPresent() && policies.enabledPolicy(tenant, providerId)
+                .map(policy -> Boolean.TRUE.equals(policy.getLoginEnabled()))
+                .orElse(false);
+    }
+
     private ExternalLoginResults.Start start(ExternalLoginPurpose purpose, String tenant, IdentityProvider provider,
-                                             String initiatorUserId) {
+                                             String initiatorUserId, String initiatorSessionId) {
         Instant now = clock.instant();
         String state = newSecret();
         String browserProof = newSecret();
+        String codeVerifier = newSecret();
         ExternalLoginTransaction transaction = new ExternalLoginTransaction();
         transaction.setId(Ids.newId());
         transaction.setTenantId(tenant);
         transaction.setStateHash(hash(state));
         transaction.setBrowserProofHash(hash(browserProof));
+        transaction.setPkceVerifier(codeVerifier);
         transaction.setPurpose(purpose);
         transaction.setProviderId(provider.getId());
         transaction.setInitiatorUserId(initiatorUserId);
+        transaction.setInitiatorSessionId(initiatorSessionId);
         transaction.setStatus(ExternalLoginStatus.PENDING);
         transaction.setExpiresAt(now.plus(settings.transactionTtl()));
         EntityLifecycle.prepareInsert(transaction, now);
         transactionDao.insert(transaction);
         URI authorizationUri = providers.protocolOf(provider)
-                .authorizationUri(providers.descriptorOf(provider), context(state));
+                .authorizationUri(providers.descriptorOf(provider), context(state, codeVerifier));
         return new ExternalLoginResults.Start(transaction.getId(), state, authorizationUri.toString(), browserProof,
                 transaction.getExpiresAt());
     }
@@ -292,7 +315,8 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         IdentityProviderDescriptor descriptor = providers.descriptorOf(provider);
         VerifiedExternalIdentity identity;
         try {
-            identity = providers.protocolOf(provider).verify(descriptor, Map.copyOf(parameters), context(state));
+            identity = providers.protocolOf(provider).verify(descriptor, Map.copyOf(parameters),
+                    context(state, transaction.getPkceVerifier()));
         } catch (ExternalIdentityVerificationException exception) {
             log.warn("External identity verification failed for provider {}: {}", provider.getId(),
                     exception.getMessage());
@@ -327,6 +351,11 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
             return existing.get().getUserId().equals(userId)
                     ? new Outcome(ExternalLoginStatus.SUCCEEDED, null, userId, existing.get().getId())
                     : Outcome.denied(ExternalLoginFailure.IDENTITY_CONFLICT);
+        }
+        // The recent sign-in was checked when the bind started; the session that proved it must still be live,
+        // so signing out, a password change or an administrator revoking it also abandons the pending bind.
+        if (!userSessionService.sessionActiveFor(userId, transaction.getInitiatorSessionId())) {
+            return Outcome.denied(ExternalLoginFailure.SESSION_ENDED);
         }
         UserAccount user = userAccountService.select(userId);
         if (user == null || !Boolean.TRUE.equals(user.getEnabled())) {
@@ -376,8 +405,8 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         return login;
     }
 
-    private ExternalAuthorizationContext context(String state) {
-        return new ExternalAuthorizationContext(state, settings.workbenchUrl(), settings.apiBaseUrl());
+    private ExternalAuthorizationContext context(String state, String codeVerifier) {
+        return new ExternalAuthorizationContext(state, codeVerifier, settings.workbenchUrl(), settings.apiBaseUrl());
     }
 
     private ExternalLoginTransaction findByState(String state) {
@@ -405,9 +434,13 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
 
     private void requireRecentAuthentication(String sessionToken) {
         if (!userSessionService.authenticatedWithin(sessionToken, RECENT_AUTHENTICATION_WINDOW)) {
-            throw BusinessExceptions.warningText("iam.federation.reauthentication-required", TextReference.code(
-                    "iam.federation.reauthentication-required", "为保护账号安全，请重新登录后再操作"));
+            throw reauthenticationRequired();
         }
+    }
+
+    private static BusinessException reauthenticationRequired() {
+        return BusinessExceptions.warningText("iam.federation.reauthentication-required", TextReference.code(
+                "iam.federation.reauthentication-required", "为保护账号安全，请重新登录后再操作"));
     }
 
     private static String requireTenantUser(CurrentUser currentUser) {

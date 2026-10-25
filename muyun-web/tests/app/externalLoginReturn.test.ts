@@ -95,6 +95,9 @@ describe('externalLoginReturn', () => {
     ).toContain('尚未绑定');
     expect(externalLoginFailureMessage({ status: 'expired', purpose: 'login' }, language)).toContain('超时');
     expect(
+      externalLoginFailureMessage({ status: 'denied', purpose: 'bind', failure: 'sessionEnded' }, language),
+    ).toContain('重新登录后再绑定');
+    expect(
       externalLoginFailureMessage(
         { status: 'denied', purpose: 'bind', failure: 'providerRejected' },
         language,

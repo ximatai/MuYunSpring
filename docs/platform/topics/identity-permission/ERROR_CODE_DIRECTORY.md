@@ -38,7 +38,7 @@ IAM 业务失败统一通过 `BusinessExceptions.warning(...)` 返回：
 | 发起与完成事务 | `iam.federation.provider-unavailable`（身份源或租户登录方式不可用）、`iam.federation.state-invalid`（事务未知、凭证不符或已经完成）                      |
 | 绑定与解绑     | `iam.federation.already-bound`、`iam.federation.binding-not-found`、`iam.federation.last-sign-in-method`、`iam.federation.reauthentication-required`、`iam.federation.tenant-user-required` |
 
-事务完成后的拒绝原因不走错误码，而是作为完成结果的 `failure` 字段返回：`identityNotBound`、`identityConflict`、`alreadyBound`、`enterpriseMismatch`、`policyDisabled`、`accountUnavailable`、`providerRejected`、`providerUnavailable`、`internalError`，取值由 `ExternalLoginFailure` 定义。
+事务完成后的拒绝原因不走错误码，而是作为完成结果的 `failure` 字段返回：`identityNotBound`、`identityConflict`、`alreadyBound`、`enterpriseMismatch`、`policyDisabled`、`accountUnavailable`、`sessionEnded`、`providerRejected`、`providerUnavailable`、`internalError`，取值由 `ExternalLoginFailure` 定义。
 
 ### 角色授权
 

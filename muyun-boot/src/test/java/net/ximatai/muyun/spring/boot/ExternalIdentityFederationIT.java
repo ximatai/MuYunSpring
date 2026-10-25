@@ -78,6 +78,7 @@ class ExternalIdentityFederationIT {
     private static final String TENANT = "federation_it";
     private static final String PROVIDER = "mock_idp";
     private static final String FOREIGN_PROVIDER = "foreign_idp";
+    private static final String SECOND_PROVIDER = "mock_idp_b";
     private static final String PASSWORD = "Federation123!";
 
     @Autowired TenantService tenantService;
@@ -128,8 +129,14 @@ class ExternalIdentityFederationIT {
             foreign.setExternalEnterpriseId("expected-corp");
             foreign.setEnabled(true);
             identityProviderService.insert(foreign);
+            IdentityProvider second = new IdentityProvider();
+            second.setId(SECOND_PROVIDER);
+            second.setTitle("第二模拟身份源");
+            second.setProviderType(MockExternalLoginProtocol.PROVIDER_TYPE);
+            second.setEnabled(true);
+            identityProviderService.insert(second);
             try (var tenantScope = TenantContext.use(TENANT)) {
-                for (String providerId : java.util.List.of(PROVIDER, FOREIGN_PROVIDER)) {
+                for (String providerId : java.util.List.of(PROVIDER, FOREIGN_PROVIDER, SECOND_PROVIDER)) {
                     TenantIdentityPolicy policy = new TenantIdentityPolicy();
                     policy.setProviderId(providerId);
                     policy.setEnabled(true);
@@ -137,6 +144,9 @@ class ExternalIdentityFederationIT {
                 }
                 createUser("alice");
                 createUser("bob");
+                createUser("carol");
+                createUser("dave");
+                createUser("erin");
             }
         }
     }
@@ -205,10 +215,86 @@ class ExternalIdentityFederationIT {
 
     @Test
     void mockAuthorizationPageOnlyReturnsToTheConfiguredWorkbench() throws Exception {
+        String challenge = "c".repeat(43);
         HttpResponse<String> foreign = http.send(HttpRequest.newBuilder(URI.create(base()
-                        + "/iam.auth/external/mock/authorize?state=s&redirect_uri=" + encode("https://evil.example/")))
+                        + "/iam.auth/external/mock/authorize?state=s&code_challenge=" + challenge
+                        + "&code_challenge_method=S256&redirect_uri=" + encode("https://evil.example/")))
                 .GET().build(), HttpResponse.BodyHandlers.ofString());
         assertThat(foreign.statusCode()).isEqualTo(400);
+        HttpResponse<String> plain = http.send(HttpRequest.newBuilder(URI.create(base()
+                        + "/iam.auth/external/mock/authorize?state=s&code_challenge=" + challenge
+                        + "&code_challenge_method=plain&redirect_uri=" + encode("http://workbench.test/app/")))
+                .GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(plain.statusCode()).isEqualTo(400);
+    }
+
+    @Test
+    void refusesAnAuthorizationCodeTransplantedIntoAnotherTransaction() throws Exception {
+        String carolToken = passwordLogin("carol");
+        assertThat(completeFlow(post("/iam.auth/external/" + PROVIDER + "/bind", Map.of(), carolToken), "emp-carol")
+                .path("status").asText()).isEqualTo("succeeded");
+        JsonNode victim = startLogin();
+        String leakedCode = authorize(victim, "emp-carol");
+        JsonNode attacker = startLogin();
+
+        ResponseEntity<JsonNode> transplanted = complete(attacker, leakedCode, attacker.path("browserProof").asText());
+        assertThat(transplanted.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(transplanted.getBody().path("status").asText()).isEqualTo("denied");
+        assertThat(transplanted.getBody().path("failure").asText()).isEqualTo("providerRejected");
+        assertThat(transplanted.getBody().path("login").isMissingNode() || transplanted.getBody().path("login").isNull())
+                .isTrue();
+
+        // The returned state must be the state of the transaction being completed.
+        ResponseEntity<JsonNode> foreignState = post("/iam.auth/external/" + PROVIDER + "/complete", Map.of(
+                "state", attacker.path("state").asText(), "browserProof", attacker.path("browserProof").asText(),
+                "parameters", Map.of("state", victim.path("state").asText(), "code", leakedCode)), null);
+        assertThat(foreignState.getBody().path("code").asText()).isEqualTo("iam.federation.state-invalid");
+
+        assertThat(complete(victim, leakedCode, victim.path("browserProof").asText()).getBody()
+                .path("status").asText()).isEqualTo("succeeded");
+    }
+
+    @Test
+    void abandonsABindWhoseInitiatingSessionEnded() throws Exception {
+        String daveToken = passwordLogin("dave");
+        JsonNode start = post("/iam.auth/external/" + PROVIDER + "/bind", Map.of(), daveToken).getBody();
+        String code = authorize(start, "emp-dave");
+        assertThat(post("/iam.auth/logout", Map.of(), daveToken).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        JsonNode result = complete(start, code, start.path("browserProof").asText()).getBody();
+        assertThat(result.path("status").asText()).isEqualTo("denied");
+        assertThat(result.path("failure").asText()).isEqualTo("sessionEnded");
+        assertThat(jdbcTemplate.queryForObject("select count(*) from iam_external_identity where external_user_id = ?",
+                Integer.class, "emp-dave")).isZero();
+    }
+
+    @Test
+    void keepsTheLastBindingThatCanStillSignInWhenTheAccountHasNoPassword() throws Exception {
+        String erinToken = passwordLogin("erin");
+        for (String providerId : java.util.List.of(PROVIDER, SECOND_PROVIDER)) {
+            JsonNode start = post("/iam.auth/external/" + providerId + "/bind", Map.of(), erinToken).getBody();
+            JsonNode bound = post("/iam.auth/external/" + providerId + "/complete", Map.of(
+                    "state", start.path("state").asText(), "browserProof", start.path("browserProof").asText(),
+                    "parameters", Map.of("state", start.path("state").asText(),
+                            "code", authorize(start, "emp-erin-" + providerId))), null).getBody();
+            assertThat(bound.path("status").asText()).isEqualTo("succeeded");
+        }
+        jdbcTemplate.update("update iam_user set password_status = 'none', password_hash = null where username = 'erin'");
+        jdbcTemplate.update("update iam_tenant_identity_policy set login_enabled = false where provider_id = ?",
+                SECOND_PROVIDER);
+        try {
+            JsonNode identities = exchange(HttpMethod.GET, "/iam.auth/external/identities", null, erinToken).getBody();
+            String usableBinding = java.util.stream.StreamSupport.stream(identities.path("bindings").spliterator(), false)
+                    .filter(binding -> PROVIDER.equals(binding.path("providerId").asText()))
+                    .findFirst().orElseThrow().path("id").asText();
+            ResponseEntity<JsonNode> unbind = exchange(HttpMethod.POST,
+                    "/iam.auth/external/identities/" + usableBinding + "/delete", Map.of(), erinToken);
+            assertThat(unbind.getStatusCode().is4xxClientError()).isTrue();
+            assertThat(unbind.getBody().path("code").asText()).isEqualTo("iam.federation.last-sign-in-method");
+        } finally {
+            jdbcTemplate.update("update iam_tenant_identity_policy set login_enabled = true where provider_id = ?",
+                    SECOND_PROVIDER);
+        }
     }
 
     @Test
@@ -294,8 +380,11 @@ class ExternalIdentityFederationIT {
         assertThat(query.get("state")).isEqualTo(start.path("state").asText());
         String page = http.send(HttpRequest.newBuilder(URI.create(base() + "/iam.auth/external/mock/authorize?"
                         + authorization.getRawQuery())).GET().build(), HttpResponse.BodyHandlers.ofString()).body();
-        assertThat(page).contains("模拟身份源授权").contains("action=\"http://workbench.test/app/\"");
-        return "mock:" + externalUserId;
+        assertThat(page).contains("模拟身份源授权").contains("action=\"http://workbench.test/app/\"")
+                .contains(query.get("code_challenge"));
+        assertThat(query.get("code_challenge_method")).isEqualTo("S256");
+        // The provider binds the code to the challenge of the request that obtained it.
+        return "mock:" + query.get("code_challenge") + ":" + externalUserId;
     }
 
     /** What the workbench submits after the provider returned the browser with state and code. */

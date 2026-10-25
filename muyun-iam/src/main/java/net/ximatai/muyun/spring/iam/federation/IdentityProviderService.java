@@ -100,13 +100,12 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
     public void beforeUpdate(IdentityProvider provider, IdentityProvider existing) {
         requireSystemAdministrator();
         validate(provider);
-        if (existing != null && hasBindings(existing.getId())
-                && (!Objects.equals(existing.effectiveIdentityNamespace(), provider.effectiveIdentityNamespace())
-                || !Objects.equals(existing.getExternalEnterpriseId(), provider.getExternalEnterpriseId()))) {
-            // Existing bindings are keyed by namespace and enterprise; changing them would orphan every binding.
+        if (existing != null && identityScopeChanged(existing, provider) && hasBindings(existing.getId())) {
+            // Bindings are only meaningful under the authority that issued them: the same external user id from
+            // another protocol, application or issuer is a different person, so a new provider is required.
             throw PlatformErrors.badRequestText(TextReference.code(
                     "iam.rejection.identity-provider.identity-scope-is-locked-by-bindings",
-                    "identity namespace and enterprise cannot change while bindings exist"), Map.of());
+                    "identity scope cannot change while bindings exist"), Map.of());
         }
     }
 
@@ -140,6 +139,23 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
         return new IdentityProviderDescriptor(provider.getId(), provider.getProviderType(),
                 provider.getExternalEnterpriseId(), provider.effectiveIdentityNamespace(), provider.getClientId(),
                 secret == null || secret.isBlank() ? null : secret, configurationOf(provider.getConfiguration()));
+    }
+
+    private boolean identityScopeChanged(IdentityProvider existing, IdentityProvider provider) {
+        if (!Objects.equals(existing.effectiveIdentityNamespace(), provider.effectiveIdentityNamespace())
+                || !Objects.equals(existing.getExternalEnterpriseId(), provider.getExternalEnterpriseId())
+                || !Objects.equals(existing.getProviderType(), provider.getProviderType())
+                || !Objects.equals(existing.getClientId(), provider.getClientId())) {
+            return true;
+        }
+        ExternalLoginProtocol protocol = protocols.get(provider.getProviderType());
+        if (protocol == null) {
+            return false;
+        }
+        Map<String, String> before = configurationOf(existing.getConfiguration());
+        Map<String, String> after = configurationOf(provider.getConfiguration());
+        return protocol.identityScopeConfigurationKeys().stream()
+                .anyMatch(key -> !Objects.equals(before.get(key), after.get(key)));
     }
 
     private void validate(IdentityProvider provider) {

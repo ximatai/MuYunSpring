@@ -91,6 +91,30 @@ class IdentityProviderServiceTest {
     }
 
     @Test
+    void locksTheIssuingAuthorityButNotOrdinarySettingsOnceBindingsExist() {
+        IdentityProvider existing = provider("corp_idp");
+        existing.setClientId("app-a");
+        existing.setConfiguration("{\"endpoint\":\"https://idp.test\",\"issuer\":\"https://issuer-a\"}");
+        try (var ignored = systemUser()) {
+            when(identityDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(new ExternalIdentity()));
+            IdentityProvider otherApplication = provider("corp_idp");
+            otherApplication.setClientId("app-b");
+            otherApplication.setConfiguration(existing.getConfiguration());
+            assertThatThrownBy(() -> service.beforeUpdate(otherApplication, existing)).isInstanceOf(PlatformException.class);
+
+            IdentityProvider otherIssuer = provider("corp_idp");
+            otherIssuer.setClientId("app-a");
+            otherIssuer.setConfiguration("{\"endpoint\":\"https://idp.test\",\"issuer\":\"https://issuer-b\"}");
+            assertThatThrownBy(() -> service.beforeUpdate(otherIssuer, existing)).isInstanceOf(PlatformException.class);
+
+            IdentityProvider movedEndpoint = provider("corp_idp");
+            movedEndpoint.setClientId("app-a");
+            movedEndpoint.setConfiguration("{\"endpoint\":\"https://idp-new.test\",\"issuer\":\"https://issuer-a\"}");
+            service.beforeUpdate(movedEndpoint, existing);
+        }
+    }
+
+    @Test
     void handsProtocolsAReadOnlyDescriptorWithTheResolvedSecretKeptOutOfText() {
         IdentityProvider provider = provider("corp_idp");
         provider.setClientSecretEnvironmentVariable("SECRET_VAR");
@@ -122,6 +146,11 @@ class IdentityProviderServiceTest {
         @Override
         public String providerType() {
             return TYPE;
+        }
+
+        @Override
+        public java.util.Set<String> identityScopeConfigurationKeys() {
+            return java.util.Set.of("issuer");
         }
 
         @Override

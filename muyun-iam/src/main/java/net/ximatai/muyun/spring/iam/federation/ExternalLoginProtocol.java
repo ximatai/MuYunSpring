@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.iam.federation;
 
 import java.net.URI;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Vendor protocol behind an identity provider type. A plugin implements it as a Spring bean and the
@@ -23,7 +24,22 @@ public interface ExternalLoginProtocol {
     default void validateConfiguration(Map<String, String> configuration) {
     }
 
-    /** Builds the provider authorization address that the browser opens for this transaction. */
+    /**
+     * Protocol configuration keys that decide whose identities the provider vouches for, such as an issuer or
+     * tenant endpoint. Like the provider type and client id they are locked while bindings exist, because the
+     * same external user id under another authority is a different person.
+     */
+    default Set<String> identityScopeConfigurationKeys() {
+        return Set.of();
+    }
+
+    /**
+     * Builds the provider authorization address that the browser opens for this transaction. Protocols whose
+     * provider supports PKCE send {@link ExternalAuthorizationContext#codeChallenge()} with the
+     * {@link ExternalAuthorizationContext#CODE_CHALLENGE_METHOD} method and the verifier when redeeming the code;
+     * a protocol that cannot must bind the authorization result to the transaction by an equivalent provider
+     * mechanism.
+     */
     URI authorizationUri(IdentityProviderDescriptor provider, ExternalAuthorizationContext context);
 
     /**

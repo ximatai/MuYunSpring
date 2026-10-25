@@ -426,6 +426,12 @@ public class UserSessionService {
         return Optional.ofNullable(normalizeBlank(session.getId()));
     }
 
+    /** Whether the session still belongs to the account and has neither been revoked nor expired. */
+    public boolean sessionActiveFor(String userId, String sessionId) {
+        UserSession session = sessionById(sessionId);
+        return isActive(session, now()) && userId != null && userId.equals(session.getUserId());
+    }
+
     public boolean sessionIdleSince(String sessionId, Instant lastObservedAt, Instant now) {
         UserSession session = sessionById(sessionId);
         if (!isActive(session, now)) {

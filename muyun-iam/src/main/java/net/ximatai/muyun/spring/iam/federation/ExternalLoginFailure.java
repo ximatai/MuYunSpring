@@ -10,6 +10,8 @@ public enum ExternalLoginFailure implements CodeTitleEnum {
     ENTERPRISE_MISMATCH("enterpriseMismatch", "外部企业不匹配"),
     POLICY_DISABLED("policyDisabled", "登录方式已停用"),
     ACCOUNT_UNAVAILABLE("accountUnavailable", "账号不可用"),
+    /** The session that started a bind ended before the provider returned, so the bind is not completed. */
+    SESSION_ENDED("sessionEnded", "发起绑定的登录已失效"),
     PROVIDER_REJECTED("providerRejected", "身份源拒绝授权"),
     PROVIDER_UNAVAILABLE("providerUnavailable", "身份源不可用"),
     /** A platform fault while completing the transaction, as opposed to a provider failure. */

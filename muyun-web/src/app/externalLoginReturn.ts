@@ -94,6 +94,8 @@ export function externalLoginFailureMessage(completion: ExternalLoginCompletion,
       return language.t('platform.external-login.provider-unavailable', '身份源暂时不可用，请稍后重试');
     case 'internalError':
       return language.t('platform.external-login.internal-error', '平台处理失败，请稍后重试');
+    case 'sessionEnded':
+      return language.t('platform.external-login.session-ended', '发起绑定的登录已失效，请重新登录后再绑定');
     default:
       return language.t('platform.external-login.authorization-failed', '外部授权未通过，请重试或联系管理员');
   }

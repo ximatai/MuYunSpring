@@ -3677,7 +3677,8 @@
       "platform.screen.ExternalIdentityBindings.unbind": "解除绑定",
       "platform.screen.ExternalIdentityBindings.not-bound": "未绑定",
       "platform.screen.ExternalIdentityBindings.bind": "去绑定",
-      "platform.external-login.internal-error": "平台处理失败，请稍后重试"
+      "platform.external-login.internal-error": "平台处理失败，请稍后重试",
+      "platform.external-login.session-ended": "发起绑定的登录已失效，请重新登录后再绑定"
     }
   },
   "en": {
@@ -7359,7 +7360,8 @@
       "platform.screen.ExternalIdentityBindings.unbind": "Unlink",
       "platform.screen.ExternalIdentityBindings.not-bound": "Not linked",
       "platform.screen.ExternalIdentityBindings.bind": "Link",
-      "platform.external-login.internal-error": "The platform could not finish the request. Please try again later."
+      "platform.external-login.internal-error": "The platform could not finish the request. Please try again later.",
+      "platform.external-login.session-ended": "The sign-in that started the link has ended. Sign in again before linking."
     }
   },
   "fr": {

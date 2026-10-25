@@ -12,7 +12,7 @@ import java.util.Objects;
 
 /**
  * Development-only provider that lets a developer pick any external user id on a local authorization page,
- * so the complete browser and server flow can run without a real identity provider. It refuses to start in
+ * so the complete browser and server flow, including PKCE, can run without a real identity provider. It refuses to start in
  * production runtime mode because it authenticates whoever is typed in.
  */
 @Component
@@ -46,17 +46,26 @@ public class MockExternalLoginProtocol implements ExternalLoginProtocol {
     public URI authorizationUri(IdentityProviderDescriptor provider, ExternalAuthorizationContext context) {
         return ExternalIdentityUris.withQuery(
                 ExternalIdentityUris.resolve(context.apiBaseUri(), "iam.auth/external/mock/authorize"),
-                Map.of("state", context.state(), "redirect_uri", context.callbackUri().toString()));
+                Map.of("state", context.state(), "redirect_uri", context.callbackUri().toString(),
+                        "code_challenge", context.codeChallenge(),
+                        "code_challenge_method", ExternalAuthorizationContext.CODE_CHALLENGE_METHOD));
     }
 
     @Override
     public VerifiedExternalIdentity verify(IdentityProviderDescriptor provider, Map<String, String> callbackParameters,
                                            ExternalAuthorizationContext context) {
+        // Like a real provider, the code is bound to the PKCE challenge of the request that obtained it.
         String code = callbackParameters.get("code");
-        if (code == null || !code.startsWith(CODE_PREFIX) || code.length() == CODE_PREFIX.length()) {
+        String[] parts = code == null || !code.startsWith(CODE_PREFIX)
+                ? new String[0]
+                : code.substring(CODE_PREFIX.length()).split(":", 2);
+        if (parts.length != 2 || parts[1].isBlank()) {
             throw ExternalIdentityVerificationException.rejected("mock authorization code is missing");
         }
-        String externalUserId = code.substring(CODE_PREFIX.length());
+        if (!parts[0].equals(context.codeChallenge())) {
+            throw ExternalIdentityVerificationException.rejected("mock authorization code was issued to another request");
+        }
+        String externalUserId = parts[1];
         String enterpriseId = provider.externalEnterpriseId() == null
                 ? DEFAULT_ENTERPRISE_ID
                 : provider.externalEnterpriseId();

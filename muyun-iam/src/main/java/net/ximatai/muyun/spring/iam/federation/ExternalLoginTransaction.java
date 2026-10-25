@@ -12,7 +12,8 @@ import java.time.Instant;
 
 /**
  * Server-side state of one external authorization round trip. The opaque {@code state} sent to the
- * provider and the browser proof kept by the initiating browser are stored only as hashes. The transaction
+ * provider and the browser proof kept by the initiating browser are stored only as hashes; the PKCE verifier
+ * never leaves the server and is cleared once the transaction completes. The transaction
  * is completed exactly once, by the browser that started it, presenting both values together with the
  * provider callback parameters.
  */
@@ -29,6 +30,10 @@ public class ExternalLoginTransaction extends StandardEntity {
             comment = "SHA-256 of the initiating browser proof")
     private String browserProofHash;
 
+    @Column(name = "pkce_verifier", type = ColumnType.VARCHAR, length = 128,
+            comment = "PKCE code verifier, server-only and cleared on completion")
+    private String pkceVerifier;
+
     @Column(name = "purpose", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Login or bind")
     private ExternalLoginPurpose purpose;
 
@@ -39,6 +44,10 @@ public class ExternalLoginTransaction extends StandardEntity {
     @Column(name = "initiator_user_id", type = ColumnType.VARCHAR, length = 64,
             comment = "Account that started a bind transaction")
     private String initiatorUserId;
+
+    @Column(name = "initiator_session_id", type = ColumnType.VARCHAR, length = 64,
+            comment = "Session that started a bind transaction; it must still be active to complete")
+    private String initiatorSessionId;
 
     @Column(name = "status", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Transaction status")
     private ExternalLoginStatus status;
