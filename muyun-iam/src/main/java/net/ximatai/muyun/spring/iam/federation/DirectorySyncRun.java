@@ -33,4 +33,6 @@ public class DirectorySyncRun extends StandardEntity {
     private String failedPages;
     @Column(name = "completed", type = ColumnType.BOOLEAN, nullable = false, comment = "completed")
     private Boolean completed;
+    @Column(name = "retention_started", type = ColumnType.BOOLEAN, comment = "Topic facts are being removed")
+    private Boolean retentionStarted = false;
 }

@@ -130,7 +130,7 @@ class DirectorySyncIT {
         beans.registerSingleton("access", (JobManagementAccess) t -> {});
         beans.registerSingleton("recipients", (JobFailureRecipientResolver) t -> new BusinessNotificationRecipients(false, List.of(), List.of(), List.of(), List.of(), List.of("admin")));
         beans.registerSingleton("alerts", (BusinessNotificationDelivery) alerts::add);
-        jobs = new JobService(jobPlans, jobRuns, db, transactions, new JobRegistry(List.of(handler, new ExternalLoginTransactionRetentionJob(db))), beans.getBeanProvider(JobFailureRecipientResolver.class), beans.getBeanProvider(BusinessNotificationDelivery.class), beans.getBeanProvider(JobManagementAccess.class), Duration.ofMinutes(1), 90);
+        jobs = new JobService(jobPlans, jobRuns, db, transactions, new JobRegistry(List.of(handler, new ExternalLoginTransactionRetentionJob(db), new DirectorySyncRetentionJob(db, store))), beans.getBeanProvider(JobFailureRecipientResolver.class), beans.getBeanProvider(BusinessNotificationDelivery.class), beans.getBeanProvider(JobManagementAccess.class), Duration.ofMinutes(1), 90);
         policies = new TenantIdentityPolicyService(policyRows, t -> {}, providers, config, jobs);
         provider = new IdentityProvider(); provider.setId("mock"); provider.setTitle("Mock"); provider.setProviderType("mock"); provider.setExternalEnterpriseId("enterprise"); provider.setIdentityNamespace("mock-app");
         provider.setConfiguration(DirectorySyncStore.encode(Map.of("directory", fixture(List.of()))));
@@ -241,6 +241,76 @@ class DirectorySyncIT {
         String run = global(() -> jobs.enqueue(ExternalLoginTransactionRetentionJob.TYPE,null,Map.of(),null).getId()); jobs.runOne("default","retention");
         assertThat(jobRuns.findById(run).getResultCode()).isEqualTo("LOGIN_TRANSACTIONS_CLEANED"); assertThat(global(() -> loginTransactions.query(Criteria.of(),new PageRequest(0,100)))).hasSize(2);
     }
+    @Test void topicRetentionKeepsLatestCompleteSyncAndLaterRoundsPerTenantAndProvider() {
+        String old = enqueue(false); execute();
+        String anchor = enqueue(false); execute();
+        String preview = enqueue(true); execute();
+        var other = tenant("tenant-b", () -> seedPolicy("tenant-b"));
+        String otherAnchor = tenant("tenant-b", () -> policies.synchronize(other.getId(), false)); execute();
+        global(() -> {
+            // A separate provider has no complete round: its old preview can expire.
+            var scope = new DirectorySyncScope();
+            scope.setTenantId("tenant-a"); scope.setProviderId("other-provider");
+            scope.setPolicyId("deleted-policy"); scope.setRoots("[]"); scope.setPositionId("position");
+            DirectorySyncStore.insert(scopes, scope);
+            var row = new DirectorySyncRun();
+            row.setTenantId("tenant-a"); row.setJobRunId("old-preview"); row.setPolicyId(scope.getPolicyId());
+            row.setCursor("{}"); row.setStatistics("{}");
+            row.setScopeId(scope.getId()); row.setMode("PREVIEW"); row.setStatus("SUCCEEDED"); row.setCompleted(true);
+            DirectorySyncStore.insert(syncRuns, row);
+            db.execute("update iam_directory_sync_run set updated_at=clock_timestamp()-interval '31 days'");
+            return null;
+        });
+        cleanTopic();
+        assertThat(syncRuns.query(Criteria.of(), new PageRequest(0, 100)))
+                .extracting(DirectorySyncRun::getJobRunId).containsExactlyInAnyOrder(anchor, preview, otherAnchor);
+        assertThat(syncRuns.query(Criteria.of().eq("jobRunId", old), new PageRequest(0, 1))).isEmpty();
+        assertThat(global(() -> db.query("select id from iam_directory_sync_seen where run_id not in (select id from iam_directory_sync_run)"))).isEmpty();
+        assertThat(global(() -> db.query("select id from iam_directory_sync_department where run_id not in (select id from iam_directory_sync_run)"))).isEmpty();
+    }
+
+    @Test void topicRetentionIsBoundedAndProtectsActiveAndQueuedContinuation() {
+        String original = enqueue(false);
+        peopleHook = () -> { throw new AssertionError("simulated process loss"); };
+        assertThatThrownBy(this::execute).isInstanceOf(AssertionError.class);
+        global(() -> {
+            db.execute("update iam_directory_sync_run set updated_at=clock_timestamp()-interval '31 days'");
+            return null;
+        });
+        cleanTopic();
+        assertThat(syncRuns.query(Criteria.of(), new PageRequest(0, 100))).hasSize(1);
+        global(() -> { db.execute("update platform_job_run set started_at=clock_timestamp()-interval '2 hours' where id=?", original); return null; });
+        jobs.renewNode("node");
+        String retry = global(() -> jobs.retry(original).getId());
+        global(() -> { db.execute("update iam_directory_sync_run set updated_at=clock_timestamp()-interval '31 days'"); return null; });
+        cleanTopic();
+        assertThat(syncRuns.query(Criteria.of(), new PageRequest(0, 100))).hasSize(1);
+        global(() -> { jobs.cancel(retry); return null; });
+        var fact = syncRuns.query(Criteria.of(), new PageRequest(0, 1)).getFirst();
+        global(() -> {
+            for (int i = 0; i < 2001; i++) {
+                var row = new DirectorySyncSeen(); row.setTenantId("tenant-a");
+                row.setRunId(fact.getId()); row.setExternalUserId("retained-" + i);
+                DirectorySyncStore.insert(seen, row);
+            }
+            return null;
+        });
+        String cleanup = cleanTopic();
+        assertThat(jobRuns.findById(cleanup).getResultCode()).isEqualTo("BATCH_LIMIT_REACHED");
+        assertThat(syncRuns.findById(fact.getId()).getRetentionStarted()).isTrue();
+        assertThatThrownBy(() -> global(() -> jobs.retry(original))).isInstanceOf(JobFailure.class)
+                .hasMessageContaining("DIRECTORY_CONTINUATION_EXPIRED");
+        assertThat(global(() -> seen.query(Criteria.of().eq("runId", fact.getId()), new PageRequest(0, 100)))).hasSize(1);
+        cleanTopic();
+        assertThat(syncRuns.findById(fact.getId())).isNull();
+    }
+
+    private String cleanTopic() {
+        String id = global(() -> jobs.enqueue(DirectorySyncRetentionJob.TYPE, null, Map.of(), null).getId());
+        assertThat(jobs.runOne("default", "topic-retention")).isTrue();
+        return id;
+    }
+
     @Test void independentTenantKeysAndFrozenScopeVersions() {
         var other = tenant("tenant-b", () -> seedPolicy("tenant-b"));
         String first = enqueue(false); String second = tenant("tenant-b", () -> policies.synchronize(other.getId(),true));

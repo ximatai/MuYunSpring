@@ -32,7 +32,12 @@ public class DirectorySyncJob implements JobHandler {
     public Map<String, Object> retryParameters(Map<String, Object> original, String originalRunId) {
         var copy = new LinkedHashMap<>(original);
         var rows = store.runs.query(Criteria.of().eq("tenantId", original.get("tenantId")).eq("jobRunId", originalRunId), new PageRequest(0, 1));
-        if (!rows.isEmpty()) copy.put("syncRunId", rows.getFirst().getId());
+        if (!rows.isEmpty()) {
+            if (Boolean.TRUE.equals(rows.getFirst().getRetentionStarted())) {
+                throw new JobFailure("DIRECTORY_CONTINUATION_EXPIRED", false);
+            }
+            copy.put("syncRunId", rows.getFirst().getId());
+        }
         return Map.copyOf(copy);
     }
     public static class Cursor {
@@ -59,7 +64,7 @@ public class DirectorySyncJob implements JobHandler {
             if (!rows.isEmpty()) return rows.getFirst();
             if (context.parameters().get("syncRunId") instanceof String continuation) {
                 var retained = store.runs.findById(continuation);
-                if (retained == null || !Objects.equals(retained.getTenantId(), context.tenantId()) || !scope.getId().equals(retained.getScopeId())) throw new JobFailure("DIRECTORY_CONTINUATION_INVALID", false);
+                if (retained == null || Boolean.TRUE.equals(retained.getRetentionStarted()) || !Objects.equals(retained.getTenantId(), context.tenantId()) || !scope.getId().equals(retained.getScopeId())) throw new JobFailure("DIRECTORY_CONTINUATION_INVALID", false);
                 retained.setJobRunId(context.runId()); retained.setStatus("RUNNING"); DirectorySyncStore.save(store.runs, retained); return retained;
             }
             var row = new DirectorySyncRun(); row.setJobRunId(context.runId()); row.setTenantId(context.tenantId()); row.setPolicyId(scope.getPolicyId());
