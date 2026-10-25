@@ -35,7 +35,13 @@ class JobManagementWebContractTest {
         var plans = new JobPlanWebController(jobs).moduleUiDefinition();
         var page = (ListDetailCardPageDefinition) plans.page();
         assertThat(page.detail().editor().fields()).filteredOn(field -> field.fieldRef().fieldName().equals("expression"))
-                .allSatisfy(field -> assertThat(field.readOnly().formula().expression()).contains("managedBy"));
+                .singleElement().satisfies(field -> assertThat(field.readOnly().formula().expression()).contains("managedBy"));
+        assertThat(page.detail().editor().fields()).filteredOn(field -> field.fieldRef().fieldName().equals("configRevision"))
+                .singleElement().satisfies(field -> {
+                    assertThat(field.visible().constant()).isTrue();
+                    assertThat(field.readOnly().formula().expression()).isEqualTo("PRESENT({id})");
+                    assertThat(field.readOnly().constant()).isNotEqualTo(true);
+                });
         var runs = new JobRunWebController(jobs).moduleUiDefinition();
         String definition = new ObjectMapper().writeValueAsString(runs);
         assertThat(definition).doesNotContain("parametersJson", "leaseToken");

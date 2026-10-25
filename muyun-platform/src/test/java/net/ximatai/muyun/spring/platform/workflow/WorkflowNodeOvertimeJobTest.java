@@ -13,18 +13,23 @@ import static org.mockito.ArgumentMatchers.any;
 class WorkflowNodeOvertimeJobTest {
     @Test void preservesDefaultsAndSummarizesTheExistingScanInAGuardedTransaction() {
         var service = mock(WorkflowNodeOvertimeScanService.class);
-        when(service.scan(null)).thenReturn(new WorkflowNodeOvertimeScanResult(7, 2, 3));
+        when(service.scanBatch(any(), isNull())).thenReturn(new WorkflowNodeOvertimeScanService.Batch(
+                new WorkflowNodeOvertimeScanResult(200, 2, 3), "cursor"));
+        when(service.scanBatch(any(), eq("cursor"))).thenReturn(new WorkflowNodeOvertimeScanService.Batch(
+                new WorkflowNodeOvertimeScanResult(7, 1, 2), null));
         var handler = new WorkflowNodeOvertimeJob(service, 300000, 60000);
         assertThat(handler.definition().defaultSchedule().interval()).isEqualTo(Duration.ofMinutes(5));
         assertThat(handler.definition().defaultSchedule().initialDelay()).isEqualTo(Duration.ofMinutes(1));
         var context = mock(JobContext.class);
+        when(context.transaction(any(Supplier.class))).thenAnswer(call -> ((Supplier<?>) call.getArgument(0)).get());
         var result = handler.execute(context);
         assertThat(result.code()).isEqualTo("COMPLETE");
         assertThat(result.partial()).isFalse();
-        assertThat(result.statistics()).isEqualTo(Map.of("scanned", 7L, "warned", 2L, "overdue", 3L, "updated", 5L));
-        // The scan manages its own version-checked writes and never holds the run row for the whole pass.
-        verify(context, never()).transaction(any(Supplier.class));
-        verify(service).scan(null);
+        assertThat(result.statistics()).isEqualTo(Map.of("scanned", 207L, "warned", 3L, "overdue", 5L, "updated", 8L));
+        verify(context, times(2)).transaction(any(Supplier.class));
+        var times = org.mockito.ArgumentCaptor.forClass(java.time.Instant.class);
+        verify(service).scanBatch(times.capture(), isNull());
+        verify(service).scanBatch(eq(times.getValue()), eq("cursor"));
     }
 
     @Test void bindsLegacyMillisecondProperties() {

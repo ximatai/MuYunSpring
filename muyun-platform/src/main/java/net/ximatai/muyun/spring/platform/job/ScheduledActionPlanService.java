@@ -54,6 +54,11 @@ public class ScheduledActionPlanService extends AbstractAbilityService<Scheduled
         try { actions.requireAuthorized(row.getModuleAlias(), row.getActionCode(), arguments(row.getArgumentsJson())); return true; }
         catch (RuntimeException denied) { return false; }
     }
+    @Override public Integer expectedVersionForUpdate(ScheduledActionPlan incoming, ScheduledActionPlan existing) {
+        if (incoming.getVersion() == null || existing != null && !Objects.equals(incoming.getVersion(), existing.getVersion()))
+            throw new net.ximatai.muyun.spring.ability.OptimisticLockException("Scheduled action plan changed");
+        return incoming.getVersion();
+    }
     @Override public void beforeInsert(ScheduledActionPlan row) { row.setJobPlanId(null); save(row); }
     @Override public void beforeUpdate(ScheduledActionPlan row) {
         var old = rows.findById(row.getId()); requireOwned(old);

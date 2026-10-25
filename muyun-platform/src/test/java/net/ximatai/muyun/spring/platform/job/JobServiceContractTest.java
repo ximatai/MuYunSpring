@@ -153,6 +153,31 @@ class JobServiceContractTest {
         var plan = new JobPlan(); plan.setId("gone"); plan.setJobType("removed.type"); plan.setEnabled(false); plan.setAvailable(true);
         plans.insert(plan); service.registerDefaults(); assertThat(plan.getAvailable()).isFalse();
     }
+    @Test void maximumRuntimeRetriesThenFailsAndReleasesTheMutexAndToken() {
+        var row = enqueue("timeout");
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            var leased = service.claim("default", "owner");
+            String token = leased.getLeaseToken();
+            now.set(leased.getStartedAt().plusSeconds(300));
+            service.renewNode("owner");
+            assertThat(row.getStatus()).isEqualTo(attempt == 1 ? "RETRY" : "FAILED");
+            assertThat(row.getResultCode()).isEqualTo("MAXIMUM_RUNTIME_EXCEEDED");
+            assertThat(row.getLeaseToken()).isNull(); assertThat(row.getLeaseUntil()).isNull(); assertThat(row.getNodeId()).isNull();
+            assertThatThrownBy(() -> service.protectedTransaction(row.getId(), token, () -> { }, () -> {
+                fail("Expired owner cannot write"); return null;
+            })).isInstanceOf(JobFailure.class).hasMessageContaining("LEASE_LOST");
+            if (attempt == 1) now.set(row.getAvailableAt());
+        }
+        var next = enqueue("next");
+        assertThat(service.claim("default", "next-owner").getId()).isEqualTo(next.getId());
+    }
+    @Test void cancellationFencesProtectedWritesEvenBeforeLeaseExpires() {
+        var row = enqueue("cancel"); var leased = service.claim("default", "owner");
+        service.cancel(row.getId());
+        assertThatThrownBy(() -> service.protectedTransaction(row.getId(), leased.getLeaseToken(), () -> { }, () -> {
+            fail("Cancelled run cannot write"); return null;
+        })).isInstanceOf(JobFailure.class).hasMessageContaining("CANCELLED");
+    }
     private JobRun enqueue(String key) {
         try (var tenant = TenantContext.use("tenant-a")) { return service.enqueue("test.contract", "tenant-a", Map.of(), key); }
     }

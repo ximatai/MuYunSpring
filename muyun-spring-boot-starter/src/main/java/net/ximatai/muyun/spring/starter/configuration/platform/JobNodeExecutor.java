@@ -76,7 +76,12 @@ public final class JobNodeExecutor implements SmartLifecycle {
         if (!running) return;
         running = false;
         if (scanner != null) scanner.shutdownNow();
-        channels.values().forEach(channel -> { channel.wake(); channel.pool.shutdown(); });
+        channels.values().forEach(channel -> {
+            channel.wake();
+            // Idle claims may be waiting for an unavailable database; only accepted handlers need grace.
+            channel.workers.forEach(worker -> worker.stopClaiming());
+            channel.pool.shutdown();
+        });
         long deadline = System.nanoTime() + properties.getShutdownGrace().toNanos();
         for (Channel channel : channels.values()) {
             try {
@@ -85,9 +90,20 @@ public final class JobNodeExecutor implements SmartLifecycle {
                 Thread.currentThread().interrupt();
             }
         }
-        // Keep heartbeats active during the grace period; fence residual handlers before returning.
+        // Keep heartbeats active during the grace period, then attempt to release residual owners.
         heartbeats.shutdownNow();
-        channels.values().forEach(channel -> channel.workers.forEach(worker -> safely(() -> jobs.releaseNode(worker.ownerId))));
+        // The database may already be unavailable (for example when a test container stops first).
+        // Release is best effort: expired leases still fence these owners and permit later takeover.
+        var owners = channels.values().stream().flatMap(channel -> channel.workers.stream())
+                .map(worker -> worker.ownerId).toList();
+        var cleanup = Executors.newSingleThreadExecutor(runnable -> thread(runnable, "job-stop"));
+        var release = cleanup.submit(() -> owners.forEach(jobs::releaseNode));
+        try { release.get(1, TimeUnit.SECONDS); }
+        catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+        catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException unavailable) {
+            log.warn("Background job shutdown could not release leases; awaiting lease expiry ({})",
+                    unavailable.getClass().getSimpleName());
+        } finally { release.cancel(true); cleanup.shutdownNow(); }
         channels.values().forEach(channel -> channel.pool.shutdownNow());
     }
 
@@ -145,44 +161,57 @@ public final class JobNodeExecutor implements SmartLifecycle {
 
         private final class Worker {
             private final String ownerId = nodeId + ":" + nextOwner.incrementAndGet();
+            private Thread claimThread;
+            private boolean executing;
+
+            private synchronized boolean acceptExecution() {
+                if (!running) return false;
+                executing = true;
+                return true;
+            }
+
+            private synchronized void stopClaiming() {
+                if (!executing && claimThread != null) claimThread.interrupt();
+            }
+
+            private boolean runOne() {
+                try { return jobs.runOne(name, ownerId, this::acceptExecution); }
+                finally { synchronized (this) { executing = false; } }
+            }
 
             private void claim() {
-                try {
-                    while (running && !Thread.currentThread().isInterrupted()) {
-                        synchronized (signal) {
-                            long remaining = readyAt - System.nanoTime();
-                            if (remaining > 0) {
-                                try { TimeUnit.NANOSECONDS.timedWait(signal, remaining); }
-                                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
-                                continue;
-                            }
-                        }
-                        long observed;
-                        synchronized (signal) { observed = generation; }
-                        try {
-                            if (jobs.runOne(name, ownerId, () -> running)) {
-                                if (delayAfterExecution) {
-                                    long next = System.nanoTime() + claimInterval.toNanos();
-                                    synchronized (signal) {
-                                        while (running && next > System.nanoTime()) {
-                                            try { TimeUnit.NANOSECONDS.timedWait(signal, next - System.nanoTime()); }
-                                            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
-                                        }
-                                    }
-                                }
-                                continue;
-                            }
-                        }
-                        catch (RuntimeException failure) { safely(() -> { throw failure; }); }
-                        synchronized (signal) {
-                            if (!running || generation != observed) continue;
-                            try { signal.wait(claimInterval.toMillis()); }
+                synchronized (this) { claimThread = Thread.currentThread(); }
+                while (running && !Thread.currentThread().isInterrupted()) {
+                    synchronized (signal) {
+                        long remaining = readyAt - System.nanoTime();
+                        if (remaining > 0) {
+                            try { TimeUnit.NANOSECONDS.timedWait(signal, remaining); }
                             catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
+                            continue;
                         }
                     }
-                } finally {
-                    // A database claim may finish after stop's first release snapshot.
-                    if (!running) safely(() -> jobs.releaseNode(ownerId));
+                    long observed;
+                    synchronized (signal) { observed = generation; }
+                    try {
+                        if (runOne()) {
+                            if (delayAfterExecution) {
+                                long next = System.nanoTime() + claimInterval.toNanos();
+                                synchronized (signal) {
+                                    while (running && next > System.nanoTime()) {
+                                        try { TimeUnit.NANOSECONDS.timedWait(signal, next - System.nanoTime()); }
+                                        catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                    catch (RuntimeException failure) { safely(() -> { throw failure; }); }
+                    synchronized (signal) {
+                        if (!running || generation != observed) continue;
+                        try { signal.wait(claimInterval.toMillis()); }
+                        catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
+                    }
                 }
             }
         }
