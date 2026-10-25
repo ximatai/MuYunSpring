@@ -195,6 +195,17 @@ class MuYunSpringApplicationContextIT {
     private static final Path RUNTIME_LOG_DIRECTORY = createRuntimeLogDirectory();
 
     @Autowired
+    private net.ximatai.muyun.spring.platform.job.JobRegistry jobRegistry;
+
+    @Test
+    void registersBothModuleActionJobScopesAndTheirManagementPages() {
+        assertThat(jobRegistry.contains(net.ximatai.muyun.spring.platform.job.ModuleActionJob.TENANT_TYPE)).isTrue();
+        assertThat(jobRegistry.contains(net.ximatai.muyun.spring.platform.job.ModuleActionJob.PLATFORM_TYPE)).isTrue();
+        assertThat(staticModuleDefinitionCatalog.find("platform.scheduled_action_plan")).isPresent();
+        assertThat(staticModuleDefinitionCatalog.find("platform.system_action_whitelist")).isPresent();
+    }
+
+    @Autowired
     private UserSessionService userSessionService;
 
     @Autowired

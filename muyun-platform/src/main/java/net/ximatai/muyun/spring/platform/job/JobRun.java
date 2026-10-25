@@ -41,6 +41,7 @@ public class JobRun extends StandardEntity {
     @Column(name = "triggered_by", type = ColumnType.VARCHAR, length = 64, comment = "triggeredBy")
     private String triggeredBy;
 
+    /** Persisted {@link JobIdentityMode} name; SERVICE_ACCOUNT is reserved. */
     @Column(name = "identity_mode", type = ColumnType.VARCHAR, length = 32, comment = "identityMode", nullable = false)
     private String identityMode;
 

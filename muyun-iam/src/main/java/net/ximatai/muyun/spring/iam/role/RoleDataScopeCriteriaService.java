@@ -58,6 +58,12 @@ public class RoleDataScopeCriteriaService implements DataScopeCriteriaService {
                 : referenceDependencyScopeResolver;
     }
 
+    private org.springframework.beans.factory.ObjectProvider<net.ximatai.muyun.spring.common.platform.JobSystemActionPolicy> jobSystemPolicies;
+    @org.springframework.beans.factory.annotation.Autowired
+    void jobSystemPolicies(org.springframework.beans.factory.ObjectProvider<net.ximatai.muyun.spring.common.platform.JobSystemActionPolicy> policies) {
+        this.jobSystemPolicies = policies;
+    }
+
     @Override
     public DataScopeCriteriaResult resolveReadScope(String moduleAlias,
                                                     String actionCode,
@@ -92,6 +98,11 @@ public class RoleDataScopeCriteriaService implements DataScopeCriteriaService {
                                                      Set<String> visiting) {
         Objects.requireNonNull(policy, "policy must not be null");
         Criteria base = criteria == null ? Criteria.of() : criteria;
+        if (net.ximatai.muyun.spring.common.tenant.TenantContext.backgroundJobType().isPresent()) {
+            var gate = jobSystemPolicies == null ? null : jobSystemPolicies.getIfAvailable();
+            if (gate != null && gate.allows(moduleAlias, policy.actionCode())) return DataScopeCriteriaResult.unrestricted(base);
+            return DataScopeCriteriaResult.restricted(combine(base, denied()));
+        }
         CurrentUser user = currentUser.orElse(null);
         if (user == null) {
             return DataScopeCriteriaResult.restricted(combine(base, denied()));

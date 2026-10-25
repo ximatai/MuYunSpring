@@ -47,6 +47,13 @@ public class RoleActionExecutionPolicyService implements ActionExecutionPolicySe
         this.tenantAdminImplicitGrantPolicy = tenantAdminImplicitGrantPolicy;
     }
 
+    private org.springframework.beans.factory.ObjectProvider<net.ximatai.muyun.spring.common.platform.JobSystemActionPolicy> jobSystemPolicies;
+
+    @Autowired
+    void jobSystemPolicies(org.springframework.beans.factory.ObjectProvider<net.ximatai.muyun.spring.common.platform.JobSystemActionPolicy> policies) {
+        this.jobSystemPolicies = policies;
+    }
+
     @Override
     public void requireAuthorized(ActionExecutionContext context) {
         authorize(context);
@@ -56,6 +63,17 @@ public class RoleActionExecutionPolicyService implements ActionExecutionPolicySe
     public ActionAuthorizationResult authorize(ActionExecutionContext context) {
         if (context == null) {
             throw new IllegalArgumentException("context must not be null");
+        }
+        if ("platform.system_action_whitelist".equals(context.moduleAlias())
+                && context.currentUser().filter(user -> user.system() && !user.passwordChangeRequired()).isEmpty())
+            throw new PlatformAccessDeniedException("System action whitelist requires platform administrator");
+        if (net.ximatai.muyun.spring.common.tenant.TenantContext.backgroundJobType().isPresent()) {
+            var policy = jobSystemPolicies == null ? null : jobSystemPolicies.getIfAvailable();
+            if (policy == null || !policy.allows(context.moduleAlias(), context.actionCode()))
+                throw new PlatformAccessDeniedException("System job action is not whitelisted");
+            return new ActionAuthorizationResult(net.ximatai.muyun.spring.common.platform.JobSystemActionPolicy.DECISION,
+                    net.ximatai.muyun.spring.common.tenant.TenantContext.systemOperatorId().orElseThrow(),
+                    ActionAuthorizationResult.OPERATOR_BACKGROUND_JOB, context.permissionCode(), context.actionPolicy().permissionActionCode());
         }
         if (context.actionPolicy().accessMode() == ActionAccessMode.ANONYMOUS_ALLOWED) {
             return ActionAuthorizationResult.allowed(context, DECISION_ANONYMOUS_ALLOWED);

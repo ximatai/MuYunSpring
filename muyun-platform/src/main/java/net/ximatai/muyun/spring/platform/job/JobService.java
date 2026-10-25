@@ -79,6 +79,16 @@ public final class JobService {
         requireScope(request.getTenantId());
         return system(() -> savePlan(request, input, owner, true));
     }
+    /** Delete a topic-owned plan while preserving its immutable execution history. */
+    public void deleteManaged(String owner, String id, String tenantId) {
+        requireScope(tenantId);
+        system(() -> tx(() -> {
+            var row = store.plan(id); requireFound(row);
+            if (!Objects.equals(owner, row.getManagedBy()) || !Objects.equals(tenantId, row.getTenantId()))
+                throw new PlatformAccessDeniedException("Job topic ownership mismatch");
+            store.plans.deleteById(id); return null;
+        }));
+    }
     public JobPlan configure(JobPlan request) {
         requireFound(request.getId());
         var original = store.plans.findById(request.getId()); requireFound(original);
@@ -112,6 +122,7 @@ public final class JobService {
                 row = new JobPlan(); row.setJobType(type.code()); row.setScope(type.scope().name()); row.setTenantId(request.getTenantId());
                 row.setObjectKey(request.getObjectKey()); row.setPlanKey(key); row.setManagedBy(owner); schedule.apply(row);
                 initialize(row, input == null ? Map.of() : input, now);
+                if (trusted && request.getIdentityMode() != null) row.setIdentityMode(request.getIdentityMode());
                 row.setEnabled(!Boolean.FALSE.equals(request.getEnabled())); store.insert(row);
             } else {
                 boolean changed = !schedule.equals(JobSchedule.of(row)); schedule.apply(row);
@@ -120,6 +131,7 @@ public final class JobService {
                 boolean enabled = request.getEnabled() == null ? row.getEnabled() : request.getEnabled();
                 if (changed || !parameters.equals(row.getParametersJson()) || !Objects.equals(enabled, row.getEnabled()))
                     row.setConfigRevision(row.getConfigRevision() + 1);
+                if (trusted && request.getIdentityMode() != null) row.setIdentityMode(request.getIdentityMode());
                 row.setAvailable(true); row.setEnabled(enabled); row.setParametersJson(parameters); store.save(row);
             }
             return row;
@@ -196,11 +208,17 @@ public final class JobService {
     public void resume(String planId) { enabled(planId, true); }
     private void enabled(String id, boolean enabled) {
         var requested = store.plans.findById(id); requireFound(requested); requireAdministrator(requested.getTenantId());
+        var operator = CurrentUserContext.currentUser();
+        registry.handler(requested.getJobType()).requirePlanChange(requested);
         system(() -> tx(() -> {
             var row = store.plan(id); requireFound(row);
+            try (var actor = operator.isPresent() ? CurrentUserContext.use(operator.get()) : CurrentUserContext.without()) {
+                registry.handler(row.getJobType()).requirePlanChange(row);
+            }
             if (!Objects.equals(row.getEnabled(), enabled)) row.setConfigRevision(row.getConfigRevision() + 1);
             row.setEnabled(enabled);
-            if (enabled) row.setNextFireAt(JobSchedule.of(row).first(store.now())); store.save(row); return null;
+            if (enabled) row.setNextFireAt(JobSchedule.of(row).first(store.now())); store.save(row);
+            registry.handler(row.getJobType()).planStateChanged(row); return null;
         }));
     }
     public void cancel(String id) {
@@ -291,7 +309,7 @@ public final class JobService {
              var execution = JobExecutionContext.use(new JobExecutionContext.Reference(run.getJobType(), run.getPlanId(), run.getId(), run.getIdentityMode()));
              var tenant = run.getTenantId() == null ? TenantContext.backgroundJob(run.getJobType())
                      : TenantContext.tenantSystem(run.getTenantId(), run.getJobType())) {
-            if (!"SYSTEM".equals(run.getIdentityMode())) throw new JobFailure("IDENTITY_MODE_UNSUPPORTED", false);
+            if (!registry.handler(run.getJobType()).supportsIdentityMode(run.getIdentityMode())) throw new JobFailure("IDENTITY_MODE_UNSUPPORTED", false);
             JobResult result = Objects.requireNonNull(registry.handler(run.getJobType()).execute(new JobContext(this, run)));
             system(() -> tx(() -> {
                 var row = store.leased(run.getId(), run.getLeaseToken());
@@ -394,6 +412,13 @@ public final class JobService {
                 LoggerFactory.getLogger(JobService.class).warn("Background job failed: type={}, run={}", run.getJobType(), run.getId()); return;
             }
             var target = resolver.resolve(run.getTenantId());
+            var initiators = registry.handler(run.getJobType()).failureUserIds(run);
+            if (!initiators.isEmpty()) {
+                if (target == null) target = BusinessNotificationRecipients.none();
+                var users = new ArrayList<>(target.userIds()); users.addAll(initiators);
+                target = new BusinessNotificationRecipients(target.systemWide(), target.tenantIds(), target.organizationIds(),
+                        target.departmentIds(), target.positionIds(), users);
+            }
             if (target == null || target.equals(BusinessNotificationRecipients.none())) {
                 LoggerFactory.getLogger(JobService.class).warn("Background job failed without online recipient selector: type={}, run={}", run.getJobType(), run.getId()); return;
             }

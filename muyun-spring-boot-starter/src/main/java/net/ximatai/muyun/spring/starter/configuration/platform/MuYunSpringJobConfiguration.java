@@ -16,6 +16,21 @@ import java.util.List;
 @EnableConfigurationProperties({MuYunSpringJobProperties.class, MuYunSpringContentGenerationProperties.class})
 public class MuYunSpringJobConfiguration {
     @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(net.ximatai.muyun.spring.platform.module.ModuleActionInvoker.class)
+    ModuleActionJob tenantModuleActionJob(ObjectProvider<net.ximatai.muyun.spring.platform.module.ModuleActionInvoker> actions, ScheduledActionPlanDao plans,
+            net.ximatai.muyun.spring.common.platform.JobSystemActionPolicy whitelist, ObjectProvider<net.ximatai.muyun.spring.common.identity.TrustedExecutionIdentityResolver> identities,
+            com.fasterxml.jackson.databind.ObjectMapper json) {
+        return new ModuleActionJob(JobScope.TENANT, actions, plans, whitelist, identities, json);
+    }
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnBean(net.ximatai.muyun.spring.platform.module.ModuleActionInvoker.class)
+    ModuleActionJob platformModuleActionJob(ObjectProvider<net.ximatai.muyun.spring.platform.module.ModuleActionInvoker> actions, ScheduledActionPlanDao plans,
+            net.ximatai.muyun.spring.common.platform.JobSystemActionPolicy whitelist, ObjectProvider<net.ximatai.muyun.spring.common.identity.TrustedExecutionIdentityResolver> identities,
+            com.fasterxml.jackson.databind.ObjectMapper json) {
+        return new ModuleActionJob(JobScope.PLATFORM, actions, plans, whitelist, identities, json);
+    }
+
+    @Bean
     @ConditionalOnMissingBean(JobFailureRecipientResolver.class)
     JobFailureRecipientResolver jobFailureRecipientResolver() {
         return tenant -> net.ximatai.muyun.spring.platform.notification.BusinessNotificationRecipients.none();
