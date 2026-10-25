@@ -5,13 +5,22 @@ import java.util.function.Supplier;
 /** Opens one transaction for a complete standard mutation, including its aggregate and lifecycle when available. */
 @FunctionalInterface
 public interface MutationTransactionOperator {
-    MutationTransactionOperator NONE = Supplier::get;
+    MutationTransactionOperator NONE = new MutationTransactionOperator() {
+        @Override public <T> T execute(Supplier<T> work) { return work.get(); }
+        @Override public void lock(String scope, String key) {}
+        @Override public void lockShared(String scope, String key) {}
+    };
 
     <T> T execute(Supplier<T> work);
 
-    /** Holds a database lock until the outermost transaction completes; never silently runs unlocked. */
+    /** Holds an exclusive database lock until the outermost transaction completes; NONE is explicitly unlocked. */
     default void lock(String scope, String key) {
         throw new IllegalStateException("transactional mutation locks are not installed");
+    }
+
+    /** Shares the same key space and transaction lifetime as {@link #lock}, allowing concurrent readers. */
+    default void lockShared(String scope, String key) {
+        throw new IllegalStateException("shared transactional mutation locks are not installed");
     }
 
     /**

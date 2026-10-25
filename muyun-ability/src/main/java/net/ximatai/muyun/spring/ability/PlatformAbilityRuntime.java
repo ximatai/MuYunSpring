@@ -23,6 +23,16 @@ public final class PlatformAbilityRuntime {
     public static void lockMutationPartition(String scope, String key) {
         PlatformAbilityDispatcher.lockMutation(scope, key);
     }
+    /** Shares target facts with other saves while excluding deletion until the outer transaction completes. */
+    public static void lockReferenceTargetForRead(net.ximatai.muyun.spring.ability.reference.ReferenceTarget target, String id) {
+        PlatformAbilityDispatcher.lockReferenceTargetForRead(target, id);
+    }
+
+    /** Excludes integrity reads until commit; multi-step commands acquire this before reading or saving the target. */
+    public static void lockReferenceTargetForDelete(net.ximatai.muyun.spring.ability.reference.ReferenceTarget target, String id) {
+        PlatformAbilityDispatcher.lockReferenceTargetForDelete(target, id);
+    }
+
     private static volatile Supplier<DataScopeCriteriaService>
             dataScopeCriteriaService;
 

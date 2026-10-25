@@ -85,6 +85,15 @@ public class MuYunSpringMutationConfiguration {
 
             @Override
             public void lock(String scope, String key) {
+                lock(scope, key, false);
+            }
+
+            @Override
+            public void lockShared(String scope, String key) {
+                lock(scope, key, true);
+            }
+
+            private void lock(String scope, String key, boolean shared) {
                 if (dataSource == null || !TransactionSynchronizationManager.isActualTransactionActive()
                         || !TransactionSynchronizationManager.hasResource(dataSource)) {
                     throw new IllegalStateException("mutation locks require a database-bound transaction");
@@ -94,9 +103,12 @@ public class MuYunSpringMutationConfiguration {
                         throw new IllegalStateException("transactional mutation locks currently require PostgreSQL");
                     }
                     if (connection.getTransactionIsolation() != java.sql.Connection.TRANSACTION_READ_COMMITTED) {
-                        throw new IllegalStateException("mutation partition locks require READ_COMMITTED isolation");
+                        throw new IllegalStateException("mutation locks require READ_COMMITTED isolation");
                     }
-                    try (var lock = connection.prepareStatement("select pg_advisory_xact_lock(hashtextextended(?, 0))")) {
+                    String sql = shared
+                            ? "select pg_advisory_xact_lock_shared(hashtextextended(?, 0))"
+                            : "select pg_advisory_xact_lock(hashtextextended(?, 0))";
+                    try (var lock = connection.prepareStatement(sql)) {
                         lock.setString(1, scope.length() + ":" + scope + ":" + key);
                         lock.execute();
                     }

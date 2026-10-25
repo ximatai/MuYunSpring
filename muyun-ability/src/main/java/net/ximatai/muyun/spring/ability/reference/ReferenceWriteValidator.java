@@ -52,6 +52,9 @@ public final class ReferenceWriteValidator {
         if (plan.tenantScope() == ReferenceTenantScope.SAME_TENANT) fields.add(StandardEntitySchema.TENANT_ID_FIELD);
         if (plan.integrity().requireEnabled()) fields.add(PlatformAbilityFields.ENABLED_FIELD);
         plan.candidateDependencies().forEach(dependency -> fields.add(dependency.targetField()));
+        // Read facts only after acquiring a shared transaction lock on the same key used by both deletion paths.
+        // Sort multi-value keys to avoid reversing lock order within one reference field.
+        ids.stream().distinct().sorted().forEach(id -> PlatformAbilityRuntime.lockReferenceTargetForRead(plan.target(), id));
         Map<String, Map<String, Object>> facts = target.referenceFacts(ids, fields);
         for (String id : ids) {
             Map<String, Object> fact = facts.get(id);
