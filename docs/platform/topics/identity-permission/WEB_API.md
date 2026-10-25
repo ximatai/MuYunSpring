@@ -315,6 +315,37 @@
 | `referenceFieldId`    | 引用依赖数据权限使用的、由数据范围策略目录返回的引用字段标识。                                                                                                                                                   |
 | `referenceActionCode` | 引用依赖数据权限使用的目标动作；当前目录仅开放安全的 `view`。                                                                                                                                                    |
 
+## 记录权限管理
+
+动态模块启用 `DATA_SCOPE` 后提供以下入口。静态标准模块在 Service 接入 `DataScopeAbility`、模型实现 `DataScopeCapable` 且使用标准数据权限字段映射时，由平台端点投影提供相同路径；自定义业务归属映射不开放通用权限变更。路径根为对应模块的标准 Web 根路径。
+
+| 方法 | URL | 用途与响应 |
+| --- | --- | --- |
+| `GET` | `/{moduleAlias}/permissions/{id}` | 读取权限关系快照：`version`、归属人 `ownerId`、负责人 `assigneeIds`、相关人 `memberIds` 及用户 ID 到标题的 `titles`；不返回完整业务记录。 |
+| `GET` | `/{moduleAlias}/permissions/{id}/candidates?keyword={keyword}` | 搜索可选人员，返回 `ReferenceOption` 列表（含 `id`、`title`），最多 50 项；`keyword` 可省略。候选限定为与记录同租户的启用用户，平台级记录选择平台级用户。 |
+| `POST` | `/{moduleAlias}/permissions/{id}` | 执行转交、添加、替换或移除，成功返回 `{"changed": true}`；修改后须重新读取快照取得最新版本。 |
+
+三个入口均要求目标模块独立的 `managePermissions` 动作权限，并按该动作的数据范围与租户范围读取目标记录，不继承 `view` 或 `update` 的数据范围，也不能用普通编辑权限代替。页面 scope 约束仍生效。普通保存不得直接修改内部授权字段。
+
+修改请求使用 `RecordPermissionChange`：
+
+| 字段 | 要求 |
+| --- | --- |
+| `version` | 必填，来自权限关系快照；必须等于当前记录版本，冲突返回 `409 CONFLICT_VERSION`，应重新打开权限管理后再决定操作。 |
+| `operation` | 必填，使用大写枚举名：`TRANSFER`、`ADD`、`REPLACE`、`REMOVE`。 |
+| `relation` | `ADD`、`REPLACE`、`REMOVE` 必填，`ASSIGNEE` 表示负责人，`MEMBER` 表示相关人；转交不使用该字段。 |
+| `userIds` | 必填的非空用户 ID 列表；转交和替换各限一个不同的新人员，添加和移除可多选。转交、添加、替换会重新校验目标人员仍在可选范围，移除要求人员仍在当前名单。 |
+| `previousUserId` | 替换时必填，指定当前关系名单中被替换的人员；其余操作不使用。 |
+| `retainPreviousOwner` | 转交时必填；为 `true` 时将原归属人加入相关人，为 `false` 时不追加；其余操作不使用。 |
+
+例如，将当前记录转交并保留原归属人为相关人：
+
+```json
+{"version": 3, "operation": "TRANSFER", "userIds": ["new-owner-id"], "retainPreviousOwner": true}
+```
+
+该协议只变更归属人、负责人和相关人关系，不是通用业务字段更新接口；变更沿标准持久化生命周期执行并形成权限变更审计与数据变化事实。
+
 ## 菜单剪枝
 
 菜单维护本身属于平台菜单能力。身份权限相关的当前用户入口为：

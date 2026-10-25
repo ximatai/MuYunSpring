@@ -324,32 +324,32 @@ HTTP 包装 + 异步事件广播
 
 ## 8. HTTP 回执与事件广播
 
-HTTP 回执和事件广播使用同一份 `CommittedChangeSet`：
+HTTP 回执和事件广播同源于事务提交后形成的 `CommittedChangeSet`，对外 payload 按接收者投影：
 
 ```text
 CommittedChangeSet
-    ├── ActionResultResponseAdvice → HTTP 同步回执
-    └── DataChangeEventPublisher  → 异步广播
+    ├── ActionResultResponseAdvice → 发起者 HTTP 完整 changes
+    └── DataChangeEventPublisher  → 实时投递
+          ├── 发起用户私有队列 → 完整 changes
+          └── 其他用户私有队列 → 按接收者授权的安全投影
 ```
 
 ### 8.1 HTTP 回执
 
-发起操作的前端通过 HTTP `changes` 立即获知数据变化，不等待 WebSocket 或 SSE 广播。
+发起操作的前端通过 HTTP 收到完整的 `CommittedChangeSet`（`changeSetId` 与 `changes`），立即获知本次提交的记录、资源、scope 和业务 facts，不等待实时广播。
 
 ### 8.2 事件广播
 
-其他订阅者通过异步事件获知数据变化。
+发起用户的私有队列承接同账号多会话同步，收到完整变化事实。其他在线用户发送前复核有效会话，按本次操作租户分区过滤，并在接收者身份与租户上下文下重新检查模块 `QUERY` 权限。
 
-后端只广播：
+其他用户的 payload 仍使用 `CommittedChangeSet` 结构并保留同一 `changeSetId`，但 `changes` 是安全投影：
 
-- 变化批次身份；
-- 模块或资源身份；
-- 记录身份；
-- 变化类型；
-- 必要的租户和业务作用域；
-- 可选的数据版本。
+- 普通记录及子资源变化归并为模块级 `collection-changed`（由 `DataChange.collectionChanged(...)` 产生）；
+- `business-content-changed` 保留业务内容阅读失效类型；
+- 无记录、资源与 scope 身份的 `module-page-configuration-changed`、`configuration-translations-changed` 保留共享配置失效类型，可跨业务租户通知；
+- 所有投影均移除 `recordId`、`resourceKey`、`scope`，且 `facts` 为空；未通过授权或没有可发送变化时不投递。
 
-广播不携带刷新、弹窗等 UI 指令，也不默认携带完整业务数据。
+普通变化仅发给本次操作租户内的用户及通过授权的系统用户。跨租户写入仍以操作分区为准，尚不推导记录实际 owner 分区。接收者须通过既有授权查询接口重新读取可见数据，不能从失效提示推断具体记录可见性。广播不携带刷新、弹窗等 UI 指令。
 
 ### 8.3 去重
 

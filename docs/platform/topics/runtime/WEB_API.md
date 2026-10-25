@@ -51,6 +51,10 @@ JSON 字段在记录中使用实际 JSON 值，新增、更新与读回保持对
 
 树排序请求使用 `previousId`、`nextId`、`parentId` 表达位置，可通过 `scope.externalQueryValues` 提供页面范围值；导航来源同时提交 `scope.navigatorHostModuleAlias` 和 `scope.navigatorTargetLevelKey`。服务端按已编译的页面绑定解析范围，校验导航归属、必填范围和参与移动的记录，并沿标准 `SORT` 权限、租户、树能力及变更事件链路执行。普通列表排序不接受树范围参数。
 
+## 记录权限管理
+
+启用 `DATA_SCOPE` 的动态模块还提供 `GET /{moduleAlias}/permissions/{id}`、`GET /{moduleAlias}/permissions/{id}/candidates` 和 `POST /{moduleAlias}/permissions/{id}`。路径、候选范围、请求与响应、独立 `managePermissions` 权限及乐观锁要求统一见 [身份与权限 Web API：记录权限管理](../identity-permission/WEB_API.md#记录权限管理)；符合标准数据权限契约的静态模块也提供对应入口。
+
 ## 引用解析
 
 | 方法   | URL                                             | 功能                                     |

@@ -290,9 +290,9 @@ simpMessagingTemplate.convertAndSend("/user/queue/platform/notifications", paylo
 /user/queue/platform/data-changes
 ```
 
-发起用户的多个会话收到完整变化事实。其他在线用户在发送时重新验证登录态和模块 QUERY 权限，只收到 `collection-changed`，不包含记录标识、资源标识、scope 或业务 facts。普通数据变化限于本次操作的租户分区；接收者通过原查询接口重新读取当前可见数据。
+发起者通过 HTTP 收到完整 `CommittedChangeSet`，发起用户的多个会话也通过私有队列收到完整变化事实。其他在线用户在发送时重新验证登录态和模块 QUERY 权限，普通记录及子资源变化投影为 `collection-changed`，不包含记录标识、资源标识、scope 或业务 facts。普通数据变化限于本次操作的租户分区及通过授权的系统用户；接收者通过原查询接口重新读取当前可见数据。
 
-页面配置发布采用无记录身份的 `module-page-configuration-changed`，按接收者当前模块 QUERY 权限分发，可跨业务租户通知共享配置失效。模块和记录 topic 路径仅保留为未来兴趣频道命名，当前不启用订阅或广播。
+业务内容阅读失效保留无记录身份的 `business-content-changed`；共享页面配置与配置译文发布分别保留 `module-page-configuration-changed`、`configuration-translations-changed`，按接收者当前模块 QUERY 权限分发，可跨业务租户通知共享配置失效。所有这些安全投影都移除资源身份、scope 和业务 facts。模块和记录 topic 路径仅保留为未来兴趣频道命名，当前不启用订阅或广播。
 
 内部 IM 私信：
 
@@ -471,7 +471,7 @@ simpMessagingTemplate.convertAndSendToUser(userId, "/queue/platform/data-changes
 - 其他用户逐次复核有效登录态，并在接收者身份下重新计算模块 QUERY 权限；
 - 普通变化只向本次操作租户内的用户和通过授权的系统用户发送集合失效事实；
 - 集合失效事实不包含记录 ID、子资源 ID、scope 或 `facts`，包含删除和已不可见记录的变化；
-- 共享页面配置发布保留安全的配置失效类型，避免把配置更新误当作普通数据刷新；
+- 业务内容阅读失效保留 `business-content-changed`；无记录、资源与 scope 身份的共享页面配置及配置译文发布保留对应失效类型，可跨业务租户投递，仍移除全部 `facts` 并检查接收者模块 QUERY 权限；
 - 当前普通 CRUD 的跨租户授权写入，实时提示以外层操作分区为准。若需覆盖实际 owner 分区，必须先为变化事实建立可信的 owner 分区契约，不得恢复全局记录广播；
 - 无法判断发起用户时不发送实时数据变化。
 
@@ -663,7 +663,7 @@ STOMP message
 
 ### 7.2 DataChange Payload
 
-数据变化消息 payload 复用 `CommittedChangeSet`。以下完整记录事实只发送给发起用户；其他用户收到相同变化批次下不含记录身份的 `collection-changed`：
+数据变化消息 payload 复用 `CommittedChangeSet` 结构，与 HTTP 回执同源，但不保证不同接收者的 `changes` 相同。以下完整记录事实通过 HTTP 和发起用户私有队列交付：
 
 ```json
 {
@@ -678,13 +678,22 @@ STOMP message
 }
 ```
 
-广播只表达数据事实：
+其他在线用户收到同一 `changeSetId` 下按操作租户与接收者查询授权生成的安全投影，例如：
 
-- 哪个模块或资源变化；
-- 哪条记录或集合变化；
-- 变化类型；
-- 变化批次；
-- 必要的租户、作用域或版本。
+```json
+{
+  "changeSetId": "change-set-1",
+  "changes": [
+    {
+      "moduleAlias": "iam.employee",
+      "type": "collection-changed",
+      "facts": {}
+    }
+  ]
+}
+```
+
+安全投影只表达模块、失效类型与变化批次，不携带 `recordId`、`resourceKey` 或 `scope`，`facts` 为空。业务内容和共享配置失效保留第 5.7 节列出的专用类型，遵守相同的身份与 facts 裁剪规则。完整事实与安全投影的边界见 [动作结果与数据变更契约](ACTION_RESULT_AND_DATA_CHANGE.md#8-http-回执与事件广播)。
 
 广播不表达：
 
@@ -727,7 +736,7 @@ Command: 客户端请求服务端执行的动作
 
 - 广播失败不得使已提交业务操作失败；
 - 事务回滚不得广播数据变化；
-- HTTP ActionResult 和实时广播共享同一份 `CommittedChangeSet`；
+- HTTP ActionResult 和实时广播同源于已提交事实，共享 `changeSetId`；其他用户的 `changes` 必须按接收者投影；
 - 前端以 HTTP 回执作为发起动作的即时结果，以实时通道作为当前用户多端和跨用户脏标记信号；
 - 其他用户的集合事实不得携带记录身份或业务字段，不能依赖前端自行丢弃无权数据；
 - 后续如需要跨用户完整 payload fan-out，必须按接收人过滤变化集合。
