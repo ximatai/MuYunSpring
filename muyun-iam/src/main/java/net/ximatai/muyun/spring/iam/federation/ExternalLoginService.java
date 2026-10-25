@@ -348,7 +348,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         ExternalDirectoryProtocol.Person refreshed = null;
         Instant checkedAt = clock.instant();
         if (transaction.getPurpose() == ExternalLoginPurpose.LOGIN && observed != null
-                && sourceExpired(observed, policy.get(), checkedAt)) {
+                && sourceExpired(observed, policy.get(), descriptor, checkedAt)) {
             try {
                 refreshed = directory.protocol(descriptor).person(descriptor, identity.externalUserId());
                 if (!identity.externalUserId().equals(refreshed.id())
@@ -396,7 +396,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                         if (!"active".equals(authoritative.status()))
                             sourceLifecycle.invalidate(binding, authoritative.status(), binding.getLastSyncRunId());
                     }
-                    if (sourceExpired(binding, latestPolicy.get(), clock.instant())
+                    if (sourceExpired(binding, latestPolicy.get(), descriptor, clock.instant())
                             || !sourceAllowsLogin(binding)
                             || !admissionLocks.employeeAvailable(transaction.getTenantId(), binding.getUserId()))
                         return Outcome.denied(ExternalLoginFailure.ACCOUNT_UNAVAILABLE);
@@ -410,7 +410,12 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         });
     }
 
-    private static boolean sourceExpired(ExternalIdentity binding, TenantIdentityPolicy policy, Instant now) {
+    private boolean sourceExpired(ExternalIdentity binding, TenantIdentityPolicy policy,
+                                  IdentityProviderDescriptor provider, Instant now) {
+        boolean directoryManaged = binding.getBindingSource() == ExternalIdentityBindingSource.DIRECTORY_SYNC
+                || (directory.supports(provider) && Boolean.TRUE.equals(policy.getSyncEnabled())
+                    && policy.getSyncScopeId() != null && binding.getSourceStatus() != null);
+        if (!directoryManaged) return false;
         Instant checked = binding.getSourceCheckedAt() == null ? binding.getBoundAt() : binding.getSourceCheckedAt();
         int seconds = policy.getSourceStatusMaxAgeSeconds() == null ? 86400 : policy.getSourceStatusMaxAgeSeconds();
         return checked == null || !now.isBefore(checked.plusSeconds(seconds));

@@ -234,6 +234,32 @@ class ExternalIdentityFederationIT {
         }
     }
 
+    @Test
+    void oldSelfBindingsRemainUsableWithoutDirectoryManagement() throws Exception {
+        blockingProtocol.disarm();
+        for (String providerId : java.util.List.of(BlockingProtocol.TYPE, PROVIDER)) {
+            String username = "old-self-" + providerId;
+            try (var current = CurrentUserContext.use(CurrentUser.systemUser("self-it", "self-it"));
+                 var tenant = TenantContext.use(TENANT)) {
+                createUser(username);
+            }
+            String token = passwordLogin(username);
+            var bind = post("/iam.auth/external/" + providerId + "/bind", Map.of(), token).getBody();
+            JsonNode bound = providerId.equals(PROVIDER) ? completeFlow(bind, username) : completeBlocking(bind, username);
+            assertThat(bound.path("status").asText()).isEqualTo("succeeded");
+            String bindingId = bound.path("binding").path("id").asText();
+            jdbcTemplate.update("update iam_external_identity set bound_at = current_timestamp - interval '2 days' where id = ?", bindingId);
+            var login = post("/iam.auth/external/" + providerId + "/login", Map.of("tenantId", TENANT), null).getBody();
+            JsonNode result = providerId.equals(PROVIDER) ? completeFlow(login, username) : completeBlocking(login, username);
+            assertThat(result.path("status").asText()).isEqualTo("succeeded");
+            try (var tenant = TenantContext.use(TENANT)) {
+                var binding = externalIdentityService.select(bindingId);
+                assertThat(binding.getBoundAt()).isBefore(java.time.Instant.now().minusSeconds(86400));
+                assertThat(binding.getSourceCheckedAt()).isNull();
+            }
+        }
+    }
+
     private JsonNode statusCompletion() {
         var start = post("/iam.auth/external/" + StatusProtocol.TYPE + "/login", Map.of("tenantId", TENANT), null).getBody();
         String state = start.path("state").asText();

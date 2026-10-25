@@ -54,6 +54,10 @@ public class DirectorySyncConfiguration {
                 : List.of(DirectorySyncStore.decode(text, Root[].class));
     }
 
+    boolean supports(IdentityProviderDescriptor provider) {
+        return protocols.containsKey(provider.providerType());
+    }
+
     ExternalDirectoryProtocol protocol(IdentityProviderDescriptor provider) {
         var protocol = protocols.get(provider.providerType());
         if (protocol == null) throw new IllegalArgumentException("Directory protocol unavailable");
