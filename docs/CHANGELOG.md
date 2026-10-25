@@ -21,7 +21,6 @@
 
 - 业务内容翻译生成迁入平台排队作业，新增自动装配的 `content-generation` 通道；原 `muyun.content.generation-workers`、`generation-delay-ms` 分别映射为线程数、领取间隔，范围与默认值不变；`generation-initial-delay-ms` 保留首次延迟，从应用就绪后起算。每路继续在执行结束后等待间隔。可使用通道 `threads`／`claim-interval` 配置，显式新旧值冲突时启动失败，内容线程数仍限 1–8。五分钟租约、三次尝试及 15／30 秒退避、原触发者恢复、权限额度和 30 天留存保持不变，禁止管理员人工重试以替换触发者。
 - `platform_business_content_generation` 新增可空 `run_id varchar(32)`（历史终态可无关联运行），移除 `attempts`、`available_at`、`lease_token`、`lease_until` 及其领取索引；专题仍保存业务状态及问题码。终态生成记录清理改为每小时的平台级定时作业，运行记录独立保留 30 天，原文、译文与证据不随之删除。关联运行先到期时终态状态仍可查询，已清理的尝试明细返回 0。
-- 既有生成表须在停写、排空旧队列后升级；不能让旧内容执行器与新内容通道并行运行。先关闭业务流量及预生成提交，保留旧 worker 直到 `status in ('PENDING','RETRY','RUNNING')` 数量为 0，再停止全部旧节点。严格 schema 模式下先按 schema 迁移流程审阅并执行：为 `platform_business_content_generation` 添加可空 `run_id varchar(32)`，删除上述四个旧执行字段及依赖索引；确认平台作业表和索引已建立后启动新版本，恢复业务流量。开发态自动 ensure 也不能代替旧字段移除；备份并保留历史专题状态、请求及原文译文事实，不用删表重建完成升级。无法排空时暂缓升级，不丢弃或重写活动任务的身份与输入。
 - 交换文件清理迁入平台作业机制，保持每小时 fixed-delay、首次延迟一分钟、每轮最多 10×200 条；日志留存清理和工作流超期扫描也改由平台级作业在 `default` 通道承担，获得集群互斥、运行记录和失败治理。人工日志清理、存储锁、业务留存策略、批次上限及超期判定保持不变。
 - 保留日志留存 `scheduled-enabled` 与全局作业调度开关；日志留存 `scan-delay`/`initial-delay` 和工作流 `overtime-scan-delay-ms`/`overtime-scan-initial-delay-ms` 用于首次登记 fixed-delay 计划，默认值保持不变。已登记计划以持久配置为准，后续调整通过作业管理页完成，部署重启不覆盖管理员修改；固定间隔统一受平台至少一分钟的计划校验约束。在线闲置检测保持节点本地执行。
 
