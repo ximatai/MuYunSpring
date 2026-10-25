@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.iam.federation;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -21,9 +22,12 @@ import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.platform.job.JobFailure;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -51,22 +55,24 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
     };
 
     private final Map<String, ExternalLoginProtocol> protocols;
+    private final Map<String, ExternalDirectoryProtocol> directories;
     private final ExternalIdentityDao identityDao;
     private final Function<String, String> environment;
     private final ExternalIdentityAdmissionLocks admissionLocks;
 
     @Autowired
-    public IdentityProviderService(IdentityProviderDao dao, List<ExternalLoginProtocol> protocols,
+    public IdentityProviderService(IdentityProviderDao dao, List<ExternalLoginProtocol> protocols, List<ExternalDirectoryProtocol> directories,
                                    ExternalIdentityDao identityDao, ExternalIdentityAdmissionLocks admissionLocks) {
-        this(dao, protocols, identityDao, System::getenv, admissionLocks);
+        this(dao, protocols, directories, identityDao, System::getenv, admissionLocks);
     }
 
-    IdentityProviderService(IdentityProviderDao dao, List<ExternalLoginProtocol> protocols,
+    IdentityProviderService(IdentityProviderDao dao, List<ExternalLoginProtocol> protocols, List<ExternalDirectoryProtocol> directories,
                             ExternalIdentityDao identityDao, Function<String, String> environment,
                             ExternalIdentityAdmissionLocks admissionLocks) {
         super(MODULE_ALIAS, IdentityProvider.class, dao);
         this.protocols = protocols.stream().collect(Collectors.toUnmodifiableMap(
                 ExternalLoginProtocol::providerType, Function.identity()));
+        this.directories = directories.stream().collect(Collectors.toUnmodifiableMap(ExternalDirectoryProtocol::providerType, Function.identity()));
         this.identityDao = Objects.requireNonNull(identityDao, "identityDao");
         this.environment = Objects.requireNonNull(environment, "environment");
         this.admissionLocks = Objects.requireNonNull(admissionLocks, "admissionLocks");
@@ -128,7 +134,7 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
             IdentityProvider provider = findOne(Criteria.of().eq("id", providerId.trim()));
             return Optional.ofNullable(provider)
                     .filter(candidate -> Boolean.TRUE.equals(candidate.getEnabled()))
-                    .filter(candidate -> protocols.containsKey(candidate.getProviderType()));
+                    .filter(candidate -> protocols.containsKey(candidate.getProviderType()) || directories.containsKey(candidate.getProviderType()));
         }
     }
 
@@ -146,6 +152,15 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
                 secret == null || secret.isBlank() ? null : secret, configurationOf(provider.getConfiguration()));
     }
 
+    /** Rechecks the authority after provider I/O, inside the page transaction, without vendor calls. */
+    void requireDirectoryAuthority(String tenantId, IdentityProviderDescriptor expected) {
+        if (!admissionLocks.configuration(tenantId, expected.id()))
+            throw new JobFailure("DIRECTORY_CONFIGURATION_CHANGED", false);
+        var current = findUsable(expected.id()).map(this::descriptorOf).orElse(null);
+        if (!expected.sameAuthority(current))
+            throw new JobFailure("DIRECTORY_CONFIGURATION_CHANGED", false);
+    }
+
     private boolean identityScopeChanged(IdentityProvider existing, IdentityProvider provider) {
         if (!Objects.equals(existing.effectiveIdentityNamespace(), provider.effectiveIdentityNamespace())
                 || !Objects.equals(existing.getExternalEnterpriseId(), provider.getExternalEnterpriseId())
@@ -154,18 +169,19 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
             return true;
         }
         ExternalLoginProtocol protocol = protocols.get(provider.getProviderType());
-        if (protocol == null) {
-            return false;
-        }
+        ExternalDirectoryProtocol directory = directories.get(provider.getProviderType());
+        var keys = new HashSet<String>();
+        if (protocol != null) keys.addAll(protocol.identityScopeConfigurationKeys());
+        if (directory != null) keys.addAll(directory.identityScopeConfigurationKeys());
         Map<String, String> before = configurationOf(existing.getConfiguration());
         Map<String, String> after = configurationOf(provider.getConfiguration());
-        return protocol.identityScopeConfigurationKeys().stream()
+        return keys.stream()
                 .anyMatch(key -> !Objects.equals(before.get(key), after.get(key)));
     }
 
     private void validate(IdentityProvider provider) {
         ExternalLoginProtocol protocol = protocols.get(provider.getProviderType());
-        if (protocol == null) {
+        if (protocol == null && !directories.containsKey(provider.getProviderType())) {
             throw PlatformErrors.badRequestText(TextReference.code(
                     "iam.rejection.identity-provider.provider-type-is-not-installed",
                     "identity provider type is not installed: {value1}"),
@@ -178,7 +194,9 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
                     "client secret environment variable name is invalid"), Map.of());
         }
         try {
-            protocol.validateConfiguration(configurationOf(provider.getConfiguration()));
+            if (protocol != null) protocol.validateConfiguration(configurationOf(provider.getConfiguration()));
+            var directory = directories.get(provider.getProviderType());
+            if (directory != null) directory.validateConfiguration(configurationOf(provider.getConfiguration()));
         } catch (IllegalArgumentException exception) {
             throw PlatformErrors.badRequestText(TextReference.code(
                     "iam.rejection.identity-provider.configuration-is-invalid",

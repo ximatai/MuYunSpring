@@ -1,8 +1,5 @@
 package net.ximatai.muyun.spring.iam.role;
 
-import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
-import net.ximatai.muyun.spring.common.exception.PlatformErrors;
-import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -10,6 +7,7 @@ import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.TenantActiveScopedService;
+import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.ability.form.FormAbility;
 import net.ximatai.muyun.spring.ability.form.FormDescriptor;
 import net.ximatai.muyun.spring.ability.form.FormField;
@@ -20,8 +18,10 @@ import net.ximatai.muyun.spring.ability.query.QueryField;
 import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import net.ximatai.muyun.spring.ability.query.QueryValueType;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
-import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
+import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.identity.BusinessPrincipal;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
@@ -42,36 +42,47 @@ import net.ximatai.muyun.spring.iam.organization.Organization;
 import net.ximatai.muyun.spring.iam.organization.OrganizationService;
 import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
+import net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources;
+import net.ximatai.muyun.spring.platform.localization.ConfiguredRecordTextAbility;
+
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 @Service
-public class RoleService extends TenantActiveScopedService<Role> implements
-        net.ximatai.muyun.spring.platform.localization.ConfiguredRecordTextAbility<Role>,
-        SoftDeleteAbility<Role>,
-        EnableAbility<Role>,
-        SortAbility<Role>,
-        ReferenceAbility<Role>,
-        FormAbility<Role>,
-        QueryAbility<Role> {
+public class RoleService extends TenantActiveScopedService<Role>
+        implements ConfiguredRecordTextAbility<Role>,
+                SoftDeleteAbility<Role>,
+                EnableAbility<Role>,
+                SortAbility<Role>,
+                ReferenceAbility<Role>,
+                FormAbility<Role>,
+                QueryAbility<Role> {
     public static final String MODULE_ALIAS = "iam.role";
     public static final String PLATFORM_SUPER_ADMIN_ROLE_ID = "platform.role.super_admin";
     public static final String PLATFORM_SUPER_ADMIN_ROLE_TITLE = "平台超级管理员";
     public static final String TENANT_ADMIN_ROLE_TITLE = "租户管理员";
 
     @Override public Map<String, TextReference> recordTextSources(Role role) {
-        var result = new LinkedHashMap<>(net.ximatai.muyun.spring.platform.localization.ConfiguredRecordTextAbility.super.recordTextSources(role));
-        if (role.getDescription() != null && !role.getDescription().isBlank()) result.put("description",
-                net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.recordText(MODULE_ALIAS, role.getId(), "description", role.getDescription()));
+        var result = new LinkedHashMap<>(ConfiguredRecordTextAbility.super.recordTextSources(role));
+        if (role.getDescription() != null && !role.getDescription().isBlank())
+            result.put(
+                    "description",
+                    ConfigurationTextSources.recordText(
+                            MODULE_ALIAS, role.getId(), "description", role.getDescription()));
         return Map.copyOf(result);
     }
 
@@ -411,6 +422,11 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         return grantEmploymentRoleResult(roleId, employeePositionId).grantId();
     }
 
+    /** Ensures a source-derived grant exists without reversing a local administrative disablement. */
+    public RoleGrantMutationResult ensureEmploymentRole(String roleId, String employeePositionId) {
+        return grantEmploymentRoleIfAbsent(roleId, employeePositionId, false);
+    }
+
     public RoleGrantMutationResult grantEmploymentRoleResult(String roleId, String employeePositionId) {
         return grantEmploymentRoleIfAbsent(roleId, employeePositionId);
     }
@@ -713,9 +729,14 @@ public class RoleService extends TenantActiveScopedService<Role> implements
 
     public RoleDataGrantActionMatrix dataGrantActionMatrix(String roleId) {
         Role role = requireDataGrantRole(roleId);
-        Map<String, RoleDataGrantAction> configuredByAction = dataGrantActionTemplates(role.getId()).stream()
-                .collect(java.util.stream.Collectors.toMap(RoleDataGrantAction::getActionCode,
-                        action -> action, (left, right) -> left, LinkedHashMap::new));
+        Map<String, RoleDataGrantAction> configuredByAction =
+                dataGrantActionTemplates(role.getId()).stream()
+                        .collect(
+                                Collectors.toMap(
+                                        RoleDataGrantAction::getActionCode,
+                                        action -> action,
+                                        (left, right) -> left,
+                                        LinkedHashMap::new));
         List<RoleDataGrantActionMatrix.Action> actions = standardDataGrantActions().stream()
                 .map(action -> {
                     RoleDataGrantAction configured = configuredByAction.get(action.permissionActionCode());
@@ -739,9 +760,14 @@ public class RoleService extends TenantActiveScopedService<Role> implements
             String actionCode = requireStandardDataGrantAction(command.actionCode());
             desired.put(actionCode, requireConcreteDataGrantScope(command.dataScopePolicy()));
         }
-        Map<String, RoleDataGrantAction> existingByAction = dataGrantActionTemplates(role.getId()).stream()
-                .collect(java.util.stream.Collectors.toMap(RoleDataGrantAction::getActionCode,
-                        action -> action, (left, right) -> left, LinkedHashMap::new));
+        Map<String, RoleDataGrantAction> existingByAction =
+                dataGrantActionTemplates(role.getId()).stream()
+                        .collect(
+                                Collectors.toMap(
+                                        RoleDataGrantAction::getActionCode,
+                                        action -> action,
+                                        (left, right) -> left,
+                                        LinkedHashMap::new));
         int changed = 0;
         for (RoleDataGrantAction existing : existingByAction.values()) {
             if (desired.containsKey(existing.getActionCode()) || !Boolean.TRUE.equals(existing.getEnabled())) {
@@ -1182,9 +1208,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         }
     }
 
-    private <V> boolean setIfChanged(java.util.function.Supplier<V> getter,
-                                     java.util.function.Consumer<V> setter,
-                                     V desired) {
+    private <V> boolean setIfChanged(Supplier<V> getter, Consumer<V> setter, V desired) {
         if (Objects.equals(getter.get(), desired)) {
             return false;
         }
@@ -1350,6 +1374,10 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     }
 
     private RoleGrantMutationResult grantEmploymentRoleIfAbsent(String roleId, String employeePositionId) {
+        return grantEmploymentRoleIfAbsent(roleId, employeePositionId, true);
+    }
+
+    private RoleGrantMutationResult grantEmploymentRoleIfAbsent(String roleId, String employeePositionId, boolean reactivate) {
         Role role = requireBindableRole(roleId);
         requireEmploymentAssignableRole(role);
         requireSystemManagedMutationAllowed(role, "grant employment role");
@@ -1364,7 +1392,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         ensureInheritedDataGrantCoverage(validEmployeePositionId, role);
         EmploymentRoleGrant existing = findEmploymentRoleGrant(role.getId(), validEmployeePositionId);
         if (existing != null) {
-            if (!Boolean.TRUE.equals(existing.getEnabled())) {
+            if (reactivate && !Boolean.TRUE.equals(existing.getEnabled())) {
                 existing.setEnabled(true);
                 prepareChildUpdate(existing);
                 employmentRoleGrantDao.updateById(existing);
@@ -1437,9 +1465,10 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     }
 
     private List<String> effectiveDataGrantRoleIds(String employeePositionId, Role extraRole) {
-        LinkedHashSet<String> roleIds = effectiveEmploymentRoleGrants(employeePositionId).stream()
-                .map(EmploymentRoleGrant::getRoleId)
-                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        LinkedHashSet<String> roleIds =
+                effectiveEmploymentRoleGrants(employeePositionId).stream()
+                        .map(EmploymentRoleGrant::getRoleId)
+                        .collect(Collectors.toCollection(LinkedHashSet::new));
         if (extraRole != null && extraRole.getId() != null) {
             roleIds.add(extraRole.getId());
         }
@@ -1739,11 +1768,17 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     }
 
     private List<PlatformAction> standardDataGrantActions() {
-        return java.util.Arrays.stream(PlatformAction.values())
+        return Arrays.stream(PlatformAction.values())
                 .filter(PlatformAction::dataAuth)
-                .collect(java.util.stream.Collectors.toMap(PlatformAction::permissionActionCode,
-                        action -> action, (left, right) -> left, LinkedHashMap::new))
-                .values().stream().toList();
+                .collect(
+                        Collectors.toMap(
+                                PlatformAction::permissionActionCode,
+                                action -> action,
+                                (left, right) -> left,
+                                LinkedHashMap::new))
+                .values()
+                .stream()
+                .toList();
     }
 
     private String requireStandardDataGrantAction(String actionCode) {

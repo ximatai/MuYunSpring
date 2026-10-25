@@ -214,6 +214,7 @@ public final class JobService {
         var operator = CurrentUserContext.currentUser();
         registry.handler(requested.getJobType()).requirePlanChange(requested);
         system(() -> tx(() -> {
+            registry.handler(requested.getJobType()).lockBusiness(parameters(requested.getParametersJson()));
             var row = store.plan(id); requireFound(row);
             try (var actor = operator.isPresent() ? CurrentUserContext.use(operator.get()) : CurrentUserContext.without()) {
                 registry.handler(row.getJobType()).requirePlanChange(row);
@@ -254,7 +255,7 @@ public final class JobService {
                     return row;
                 }
             }
-            var run = newRun(type, original.getTenantId(), original.getParametersJson(), original.getMutexKey(), "MANUAL", actor);
+            var run = newRun(type, original.getTenantId(), encodeParameters(registry.handler(original.getJobType()).retryParameters(parameters(original.getParametersJson()), original.getId())), original.getMutexKey(), "MANUAL", actor);
             run.setPlanId(original.getPlanId()); run.setPlanRevision(original.getPlanRevision());
             run.setIdentityMode(original.getIdentityMode()); run.setDeduplicationKey(original.getDeduplicationKey());
             store.insert(run); recentStatus(run, "PENDING"); signal(run.getChannel()); return run;
@@ -383,7 +384,7 @@ public final class JobService {
         String code = failure instanceof JobFailure f ? f.code() : "EXECUTION_FAILED";
         row.setErrorSummary(failure.getClass().getSimpleName() + ":" + code);
         boolean retryable = !(failure instanceof JobFailure f) || f.retryable();
-        if (retryable && row.getAttempts() < type.maximumAttempts()) {
+        if (retryable && registry.handler(row.getJobType()).retryAutomatically(row) && row.getAttempts() < type.maximumAttempts()) {
             row.setStatus("RETRY"); row.setResultCode(code); row.setAvailableAt(store.now().plus(type.backoff(row.getAttempts())));
             clearLease(row); store.save(row); recentStatus(row, "RETRY"); signal(row.getChannel());
         } else finish(row, "FAILED", code, null);

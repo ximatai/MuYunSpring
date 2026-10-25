@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.iam.federation;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
@@ -13,10 +14,13 @@ import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.platform.job.JobService;
+
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /** Tenant-level acceptance of identity providers. */
@@ -30,12 +34,20 @@ public class TenantIdentityPolicyService extends TenantActiveScopedService<Tenan
     public static final String MODULE_ALIAS = "iam.tenant_identity_policy";
 
     private final IdentityProviderService identityProviderService;
+    private final DirectorySyncConfiguration directory;
+    private final JobService jobs;
 
-    public TenantIdentityPolicyService(TenantIdentityPolicyDao dao, ActiveTenantVerifier activeTenantVerifier,
-                                       IdentityProviderService identityProviderService) {
+    public TenantIdentityPolicyService(
+            TenantIdentityPolicyDao dao,
+            ActiveTenantVerifier activeTenantVerifier,
+            IdentityProviderService identityProviderService,
+            DirectorySyncConfiguration directory,
+            JobService jobs) {
         super(MODULE_ALIAS, TenantIdentityPolicy.class, dao, activeTenantVerifier);
-        this.identityProviderService = java.util.Objects.requireNonNull(identityProviderService,
-                "identityProviderService");
+        this.identityProviderService =
+                Objects.requireNonNull(identityProviderService, "identityProviderService");
+        this.directory = Objects.requireNonNull(directory);
+        this.jobs = Objects.requireNonNull(jobs);
     }
 
     @Override
@@ -57,17 +69,49 @@ public class TenantIdentityPolicyService extends TenantActiveScopedService<Tenan
     @Override
     public void beforeInsert(TenantIdentityPolicy policy) {
         requireSupportedProvisioning(policy);
+        directory.maintain(policy, null);
     }
 
     @Override
     public void beforeUpdate(TenantIdentityPolicy policy, TenantIdentityPolicy existing) {
         requireSupportedProvisioning(policy);
+        directory.maintain(policy, existing);
+    }
+
+    @Override public String insert(TenantIdentityPolicy policy) {
+        directory.prepare(policy);
+        return super.insert(policy);
+    }
+    @Override public int update(TenantIdentityPolicy policy) {
+        var retained = selectActiveRaw(policy.getId());
+        if (retained == null
+                || !Objects.equals(retained.getSyncRoots(), policy.getSyncRoots())
+                || !Objects.equals(retained.getProviderId(), policy.getProviderId())
+                || !Objects.equals(
+                        retained.getSyncScopeConfirmed(), policy.getSyncScopeConfirmed()))
+            directory.prepare(policy);
+        return super.update(policy);
+    }
+    @Override public void beforeDelete(String id) {
+        var policy = selectActiveRaw(id);
+        if (policy != null) directory.deletePlan(policy);
+    }
+    /** Shared trusted entry for both operator actions; jobs always run as tenant SYSTEM. */
+    public String synchronize(String id, boolean preview) {
+        return inMutationTransaction(() -> {
+            var policy = selectActiveRaw(id);
+            if (policy == null || !Boolean.TRUE.equals(policy.getEnabled())) throw new IllegalArgumentException("Directory policy unavailable");
+            String mode = preview ? "PREVIEW" : "SYNC";
+            String deduplicationKey = policy.getId() + ":" + mode + ":" + policy.getSyncScopeId();
+            return jobs.enqueue(DirectorySyncJob.TYPE, policy.getTenantId(),
+                    DirectorySyncConfiguration.input(policy, mode), deduplicationKey).getId();
+        });
     }
 
     /** Enabled policies of a tenant, read in that tenant's scope for the public sign-in entry. */
     public List<TenantIdentityPolicy> enabledPolicies(String tenantId) {
         try (TenantContext.Scope ignored = TenantContext.use(tenantId)) {
-            return list(Criteria.of().eq("enabled", true), new net.ximatai.muyun.database.core.orm.PageRequest(0, 100));
+            return list(Criteria.of().eq("enabled", true), new PageRequest(0, 100));
         }
     }
 

@@ -20,12 +20,12 @@ class EmployeePositionModelSchemaTest {
         assertThat(table.getName()).isEqualTo("iam_employee_position");
         assertThat(columnNames(table))
                 .contains("id", "tenant_id", "employee_id", "organization_id", "department_id",
-                        "position_id", "primary_position", "enabled", "sort_order", "deleted", "version");
+                        "position_id", "source", "source_provider_id", "external_department_id", "source_status", "last_sync_run_id", "primary_position", "enabled", "sort_order", "deleted", "version");
         assertThat(table.getIndexes())
                 .anySatisfy(index -> {
                     assertThat(index.isUnique()).isTrue();
                     assertThat(index.getColumns()).containsExactly("tenant_id", "employee_id",
-                            "organization_id", "department_id", "position_id");
+                            "organization_id", "department_id", "position_id", "source", "source_provider_id");
                 });
     }
 
