@@ -97,7 +97,22 @@ final class PlatformAbilityDispatcher {
     }
 
     static void lockMutation(String scope, String key) {
+        if (mutationTransactionOperator == MutationTransactionOperator.NONE) {
+            throw new IllegalStateException("transactional mutation locks are not installed");
+        }
         mutationTransactionOperator.lock(scope, key);
+    }
+
+    static void lockReferenceTargetForRead(net.ximatai.muyun.spring.ability.reference.ReferenceTarget target, String id) {
+        mutationTransactionOperator.lockShared(referenceTargetLockScope(target), id);
+    }
+
+    static void lockReferenceTargetForDelete(net.ximatai.muyun.spring.ability.reference.ReferenceTarget target, String id) {
+        mutationTransactionOperator.lock(referenceTargetLockScope(target), id);
+    }
+
+    private static String referenceTargetLockScope(net.ximatai.muyun.spring.ability.reference.ReferenceTarget target) {
+        return "reference-target:" + target.qualifiedName();
     }
 
     static <T> T inStatementTransaction(java.util.function.Supplier<T> work) {
@@ -183,6 +198,9 @@ final class PlatformAbilityDispatcher {
                                                                     DeletionContext context,
                                                                     DeletionNode node,
                                                                     DeletionMode mode) {
+        if (referenceDeletionGuard != ReferenceDeletionGuard.NONE && entity != null) {
+            lockReferenceTargetForDelete(net.ximatai.muyun.spring.ability.reference.ReferenceTargets.of(ability), entity.getId());
+        }
         referenceDeletionGuard.validateTargetUnavailable(ability, entity);
         runChildrenBeforeDelete(ability, entity, context, node);
         referenceDeletionGuard.cascadeTargetUnavailable(ability, entity, context, node, mode);

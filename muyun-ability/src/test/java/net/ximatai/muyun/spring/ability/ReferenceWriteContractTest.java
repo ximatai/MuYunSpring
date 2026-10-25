@@ -1,6 +1,10 @@
 package net.ximatai.muyun.spring.ability;
 
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
+import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.ability.reference.ReferenceWriteValidator;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateBinding;
 import net.ximatai.muyun.spring.ability.reference.ReferenceIntegrity;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
@@ -13,6 +17,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -23,6 +28,40 @@ class ReferenceWriteContractTest {
     @AfterEach
     void reset() {
         PlatformAbilityRuntime.resetReferenceTargetResolver();
+        PlatformAbilityRuntime.resetMutationTransactionOperator();
+    }
+
+    @Test
+    void standaloneOperatorLocksAreNoOps() {
+        MutationTransactionOperator.NONE.lock("scope", "key");
+        MutationTransactionOperator.NONE.lockShared("scope", "key");
+        assertThatThrownBy(() -> PlatformAbilityRuntime.lockMutationPartition("scope", "key"))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("not installed");
+    }
+
+    @Test
+    void multiValueFactsAreReadAfterSortedDistinctSharedLocks() {
+        var acquired = new java.util.ArrayList<String>();
+        PlatformAbilityRuntime.configureMutationTransactionOperator(new MutationTransactionOperator() {
+            public <T> T execute(java.util.function.Supplier<T> work) { return work.get(); }
+            public void lockShared(String scope, String key) {
+                assertThat(scope).isEqualTo("reference-target:test.target");
+                acquired.add(key);
+            }
+            public void lock(String scope, String key) {
+                throw new AssertionError("saving must not acquire an exclusive target lock");
+            }
+        });
+        var target = new TargetService() {
+            @Override
+            public Map<String, Map<String, Object>> referenceFacts(Collection<String> ids, Collection<String> fields) {
+                assertThat(acquired).containsExactly("a", "z");
+                assertThat(fields).contains("tenantId");
+                return Map.of("a", Map.of("tenantId", "tenant-a"), "z", Map.of("tenantId", "tenant-a"));
+            }
+        };
+        var plan = ReferencePlan.of("targets", ReferenceTarget.of("test", "target"), ReferenceCardinality.MANY);
+        ReferenceWriteValidator.validate(plan, List.of("z", "a", "z"), List.of(), "tenant-a", field -> null, null, target);
     }
 
     @Test
