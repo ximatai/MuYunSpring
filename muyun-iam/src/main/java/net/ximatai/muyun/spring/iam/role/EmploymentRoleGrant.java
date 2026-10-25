@@ -14,10 +14,10 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 @Getter
 @Setter
 @Table(name = "iam_employment_role_grant", comment = "Employment role grant")
-@CompositeIndex(columns = {"tenant_id", "role_id", "employee_position_id"}, unique = true)
+@CompositeIndex(columns = {"tenant_id", "role_id", "employee_position_id", "source", "source_provider_id"}, unique = true)
 @InitialDataFields(
         includeId = false,
-        identity = {"roleId", "employeePositionId"},
+        identity = {"roleId", "employeePositionId", "source", "sourceProviderId"},
         managed = {"enabled"}
 )
 public class EmploymentRoleGrant extends StandardEntity {
@@ -27,6 +27,14 @@ public class EmploymentRoleGrant extends StandardEntity {
     @Column(name = "employee_position_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Employee position id")
     private String employeePositionId;
+
+    @Column(name = "source", type = ColumnType.VARCHAR, length = 16, nullable = false,
+            comment = "manual or directory", defaultVal = @Default(varchar = "manual"))
+    private String source = "manual";
+
+    @Column(name = "source_provider_id", type = ColumnType.VARCHAR, length = 64, nullable = false,
+            comment = "Owning provider; dash for manual", defaultVal = @Default(varchar = "-"))
+    private String sourceProviderId = "-";
 
     @Column(name = "enabled", type = ColumnType.BOOLEAN, nullable = false, comment = "Enabled flag",
             defaultVal = @Default(bool = TrueOrFalse.TRUE))

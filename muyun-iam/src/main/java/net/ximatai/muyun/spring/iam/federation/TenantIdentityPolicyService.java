@@ -101,10 +101,41 @@ public class TenantIdentityPolicyService extends TenantActiveScopedService<Tenan
         return inMutationTransaction(() -> {
             var policy = selectActiveRaw(id);
             if (policy == null || !Boolean.TRUE.equals(policy.getEnabled())) throw new IllegalArgumentException("Directory policy unavailable");
-            String mode = preview ? "PREVIEW" : "SYNC";
-            String deduplicationKey = policy.getId() + ":" + mode + ":" + policy.getSyncScopeId();
+            directory.lock(policy);
+            policy = selectActiveRaw(id);
+            if (policy == null || !Boolean.TRUE.equals(policy.getEnabled())) throw new IllegalArgumentException("Directory policy unavailable");
+            if (preview) directory.startScopePreview(policy);
+            String mode = preview ? (policy.getPendingSyncScopeId() == null ? "PREVIEW" : "SCOPE_PREVIEW") : "SYNC";
+            String scope = "SCOPE_PREVIEW".equals(mode) ? policy.getPendingSyncScopeId() : policy.getSyncScopeId();
+            String deduplicationKey = policy.getId() + ":" + mode + ":" + scope;
             return jobs.enqueue(DirectorySyncJob.TYPE, policy.getTenantId(),
                     DirectorySyncConfiguration.input(policy, mode), deduplicationKey).getId();
+        });
+    }
+
+    /** Returns the reviewed immutable proposal and its persisted impact summary. */
+    public Map<String, Object> scopeImpact(String id) {
+        var policy = select(id);
+        if (policy == null) throw new IllegalArgumentException("Directory policy unavailable");
+        return directory.impactReport(policy);
+    }
+
+    /** Confirmation is a separate permissioned management action bound to the reviewed revision. */
+    public String confirmScope(String id, String scopeId, String reportRunId) {
+        return inMutationTransaction(() -> {
+            var policy = selectActiveRaw(id);
+            if (policy == null || !Boolean.TRUE.equals(policy.getEnabled()))
+                throw new IllegalArgumentException("Directory policy unavailable");
+            // Acquire the topic lock before reading again: a save/preview may have won the race.
+            directory.lock(policy);
+            policy = selectActiveRaw(id);
+            if (policy == null || !Boolean.TRUE.equals(policy.getEnabled())) throw new IllegalArgumentException("Directory policy unavailable");
+            directory.confirmScope(policy, scopeId, reportRunId);
+            DirectorySyncStore.save((TenantIdentityPolicyDao) getDao(), policy);
+            // Confirmation authorizes applying the proposal, including an empty scope with no plan.
+            return jobs.enqueue(DirectorySyncJob.TYPE, policy.getTenantId(),
+                    DirectorySyncConfiguration.input(policy, "SYNC"),
+                    policy.getId() + ":SYNC:" + policy.getSyncScopeId()).getId();
         });
     }
 
@@ -122,6 +153,9 @@ public class TenantIdentityPolicyService extends TenantActiveScopedService<Tenan
     }
 
     private static void requireSupportedProvisioning(TenantIdentityPolicy policy) {
+        if (policy.getSourceStatusMaxAgeSeconds() == null) policy.setSourceStatusMaxAgeSeconds(86400);
+        if (policy.getSourceStatusMaxAgeSeconds() < 60 || policy.getSourceStatusMaxAgeSeconds() > 2592000)
+            throw new IllegalArgumentException("Source status maximum age must be between 60 seconds and 30 days");
         // AUTO and REVIEW are reserved in the model; accepting them before they work would silently deny users.
         if (policy.getProvisioningMode() != null && policy.getProvisioningMode() != ProvisioningMode.DISABLED) {
             throw PlatformErrors.badRequestText(TextReference.code(

@@ -427,6 +427,30 @@ public class RoleService extends TenantActiveScopedService<Role>
         return grantEmploymentRoleIfAbsent(roleId, employeePositionId, false);
     }
 
+    /** Directory and manual grants have independent ownership, even for the same role and position. */
+    public RoleGrantMutationResult ensureDirectoryEmploymentRole(String roleId, String positionId, String providerId) {
+        return grantEmploymentRoleIfAbsent(roleId, positionId, false, "directory",
+                Preconditions.requireText(providerId, "providerId"));
+    }
+
+    /** Retires only this provider's derived grants; local grants and local disablement are retained. */
+    public int retireDirectoryEmploymentRoles(String positionId, String providerId) {
+        return retainDirectoryEmploymentRole(positionId, providerId, null);
+    }
+
+    /** Removes outdated source defaults while retaining an existing locally disabled current grant. */
+    public int retainDirectoryEmploymentRole(String positionId, String providerId, String retainedRoleId) {
+        requireActiveTenantMutationContext();
+        int count = 0;
+        for (var grant : employmentRoleGrantDao.query(activeCriteria(Criteria.of()
+                .eq("employeePositionId", positionId).eq("source", "directory")
+                .eq("sourceProviderId", providerId)), ALL)) {
+            if (!Objects.equals(grant.getRoleId(), retainedRoleId))
+                count += employmentRoleGrantDao.deleteById(grant.getId());
+        }
+        return count;
+    }
+
     public RoleGrantMutationResult grantEmploymentRoleResult(String roleId, String employeePositionId) {
         return grantEmploymentRoleIfAbsent(roleId, employeePositionId);
     }
@@ -831,7 +855,7 @@ public class RoleService extends TenantActiveScopedService<Role>
             return List.copyOf(effective);
         }
         for (EmployeePosition position : employeePositionService.activePositionsForRoleResolution(employee.getId())) {
-            if (position == null || !Boolean.TRUE.equals(position.getEnabled())) {
+            if (!sourcePositionActive(position)) {
                 continue;
             }
             effectiveEmploymentRoleGrants(position.getId())
@@ -1378,6 +1402,11 @@ public class RoleService extends TenantActiveScopedService<Role>
     }
 
     private RoleGrantMutationResult grantEmploymentRoleIfAbsent(String roleId, String employeePositionId, boolean reactivate) {
+        return grantEmploymentRoleIfAbsent(roleId, employeePositionId, reactivate, "manual", "-");
+    }
+
+    private RoleGrantMutationResult grantEmploymentRoleIfAbsent(String roleId, String employeePositionId,
+                                                                boolean reactivate, String source, String providerId) {
         Role role = requireBindableRole(roleId);
         requireEmploymentAssignableRole(role);
         requireSystemManagedMutationAllowed(role, "grant employment role");
@@ -1390,7 +1419,10 @@ public class RoleService extends TenantActiveScopedService<Role>
                 "employee is not active: {value1}"), Map.of("value1", String.valueOf(employeePosition.getEmployeeId()))));
         ensureDataGrantUnique(validEmployeePositionId, role);
         ensureInheritedDataGrantCoverage(validEmployeePositionId, role);
-        EmploymentRoleGrant existing = findEmploymentRoleGrant(role.getId(), validEmployeePositionId);
+        EmploymentRoleGrant existing = employmentRoleGrantDao.query(activeCriteria(Criteria.of()
+                .eq("roleId", role.getId()).eq("employeePositionId", validEmployeePositionId)
+                .eq("source", source).eq("sourceProviderId", providerId)), new PageRequest(0, 1))
+                .stream().findFirst().orElse(null);
         if (existing != null) {
             if (reactivate && !Boolean.TRUE.equals(existing.getEnabled())) {
                 existing.setEnabled(true);
@@ -1403,6 +1435,8 @@ public class RoleService extends TenantActiveScopedService<Role>
         EmploymentRoleGrant grant = new EmploymentRoleGrant();
         grant.setRoleId(role.getId());
         grant.setEmployeePositionId(validEmployeePositionId);
+        grant.setSource(source);
+        grant.setSourceProviderId(providerId);
         grant.setEnabled(true);
         prepareChildInsert(grant);
         return new RoleGrantMutationResult(employmentRoleGrantDao.insert(grant), true);
@@ -1577,6 +1611,7 @@ public class RoleService extends TenantActiveScopedService<Role>
 
     private EmploymentRoleGrant findEmploymentRoleGrant(String roleId, String employeePositionId) {
         return employmentRoleGrantDao.query(activeCriteria(Criteria.of()
+                        .eq("source", "manual").eq("sourceProviderId", "-")
                         .eq("roleId", Preconditions.requireText(roleId, "roleId"))
                         .eq("employeePositionId", Preconditions.requireText(employeePositionId, "employeePositionId"))),
                 new PageRequest(0, 1)).stream().findFirst().orElse(null);
@@ -1607,9 +1642,14 @@ public class RoleService extends TenantActiveScopedService<Role>
         return role != null && role.getRoleKind() == RoleKind.DATA_GRANT;
     }
 
+    private static boolean sourcePositionActive(EmployeePosition position) {
+        return position != null && Boolean.TRUE.equals(position.getEnabled())
+                && (!"directory".equals(position.getSource()) || "active".equals(position.getSourceStatus()));
+    }
+
     private boolean isActivePrincipalPosition(BusinessPrincipal principal, EmployeePosition position) {
         return position != null
-                && Boolean.TRUE.equals(position.getEnabled())
+                && sourcePositionActive(position)
                 && (principal.employeeId() == null || Objects.equals(principal.employeeId(), position.getEmployeeId()));
     }
 
