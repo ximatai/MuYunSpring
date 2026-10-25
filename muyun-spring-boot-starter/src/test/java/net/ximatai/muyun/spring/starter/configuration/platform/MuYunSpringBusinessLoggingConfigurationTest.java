@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionPolicyStore;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStore;
 import net.ximatai.muyun.spring.platform.logging.BusinessLogGovernanceService;
 import net.ximatai.muyun.spring.platform.logging.BusinessLogRetentionService;
+import net.ximatai.muyun.spring.platform.logging.BusinessLogRetentionJob;
 import net.ximatai.muyun.spring.platform.logging.BusinessLogRetentionExecutionLimits;
 import net.ximatai.muyun.spring.platform.logging.PostgresBusinessLogStore;
 import net.ximatai.muyun.spring.platform.logging.RuntimeActionBusinessLogEventListener;
@@ -40,7 +41,7 @@ class MuYunSpringBusinessLoggingConfigurationTest {
             assertThat(context).hasSingleBean(BusinessLogRetentionService.class);
             assertThat(context).hasSingleBean(BusinessLogRetentionPolicyStore.class);
             assertThat(context).hasSingleBean(BusinessLogRetentionExecutionLimits.class);
-            assertThat(context).hasSingleBean(BusinessLogRetentionScheduler.class);
+            assertThat(context).hasSingleBean(BusinessLogRetentionJob.class);
         });
     }
 
@@ -58,7 +59,7 @@ class MuYunSpringBusinessLoggingConfigurationTest {
                     assertThat(context).doesNotHaveBean(BusinessLogGovernanceService.class);
                     assertThat(context).doesNotHaveBean(BusinessLogRetentionService.class);
                     assertThat(context).doesNotHaveBean(BusinessLogRetentionExecutionLimits.class);
-                    assertThat(context).doesNotHaveBean(BusinessLogRetentionScheduler.class);
+                    assertThat(context).doesNotHaveBean(BusinessLogRetentionJob.class);
                     assertThat(context).hasSingleBean(BusinessLogPageAccessRecorder.class);
                 });
     }
@@ -87,7 +88,7 @@ class MuYunSpringBusinessLoggingConfigurationTest {
                 .withPropertyValues("muyun.platform.business-log.retention.scheduled-enabled=false")
                 .run(context -> {
                     assertThat(context).hasSingleBean(BusinessLogRetentionService.class);
-                    assertThat(context).doesNotHaveBean(BusinessLogRetentionScheduler.class);
+                    assertThat(context).doesNotHaveBean(BusinessLogRetentionJob.class);
                 });
     }
 
@@ -101,8 +102,22 @@ class MuYunSpringBusinessLoggingConfigurationTest {
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(PostgresBusinessLogStore.class);
                     assertThat(context).hasSingleBean(BusinessLogRetentionService.class);
-                    assertThat(context).hasSingleBean(BusinessLogRetentionScheduler.class);
+                    assertThat(context).hasSingleBean(BusinessLogRetentionJob.class);
                 });
+    }
+
+    @Test
+    void shouldBindLegacyScheduleAndValidateItEvenWhenSchedulingIsDisabled() {
+        contextRunner.withPropertyValues("muyun.platform.business-log.retention.scan-delay=PT12H",
+                        "muyun.platform.business-log.retention.initial-delay=PT0S")
+                .run(context -> {
+                    var schedule = context.getBean(BusinessLogRetentionJob.class).definition().defaultSchedule();
+                    assertThat(schedule.interval()).isEqualTo(java.time.Duration.ofHours(12));
+                    assertThat(schedule.initialDelay()).isEqualTo(java.time.Duration.ZERO);
+                });
+        contextRunner.withPropertyValues("muyun.platform.business-log.retention.scheduled-enabled=false",
+                        "muyun.platform.business-log.retention.initial-delay=-1s")
+                .run(context -> assertThat(context).hasFailed());
     }
 
     @Test
