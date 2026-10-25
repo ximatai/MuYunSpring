@@ -13,6 +13,7 @@ public record ActionAuthorizationResult(
     public static final String OPERATOR_ANONYMOUS = "ANONYMOUS";
     public static final String OPERATOR_SYSTEM = "SYSTEM";
     public static final String OPERATOR_USER = "USER";
+    public static final String OPERATOR_BACKGROUND_JOB = "BACKGROUND_JOB";
 
     public ActionAuthorizationResult {
         decision = requireText(decision, "decision");

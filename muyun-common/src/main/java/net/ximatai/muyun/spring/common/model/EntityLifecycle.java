@@ -36,6 +36,11 @@ public final class EntityLifecycle {
     }
 
     public static void prepareUpdate(EntityContract model, Instant now, Integer nextVersion) {
+        // Tenant-bound background work may only update records of its own tenant, never claim shared ones.
+        if (TenantContext.isTenantSystem() && !TenantContext.matchesCurrentTenant(model)) {
+            throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException(
+                    "record tenant does not match the background job tenant");
+        }
         model.setUpdatedAt(now);
         String operatorId = currentOperatorId();
         if (operatorId != null) {
@@ -64,8 +69,7 @@ public final class EntityLifecycle {
     }
 
     private static String currentOperatorId() {
-        return CurrentUserContext.currentUser()
-                .map(user -> user.userId())
-                .orElse(null);
+        return TenantContext.systemOperatorId()
+                .orElseGet(() -> CurrentUserContext.currentUser().map(user -> user.userId()).orElse(null));
     }
 }

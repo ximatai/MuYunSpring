@@ -1,5 +1,10 @@
 package net.ximatai.muyun.spring.ability.event;
 
+import net.ximatai.muyun.spring.common.platform.ActionAuthorizationResult;
+import net.ximatai.muyun.spring.common.identity.JobExecutionContext;
+import net.ximatai.muyun.spring.common.web.RequestTraceContext;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
+
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -132,7 +137,17 @@ public record RuntimeEvent(
             requireText(actionCode, "actionCode");
         }
         eventId = eventId == null || eventId.isBlank() ? UUID.randomUUID().toString() : eventId;
+        if (JobExecutionContext.current().isPresent()) {
+            traceId = RequestTraceContext.currentTraceId().orElse(traceId);
+        }
         traceId = traceId == null || traceId.isBlank() ? eventId : traceId;
+        if (TenantContext.backgroundJobType().isPresent()) {
+            if (TenantContext.isTenantSystem()) tenantId = TenantContext.currentTenantId().orElseThrow();
+            systemContext = true;
+            systemReason = TenantContext.systemReason().orElseThrow();
+            operatorId = TenantContext.systemOperatorId().orElseThrow();
+            operatorType = ActionAuthorizationResult.OPERATOR_BACKGROUND_JOB;
+        }
         systemReason = systemReason == null || systemReason.isBlank() ? null : systemReason.trim();
         if (mutationSource == RuntimeMutationSource.SYSTEM) {
             systemContext = true;
@@ -144,6 +159,16 @@ public record RuntimeEvent(
         auditContext = auditContext == null
                 ? RuntimeEventAuditContext.capture(moduleAlias, actionCode)
                 : Map.copyOf(new LinkedHashMap<>(auditContext));
+        if (JobExecutionContext.current().isPresent()) {
+            Map<String, Object> merged = new LinkedHashMap<>(auditContext);
+            RuntimeEventAuditContext.capture(moduleAlias, actionCode).forEach((key, value) -> {
+                if (key.equals(RuntimeEventAuditContext.JOB_TYPE) || key.equals(RuntimeEventAuditContext.JOB_PLAN_ID)
+                        || key.equals(RuntimeEventAuditContext.JOB_RUN_ID) || key.equals(RuntimeEventAuditContext.JOB_IDENTITY_MODE)) {
+                    merged.put(key, value);
+                }
+            });
+            auditContext = Map.copyOf(merged);
+        }
         occurredAt = occurredAt == null ? Instant.now() : occurredAt;
     }
 

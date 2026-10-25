@@ -65,7 +65,15 @@ public class RuntimeAuditRecordService extends AbstractAbilityService<RuntimeAud
         fillActingContext(record, event);
         record.setMutationSource(event.mutationSource());
         Map<String, Object> sanitizedPayload = payloadSanitizer.sanitize(event.payload());
-        record.setPayloadText(payloadText(sanitizedPayload));
+        Map<String, Object> auditPayload = new java.util.LinkedHashMap<>(sanitizedPayload);
+        Map<String, Object> job = new java.util.LinkedHashMap<>();
+        for (String key : List.of(RuntimeEventAuditContext.JOB_TYPE, RuntimeEventAuditContext.JOB_PLAN_ID,
+                RuntimeEventAuditContext.JOB_RUN_ID, RuntimeEventAuditContext.JOB_IDENTITY_MODE)) {
+            String value = RuntimeEventAuditContext.text(event.auditContext(), key);
+            if (value != null) job.put(key, value);
+        }
+        if (!job.isEmpty()) auditPayload.put("backgroundJob", Map.copyOf(job));
+        record.setPayloadText(payloadText(auditPayload));
         record.setOccurredAt(event.occurredAt());
         if (event.tenantId() == null) {
             try (TenantContext.Scope ignored = TenantContext.system("runtime audit persist")) {

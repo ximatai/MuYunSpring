@@ -30,6 +30,24 @@ class RuntimeAuditRecordServiceContractTest {
     private final RuntimeAuditRecordService service = new RuntimeAuditRecordService(dao);
 
     @Test
+    void jobAuditCorrelationSurvivesDelayedPersistenceWithoutBusinessInput() {
+        RuntimeEvent event;
+        try (var job = net.ximatai.muyun.spring.common.identity.JobExecutionContext.use(
+                new net.ximatai.muyun.spring.common.identity.JobExecutionContext.Reference("test.sync", "plan-1", "run-1", "SYSTEM"));
+             var tenant = TenantContext.tenantSystem("tenant-a", "test.sync");
+             var trace = net.ximatai.muyun.spring.common.web.RequestTraceContext.use("job-trace")) {
+            event = RuntimeEvent.of(RuntimeEventType.AFTER_UPDATE, "test.records", "record", "record-1", null,
+                    "tenant-a", false, RuntimeMutationSource.BUSINESS, Map.of());
+        }
+        RuntimeAuditRecord record = service.select(service.record(event));
+        assertThat(record.getTenantId()).isEqualTo("tenant-a");
+        assertThat(record.getTraceId()).isEqualTo("job-trace");
+        assertThat(record.getOperatorType()).isEqualTo("BACKGROUND_JOB");
+        assertThat(record.getSystemReason()).isEqualTo("后台作业 test.sync");
+        assertThat(record.getPayloadText()).contains("backgroundJob", "test.sync", "plan-1", "run-1", "SYSTEM");
+    }
+
+    @Test
     void everyRuntimeEventTypeFitsThePersistedAuditProtocolField() throws Exception {
         int length = RuntimeAuditRecord.class.getDeclaredField("eventType")
                 .getAnnotation(net.ximatai.muyun.database.core.annotation.Column.class).length();
