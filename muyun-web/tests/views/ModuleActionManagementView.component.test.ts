@@ -44,7 +44,7 @@ it.each(['static', 'dynamic'] as const)(
             template:
               '<div><slot name="explorer-actions"/><slot name="explorer"/><slot name="detail-actions"/><slot/></div>',
           },
-          CrudRecordListExplorer: { name: 'CrudRecordListExplorer', template: '<div/>' },
+          CrudRecordListExplorer: { name: 'CrudRecordListExplorer', props: ['itemOf'], template: '<div/>' },
           RecordMetaSection: true,
         },
       },
@@ -183,7 +183,7 @@ it('keeps the action draft and read state when the owner language changes after 
           template:
             '<div><slot name="explorer-actions"/><slot name="explorer"/><slot name="detail-actions"/><slot/></div>',
         },
-        CrudRecordListExplorer: { name: 'CrudRecordListExplorer', template: '<div/>' },
+        CrudRecordListExplorer: { name: 'CrudRecordListExplorer', props: ['itemOf'], template: '<div/>' },
         RecordMetaSection: true,
       },
     },
@@ -194,7 +194,36 @@ it('keeps the action draft and read state when the owner language changes after 
       .findComponent({ name: 'CrudRecordListExplorer' })
       .vm.$emit('loaded', [{ id: 'menu', actionCode: 'menu', title: '业务动作原名', systemManaged: true }]);
     await flushPromises();
+    const translatedAction = {
+      id: 'menu',
+      title: '业务动作原名',
+      actionCode: 'menu',
+      $texts: {
+        title: {
+          source: {
+            sourceKind: 'CODE',
+            sourceId: 'action/sales.entry/menu/title',
+            sourceVersion: 'v1',
+            originalText: '业务动作原名',
+          },
+          languages: {
+            en: {
+              text: 'Entry access',
+              requestedTag: 'en',
+              resourceTag: 'en',
+              missing: false,
+              fallback: false,
+            },
+          },
+        },
+      },
+    };
+    expect(
+      wrapper.findComponent({ name: 'CrudRecordListExplorer' }).props('itemOf')(translatedAction).title,
+    ).toBe('Entry access');
     await wrapper.get('button[title="New action"]').trigger('click');
+    expect(wrapper.text()).toContain('Allow scheduled invocation (module actions without a form)');
+    expect(wrapper.text()).not.toContain('允许定时调用');
     await wrapper.get('form.static-record-form').trigger('submit');
     await flushPromises();
     expect(showErrorMessage).toHaveBeenLastCalledWith('The action code is required.');

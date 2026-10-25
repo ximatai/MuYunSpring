@@ -39,6 +39,31 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ApplicationServiceContractTest {
     @Test
+    void onlyExplicitStaticTenantEntriesBypassOpeningAndStillRequireAnEnabledApplication() {
+        var dao = new ApplicationMemoryDao();
+        var service = new ApplicationService(dao);
+        var application = new Application(); application.setAlias("platform"); application.setTitle("Platform"); application.setEnabled(true);
+        dao.insert(application);
+        var shared = org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.module.StaticModuleRegistration.class);
+        org.mockito.Mockito.when(shared.moduleAlias()).thenReturn("platform.shared");
+        org.mockito.Mockito.when(shared.applicationAlias()).thenReturn("platform");
+        org.mockito.Mockito.when(shared.tenantAccessible()).thenReturn(true);
+        var privateModule = org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.module.StaticModuleRegistration.class);
+        org.mockito.Mockito.when(privateModule.moduleAlias()).thenReturn("platform.private");
+        var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        beans.registerSingleton("declarations", (net.ximatai.muyun.spring.platform.module.StaticModuleRegistrationSource)
+                () -> List.of(shared, privateModule));
+        service.moduleDeclarations(beans.getBeanProvider(net.ximatai.muyun.spring.platform.module.StaticModuleRegistrationSource.class));
+        assertThat(service.isModuleAvailableWithoutOpening("platform.shared")).isTrue();
+        assertThat(service.isModuleAvailableWithoutOpening("platform.private")).isFalse();
+        assertThat(service.isModuleAvailableWithoutOpening("platform.unknown")).isFalse();
+        assertThat(service.isEnabledForTenant("platform")).isFalse();
+        assertThatThrownBy(() -> service.requireEnabledForTenant("platform")).hasMessageContaining("system application");
+        application.setEnabled(false); dao.updateById(application);
+        assertThat(service.isModuleAvailableWithoutOpening("platform.shared")).isFalse();
+    }
+
+    @Test
     void shouldRequireExplicitApplicationAliasBeforeIdGeneration() {
         ApplicationService service = new ApplicationService(new ApplicationMemoryDao());
         Application application = new Application();

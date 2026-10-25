@@ -10,6 +10,8 @@ public interface StaticModuleRegistration {
 
     String title();
 
+    default boolean tenantAccessible() { return false; }
+
     default String description() { return null; }
 
     String parentModuleAlias();

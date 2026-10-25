@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   codeOperationErrorMessage,
+  recordPresentationLabel,
   useLanguageContext,
   createStaticResourceTreeClient,
   useModuleContext,
@@ -370,7 +371,7 @@ function hasText(value: string | undefined) {
 
 function actionTitleOf(action: PlatformModuleAction) {
   return (
-    action.title?.trim() ||
+    recordPresentationLabel(action, 'title', language)?.trim() ||
     action.actionCode?.trim() ||
     action.id ||
     language.t('platform.screen.ModuleActionManagementView.untitled-action', '未命名动作')

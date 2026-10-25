@@ -30,6 +30,15 @@ class JobManagementWebContractTest {
     }
 
     @Test
+    void jobPlanListDeclaresReadableWidthsForEnglishHeaders() {
+        var page = (ListDetailCardPageDefinition) new JobPlanWebController(mock(JobService.class)).moduleUiDefinition().page();
+        assertThat(page.list().list().fields()).allSatisfy(field ->
+                assertThat(Integer.parseInt(field.width().replace("px", ""))).isGreaterThanOrEqualTo(120));
+        assertThat(page.list().list().fields()).filteredOn(field -> field.fieldRef().fieldName().equals("tenantId"))
+                .singleElement().satisfies(field -> assertThat(field.width()).isEqualTo("180px"));
+    }
+
+    @Test
     void managedScheduleFieldsAreReadOnlyAndRuntimeInputIsNeverDisplayed() throws Exception {
         var jobs = mock(JobService.class);
         var plans = new JobPlanWebController(jobs).moduleUiDefinition();

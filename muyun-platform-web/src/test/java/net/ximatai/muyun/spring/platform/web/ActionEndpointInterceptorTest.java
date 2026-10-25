@@ -277,7 +277,7 @@ class ActionEndpointInterceptorTest {
         RoleService roleService = mock(RoleService.class);
         TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
         org.mockito.Mockito.doThrow(new ApplicationNotOpenedException("tenant_a", "iam"))
-                .when(tenantApplicationService).requireApplicationOpened("tenant_a", "iam");
+                .when(tenantApplicationService).requireModuleAvailable("tenant_a", "iam.organization");
         ActionEndpointInterceptor interceptor = new ActionEndpointInterceptor(
                 new RoleActionExecutionPolicyService(roleService, tenantApplicationService),
                 new ActionEndpointContextResolver());

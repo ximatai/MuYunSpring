@@ -23,7 +23,7 @@ class ScheduledActionPlanServiceTest {
         var beans = new DefaultListableBeanFactory(); beans.registerSingleton("identities", identities);
         service = new ScheduledActionPlanService(rows, jobs, actions, beans.getBeanProvider(TrustedExecutionIdentityResolver.class),
                 whitelist, tenant -> { }, new ObjectMapper().findAndRegisterModules());
-        when(jobs.registerManaged(anyString(), any(), anyMap())).thenAnswer(call -> { JobPlan plan = call.getArgument(1); plan.setId("job-plan"); return plan; });
+        when(jobs.registerManaged(anyString(), any(), anyMap())).thenAnswer(call -> { JobPlan plan = new JobPlan(); plan.setId("job-plan"); return plan; });
         when(identities.capture("test.target", "execute")).thenAnswer(call -> Optional.of(new TrustedExecutionIdentityResolver.Reference(
                 CurrentUserContext.currentUser().orElseThrow().userId(), "tenant-a", Instant.EPOCH, null)));
     }
@@ -35,6 +35,24 @@ class ScheduledActionPlanServiceTest {
         try (var user = CurrentUserContext.use(CurrentUser.tenantUser("second", "second", "tenant-a")); var tenant = TenantContext.use("tenant-a")) { service.beforeUpdate(row); }
         assertThat(row.getExecutionUserId()).isEqualTo("second");
         verify(actions, times(2)).requireAuthorized("test.target", "execute", Map.of());
+    }
+    @Test void updateRestoresOmittedTenantAndManagedPlanButRejectsExplicitReassignment() {
+        var old = row(); old.setJobPlanId("persisted-plan"); old.setVersion(3);
+        when(rows.query(any(net.ximatai.muyun.database.core.orm.Criteria.class), any(net.ximatai.muyun.database.core.orm.PageRequest.class))).thenReturn(List.of(old));
+        when(rows.updateByIdAndVersion(any(), eq(3))).thenReturn(1);
+        when(rows.findById(old.getId())).thenReturn(old);
+        try (var user = CurrentUserContext.use(CurrentUser.tenantUser("editor", "editor", "tenant-a"));
+             var tenant = TenantContext.use("tenant-a")) {
+            var incoming = row(); incoming.setTenantId(null); incoming.setJobPlanId(null); incoming.setVersion(3);
+            assertThat(service.update(incoming)).isEqualTo(1);
+            assertThat(incoming.getTenantId()).isEqualTo("tenant-a");
+            var captured = org.mockito.ArgumentCaptor.forClass(JobPlan.class);
+            verify(jobs).registerManaged(eq(ScheduledActionPlanService.MODULE_ALIAS), captured.capture(), anyMap());
+            assertThat(captured.getValue().getId()).isEqualTo("persisted-plan");
+            assertThat(incoming.getExecutionUserId()).isEqualTo("editor");
+            var forged = row(); forged.setTenantId("tenant-b");
+            assertThatThrownBy(() -> service.beforeUpdate(forged)).hasMessageContaining("tenant cannot change");
+        }
     }
     @Test void platformAccountAlwaysUsesWhitelistedSystemMode() {
         var row = row();

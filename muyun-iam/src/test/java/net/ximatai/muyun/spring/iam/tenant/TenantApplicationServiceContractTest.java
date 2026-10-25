@@ -18,6 +18,20 @@ import static org.mockito.Mockito.when;
 
 class TenantApplicationServiceContractTest {
     @Test
+    void moduleAvailabilityUsesExplicitSharedEntryWithoutOpeningTheWholeSystemApplication() {
+        var catalog = mock(TenantApplicationCatalog.class);
+        var dao = mock(TenantApplicationDao.class);
+        when(catalog.isModuleAvailableWithoutOpening("platform.shared")).thenReturn(true);
+        when(dao.query(org.mockito.ArgumentMatchers.any(Criteria.class), org.mockito.ArgumentMatchers.any(PageRequest.class),
+                org.mockito.ArgumentMatchers.<Sort[]>any())).thenReturn(List.of());
+        var service = new TenantApplicationService(dao, catalog);
+        service.requireModuleAvailable("tenant_a", "platform.shared");
+        assertThat(service.isApplicationAvailable("tenant_a", "platform")).isFalse();
+        assertThatThrownBy(() -> service.requireModuleAvailable("tenant_a", "platform.private"))
+                .isInstanceOf(ApplicationNotOpenedException.class);
+    }
+
+    @Test
     void shouldKeepIamApplicationWhenReconcilingTenantApplications() {
         TenantApplicationService service = new TenantApplicationService(mock(TenantApplicationDao.class), mock(TenantApplicationCatalog.class));
 

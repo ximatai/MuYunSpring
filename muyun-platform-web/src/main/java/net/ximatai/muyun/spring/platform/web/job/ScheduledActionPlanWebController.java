@@ -7,7 +7,7 @@ import net.ximatai.muyun.spring.platform.web.*;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@PlatformStaticModule(application = PlatformApplication.class, alias = ScheduledActionPlanService.MODULE_ALIAS, title = "定时动作计划")
+@PlatformStaticModule(application = PlatformApplication.class, tenantAccessible = true, alias = ScheduledActionPlanService.MODULE_ALIAS, title = "定时动作计划")
 @StaticModuleTenantScopePolicy(requireActiveTenant = false)
 @PlatformMenu(parent = PlatformMenuGroups.OPS, title = "定时动作计划", order = 42)
 @RequestMapping("/platform.scheduled_action_plan")

@@ -93,10 +93,13 @@ public final class JobService {
         requireFound(request.getId());
         var original = store.plans.findById(request.getId()); requireFound(original);
         requireAdministrator(original.getTenantId());
-        if (!Objects.equals(request.getTenantId(), original.getTenantId())
-                || !Objects.equals(request.getJobType(), original.getJobType())
-                || !Objects.equals(request.getObjectKey(), original.getObjectKey()))
+        if (request.getTenantId() != null && !Objects.equals(request.getTenantId(), original.getTenantId())
+                || request.getJobType() != null && !Objects.equals(request.getJobType(), original.getJobType())
+                || request.getObjectKey() != null && !Objects.equals(request.getObjectKey(), original.getObjectKey()))
             throw new IllegalArgumentException("Job plan ownership cannot change");
+        request.setTenantId(original.getTenantId());
+        request.setJobType(original.getJobType());
+        request.setObjectKey(original.getObjectKey());
         return system(() -> savePlan(request, null, null, false));
     }
     private JobPlan savePlan(JobPlan request, Map<String, Object> input, String owner, boolean trusted) {

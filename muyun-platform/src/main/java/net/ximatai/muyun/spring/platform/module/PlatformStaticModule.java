@@ -26,6 +26,9 @@ public @interface PlatformStaticModule {
     /** Short optional business-purpose hint for discovery. */
     String description() default "";
 
+    /** Available to tenants without opening the owning system application; grants remain mandatory. */
+    boolean tenantAccessible() default false;
+
     String parent() default "";
 
     String route() default "";

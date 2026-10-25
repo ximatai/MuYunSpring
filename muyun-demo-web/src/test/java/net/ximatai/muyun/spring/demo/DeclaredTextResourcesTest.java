@@ -65,6 +65,31 @@ class DeclaredTextResourcesTest {
     }
 
     @Test
+    void allStaticModuleAndMenuAnnotationsIncludingConditionalFeaturesHaveEnglishResources() throws Exception {
+        var declarations = parse(productionSources());
+        var english = messages();
+        var baselines = new Properties();
+        var urls = getClass().getClassLoader().getResources("META-INF/muyun/i18n/configured_messages_en.properties");
+        while (urls.hasMoreElements()) {
+            try (var reader = new InputStreamReader(urls.nextElement().openStream(), StandardCharsets.UTF_8)) {
+                baselines.load(reader);
+            }
+        }
+        for (var name : declarations.moduleTypes()) {
+            var type = Class.forName(name);
+            var module = type.getAnnotation(net.ximatai.muyun.spring.platform.module.PlatformStaticModule.class);
+            assertEnglish(List.of(net.ximatai.muyun.spring.platform.module.ModuleTitleView.declaredSource(module.alias(), module.title())), english);
+            for (var menu : type.getAnnotationsByType(net.ximatai.muyun.spring.platform.web.PlatformMenu.class)) {
+                String menuId = menu.id().isBlank() ? "platform.menu.module." + module.alias() : menu.id().trim();
+                String title = menu.title().isBlank() ? module.title() : menu.title().trim();
+                var source = net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.menuTitle(menuId, title);
+                String key = "platform.menu|" + source.sourceId() + "|" + source.sourceVersion();
+                assertThat(baselines.getProperty(key)).as(key).isNotBlank().doesNotContainPattern("[\\p{IsHan}]");
+            }
+        }
+    }
+
+    @Test
     void declarationScanFindsUnregisteredSourcesAndNestedEnumsWithoutReadingComments() throws Exception {
         var declarations = parse(List.of(source("Example.java", """
                 package example;
@@ -146,13 +171,14 @@ class DeclaredTextResourcesTest {
         };
     }
 
-    private record Declarations(List<String> enumTypes, List<String> textKeys, List<TextReference> texts) { }
+    private record Declarations(List<String> enumTypes, List<String> textKeys, List<TextReference> texts, List<String> moduleTypes) { }
 
     private static Declarations parse(List<SimpleJavaFileObject> sources) throws Exception {
         // Parse Java syntax rather than regex: comments, multiline calls and nested binary names matter.
         var compiler = ToolProvider.getSystemJavaCompiler();
         assertThat(compiler).as("JDK compiler").isNotNull();
         var enums = new ArrayList<String>();
+        var modules = new ArrayList<String>();
         var texts = new ArrayList<TextReference>();
         var keys = new ArrayList<String>();
         var diagnostics = new DiagnosticCollector<JavaFileObject>();
@@ -164,6 +190,9 @@ class DeclaredTextResourcesTest {
                     @Override public Void visitClass(ClassTree tree, Void unused) {
                         boolean named = !tree.getSimpleName().toString().isEmpty();
                         if (named) nesting.addLast(tree.getSimpleName().toString());
+                        if (tree.getModifiers().getAnnotations().stream().anyMatch(annotation ->
+                                annotation.getAnnotationType().toString().endsWith("PlatformStaticModule")))
+                            modules.add(unit.getPackageName() + "." + String.join("$", nesting));
                         if (tree.getKind() == Tree.Kind.ENUM)
                             enums.add(unit.getPackageName() + "." + String.join("$", nesting));
                         super.visitClass(tree, unused);
@@ -187,6 +216,6 @@ class DeclaredTextResourcesTest {
         }
         assertThat(diagnostics.getDiagnostics().stream().filter(item -> item.getKind() == Diagnostic.Kind.ERROR).toList())
                 .as("Production Java parse errors").isEmpty();
-        return new Declarations(enums, keys, texts);
+        return new Declarations(enums, keys, texts, modules);
     }
 }

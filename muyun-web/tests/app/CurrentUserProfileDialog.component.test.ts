@@ -71,3 +71,77 @@ it('translates profile labels through the consumer scope while retaining employe
     wrapper.unmount();
   }
 });
+
+it('uploads, replaces and clears the avatar before submitting the empty binding', async () => {
+  let uploadCount = 0;
+  const intents: string[] = [];
+  const request = vi.fn(async ({ path, body }: { path: string; body?: unknown }) => {
+    if (path.endsWith('/inline-upload')) {
+      const upload = body as FormData;
+      expect(upload.get('file')).toBeInstanceOf(File);
+      const metadata = JSON.parse(String(upload.get('request')));
+      expect(metadata.fieldName).toBe('avatarAssetId');
+      intents.push(metadata.intent);
+      return { items: [{ id: `avatar-${++uploadCount}` }] };
+    }
+    if (path.endsWith('/preview-ticket')) return { url: '/avatar.png' };
+    return { moduleAlias: 'iam.employee', capabilities: [], actions: [] };
+  });
+  configureModuleContext({ http: { request } as HttpClient });
+  const wrapper = mount(CurrentUserProfileDialog, {
+    props: {
+      open: true,
+      profile: {
+        username: 'buyer',
+        employee: {
+          id: 'employee-1',
+          contactEditable: true,
+          mobile: '13800000000',
+          email: 'buyer@example.test',
+        },
+      },
+    },
+    global: {
+      stubs: {
+        UiModal: { template: `<div><slot /><button data-save @click="$emit('confirm')">保存</button></div>` },
+      },
+    },
+  });
+  async function upload(name: string) {
+    const input = wrapper.get('input[type="file"]');
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [new File(['image'], name, { type: 'image/png' })],
+    });
+    await input.trigger('change');
+    await flushPromises();
+  }
+  try {
+    expect(wrapper.find('.single-image-file-reference-field__label').exists()).toBe(false);
+    await upload('first.png');
+    const replace = wrapper.get('button[aria-label="替换图片"]');
+    expect(replace.isVisible()).toBe(true);
+    expect(replace.attributes('disabled')).toBeUndefined();
+    const inputClick = vi.spyOn(wrapper.get('input[type="file"]').element as HTMLInputElement, 'click');
+    await replace.trigger('click');
+    expect(inputClick).toHaveBeenCalledOnce();
+    await upload('replacement.png');
+    await wrapper.get('[data-save]').trigger('click');
+    expect(wrapper.emitted('submit')?.at(-1)).toEqual([
+      { mobile: '13800000000', email: 'buyer@example.test', avatarAssetId: 'avatar-2' },
+    ]);
+    expect(intents).toEqual(['CREATE', 'REPLACE']);
+    const clear = wrapper.get('button[aria-label="清除"]');
+    expect(clear.isVisible()).toBe(true);
+    await clear.trigger('click');
+    expect(wrapper.find('button[aria-label="替换图片"]').exists()).toBe(false);
+    expect(wrapper.find('input[type="file"]').exists()).toBe(true);
+    await wrapper.get('[data-save]').trigger('click');
+    expect(wrapper.emitted('submit')?.at(-1)).toEqual([
+      { mobile: '13800000000', email: 'buyer@example.test', avatarAssetId: undefined },
+    ]);
+    expect(request.mock.calls.some(([call]) => call.path.includes('delete'))).toBe(false);
+  } finally {
+    wrapper.unmount();
+  }
+});

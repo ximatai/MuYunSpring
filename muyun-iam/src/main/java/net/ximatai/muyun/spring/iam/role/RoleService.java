@@ -591,9 +591,8 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         if (role.getOwnerScopeType() == RoleOwnerScopeType.PLATFORM) {
             return;
         }
-        tenantApplicationService.requireApplicationOpened(
-                Preconditions.requireText(role.getTenantId(), "role.tenantId"),
-                PlatformNameRules.applicationAliasOfModuleAlias(moduleAlias));
+        tenantApplicationService.requireModuleAvailable(
+                Preconditions.requireText(role.getTenantId(), "role.tenantId"), moduleAlias);
     }
 
     public boolean hasActionPermission(String userId, String moduleAlias, String actionCode) {

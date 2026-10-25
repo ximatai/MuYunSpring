@@ -630,6 +630,7 @@ describe('CodeConfigurationView', () => {
     await flushPromises();
     request.mockImplementation(async ({ path }) => {
       if (path.endsWith('/saveTree')) throw new Error('rejected');
+      if (path.endsWith('/preview')) return { value: 'NO-0001', segments: [] };
       return [];
     });
     await button(wrapper, '保存规则').trigger('click');

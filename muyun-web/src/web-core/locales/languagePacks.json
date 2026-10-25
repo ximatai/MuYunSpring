@@ -3678,7 +3678,8 @@
       "platform.screen.ExternalIdentityBindings.not-bound": "未绑定",
       "platform.screen.ExternalIdentityBindings.bind": "去绑定",
       "platform.external-login.internal-error": "平台处理失败，请稍后重试",
-      "platform.external-login.session-ended": "发起绑定的登录已失效，请重新登录后再绑定"
+      "platform.external-login.session-ended": "发起绑定的登录已失效，请重新登录后再绑定",
+      "platform.screen.ModuleActionManagementView.schedulable": "允许定时调用（无需表单的模块动作）"
     }
   },
   "en": {
@@ -7361,7 +7362,8 @@
       "platform.screen.ExternalIdentityBindings.not-bound": "Not linked",
       "platform.screen.ExternalIdentityBindings.bind": "Link",
       "platform.external-login.internal-error": "The platform could not finish the request. Please try again later.",
-      "platform.external-login.session-ended": "The sign-in that started the link has ended. Sign in again before linking."
+      "platform.external-login.session-ended": "The sign-in that started the link has ended. Sign in again before linking.",
+      "platform.screen.ModuleActionManagementView.schedulable": "Allow scheduled invocation (module actions without a form)"
     }
   },
   "fr": {

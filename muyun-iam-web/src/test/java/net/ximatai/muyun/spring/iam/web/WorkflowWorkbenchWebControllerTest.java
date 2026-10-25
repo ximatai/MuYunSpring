@@ -37,7 +37,7 @@ class WorkflowWorkbenchWebControllerTest {
                 .setControllerAdvice(new PlatformWebExceptionHandler()).build();
         mvc.perform(post("/iam.workflow_workbench/query").param("userId", "another-user"))
                 .andExpect(status().isOk());
-        verify(applications).requireApplicationOpened("tenant-a", "iam");
+        verify(applications).requireModuleAvailable("tenant-a", "iam.workflow_workbench");
         verify(runtime).todoCards(eq("member"), any(), any());
         verifyNoInteractions(roles);
     }

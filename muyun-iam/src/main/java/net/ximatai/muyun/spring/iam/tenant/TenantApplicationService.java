@@ -85,6 +85,18 @@ public class TenantApplicationService extends AbstractAbilityService<TenantAppli
                 .toList();
     }
 
+    public boolean isModuleAvailable(String tenantId, String moduleAlias) {
+        requireTenantAlias(tenantId);
+        PlatformNameRules.requireModuleAlias(moduleAlias);
+        return applicationCatalog.isModuleAvailableWithoutOpening(moduleAlias)
+                || isApplicationAvailable(tenantId, PlatformNameRules.applicationAliasOfModuleAlias(moduleAlias));
+    }
+
+    public void requireModuleAvailable(String tenantId, String moduleAlias) {
+        if (!isModuleAvailable(tenantId, moduleAlias))
+            throw new ApplicationNotOpenedException(tenantId, PlatformNameRules.applicationAliasOfModuleAlias(moduleAlias));
+    }
+
     public void requireApplicationOpened(String tenantId, String applicationAlias) {
         String validTenantId = requireTenantAlias(tenantId);
         String validApplicationAlias = PlatformNameRules.requireApplicationAlias(applicationAlias);

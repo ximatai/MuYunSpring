@@ -49,3 +49,28 @@ it('clears an existing image binding from the draft without deleting the asset i
   await clearButton!.trigger('click');
   expect(wrapper.emitted('update:value')?.at(-1)).toEqual([undefined]);
 });
+
+it('hides only the title while retaining named actions, including when editing is disabled', async () => {
+  const wrapper = mount(SingleImageFileReferenceField, {
+    props: {
+      label: 'Logo',
+      hideLabel: true,
+      value: 'logo-1',
+      record: { id: 'tenant-a' },
+      context: { moduleAlias: 'iam.tenant' } as ModuleContext<unknown>,
+      definition: singleInlineImage,
+    },
+  });
+  try {
+    expect(wrapper.find('.single-image-file-reference-field__label').exists()).toBe(false);
+    expect(wrapper.get('button[aria-label="替换图片"]').isVisible()).toBe(true);
+    expect(wrapper.get('button[aria-label="清除"]').isVisible()).toBe(true);
+    await wrapper.setProps({ disabled: true });
+    expect(wrapper.find('button[aria-label="清除"]').exists()).toBe(false);
+    expect(wrapper.get('button[aria-label="替换图片"]').attributes('disabled')).toBeDefined();
+    await wrapper.setProps({ hideLabel: false });
+    expect(wrapper.get('.single-image-file-reference-field__label').text()).toBe('Logo');
+  } finally {
+    wrapper.unmount();
+  }
+});
