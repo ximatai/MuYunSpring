@@ -1,13 +1,31 @@
-import type { HttpClient } from '@muyun/web-core';
+import { createUuid, type HttpClient } from '@muyun/web-core';
 import type { ResolvedFileReferenceFieldDescriptor } from '@muyun/web-contracts';
 import type { FileTransferUploadAccess } from './fileTransferUpload';
 
 interface FileReferenceUploadTicket {
   url?: unknown;
+  registrationId?: unknown;
+}
+
+export interface FileReferenceUploadAccess extends FileTransferUploadAccess {
+  registrationId: string;
 }
 
 interface FileReferenceAccessTicket {
   url?: unknown;
+}
+
+const draftRecordIds = new WeakMap<Record<string, unknown>, string>();
+
+/** Gives every upload from the same new draft a stable entity identity before ordinary CRUD save. */
+export function fileReferenceDraftRecordId(draft: Record<string, unknown>): string {
+  if (typeof draft.id === 'string' && draft.id.trim()) return draft.id;
+  let id = draftRecordIds.get(draft);
+  if (!id) {
+    id = createUuid().replaceAll('-', '');
+    draftRecordIds.set(draft, id);
+  }
+  return id;
 }
 
 /** Issues the module-owned short-lived upload ticket for a declared file-reference field. */
@@ -18,7 +36,7 @@ export async function issueFileReferenceUploadAccess(
   draft: Record<string, unknown>,
   file: File,
   intent: FileReferenceUploadIntent,
-): Promise<FileTransferUploadAccess> {
+): Promise<FileReferenceUploadAccess> {
   const ticket = await http.request<FileReferenceUploadTicket>({
     method: 'POST',
     path: `/${encodeURIComponent(moduleAlias)}/file-transfer/upload-ticket`,
@@ -33,7 +51,24 @@ export async function issueFileReferenceUploadAccess(
   if (typeof ticket?.url !== 'string' || !ticket.url.trim()) {
     throw new Error('文件上传凭证未提供上传地址。');
   }
-  return { uploadUrl: ticket.url };
+  if (typeof ticket.registrationId !== 'string' || !ticket.registrationId.trim()) {
+    throw new Error('文件上传凭证未提供上传登记标识。');
+  }
+  return { uploadUrl: ticket.url, registrationId: ticket.registrationId };
+}
+
+/** Binds the direct-upload result to its platform-issued upload registration before updating the draft. */
+export async function registerFileReferenceUpload(
+  http: HttpClient,
+  moduleAlias: string,
+  ticketId: string,
+  fileId: string,
+) {
+  await http.request<void>({
+    method: 'POST',
+    path: `/${encodeURIComponent(moduleAlias)}/file-transfer/upload-registration`,
+    body: { ticketId, fileId },
+  });
 }
 
 /** Uploads one DATABASE_INLINE field through the same authenticated platform HTTP client. */

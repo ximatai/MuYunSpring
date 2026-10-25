@@ -65,7 +65,7 @@ class MuYunFileServerTransferClientTest {
         for (String dimensions : java.util.List.of("16,8", "16,null", "-1,8", "2147483648,8", "16.5,8")) {
             String[] pair = dimensions.split(",");
             String json = """
-                    {"data":{"id":"%s","mimeType":"image/png","sizeBytes":100,
+                    {"data":{"id":"%s","mimeType":"image/png","sizeBytes":100,"temporary":true,
                     "imageWidth":%s,"imageHeight":%s}}
                     """.formatted(fileId, pair[0], pair[1]);
             server.expect(requestTo(org.hamcrest.Matchers.containsString("/" + fileId + "?access_token=")))
@@ -78,6 +78,90 @@ class MuYunFileServerTransferClientTest {
             for (int i = 0; i < 4; i++) {
                 org.assertj.core.api.Assertions.assertThatThrownBy(() -> client.readMetadata(fileId))
                         .hasMessageContaining("image dimension");
+            }
+        }
+        server.verify();
+    }
+
+    @Test
+    void rejectsMissingOrNonBooleanTemporaryStateForMetadataAndPromotion() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        FileTransferClient client = new MuYunFileServerTransferClient(accessService(), builder.build(), new ObjectMapper());
+        String fileId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+        var invalidStates = java.util.List.of("", ",\"temporary\":null", ",\"temporary\":\"true\"",
+                ",\"temporary\":1", ",\"temporary\":{}", ",\"temporary\":[]");
+        for (String state : invalidStates) {
+            String metadata = "{\"id\":\"" + fileId + "\",\"sizeBytes\":100,\"status\":\"ACTIVE\"" + state + "}";
+            server.expect(requestTo(org.hamcrest.Matchers.containsString("/" + fileId + "?access_token=")))
+                    .andExpect(method(HttpMethod.GET))
+                    .andRespond(withSuccess("{\"data\":" + metadata + "}", org.springframework.http.MediaType.APPLICATION_JSON));
+            server.expect(requestTo(org.hamcrest.Matchers.containsString("/" + fileId + "/promote?access_token=")))
+                    .andExpect(method(HttpMethod.POST))
+                    .andRespond(withSuccess("{\"data\":{\"items\":[" + metadata + "]}}", org.springframework.http.MediaType.APPLICATION_JSON));
+        }
+        try (var ignored = CurrentUserContext.use(CurrentUser.tenantUser("user-1", "operator", "tenant-a"))) {
+            for (String state : invalidStates) {
+                org.assertj.core.api.Assertions.assertThatThrownBy(() -> client.readMetadata(fileId))
+                        .hasMessageContaining("no reliable temporary state");
+                org.assertj.core.api.Assertions.assertThatThrownBy(() -> client.promote(fileId))
+                        .hasMessageContaining("no reliable temporary state");
+            }
+        }
+        server.verify();
+    }
+
+    @Test
+    void readsAuthoritativeUploadIdentityAndTemporaryStateInOneMetadataRequest() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        FileTransferClient client = new MuYunFileServerTransferClient(accessService(), builder.build(), new ObjectMapper());
+        String fileId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/" + fileId + "?access_token=")))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {"data":{"id":"%s","sizeBytes":100,"temporary":true,"status":"ACTIVE",
+                        "uploadedBy":"actual-uploader","tenantId":"tenant-a"}}
+                        """.formatted(fileId), org.springframework.http.MediaType.APPLICATION_JSON));
+        try (var ignored = CurrentUserContext.use(CurrentUser.tenantUser("reader", "Reader", "tenant-a"))) {
+            var facts = client.readUploadFacts(fileId);
+            assertThat(facts.uploaderUserId()).isEqualTo("actual-uploader");
+            assertThat(facts.tenantId()).isEqualTo("tenant-a");
+            assertThat(facts.metadata().fileId()).isEqualTo(fileId);
+            assertThat(facts.metadata().temporary()).isTrue();
+        }
+        server.verify();
+    }
+
+    @Test
+    void refusesUploadFactsWithoutTextualNonBlankAuthoritativeUploaderAndTenant() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        FileTransferClient client = new MuYunFileServerTransferClient(accessService(), builder.build(), new ObjectMapper());
+        String fileId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+        var invalidValues = java.util.List.of("missing", "null", "42", "true", "{}", "[]", "\"\"", "\" \"");
+        for (String field : java.util.List.of("uploadedBy", "tenantId")) {
+            for (String value : invalidValues) {
+                var body = new java.util.LinkedHashMap<String, Object>();
+                body.put("id", fileId); body.put("sizeBytes", 100); body.put("temporary", true);
+                body.put("uploadedBy", "actual-uploader"); body.put("tenantId", "tenant-a");
+                if (value.equals("missing")) body.remove(field);
+                else {
+                    try { body.put(field, new ObjectMapper().readValue(value, Object.class)); }
+                    catch (java.io.IOException impossible) { throw new AssertionError(impossible); }
+                }
+                String json;
+                try { json = new ObjectMapper().writeValueAsString(java.util.Map.of("data", body)); }
+                catch (java.io.IOException impossible) { throw new AssertionError(impossible); }
+                server.expect(requestTo(org.hamcrest.Matchers.containsString("/" + fileId + "?access_token=")))
+                        .andExpect(method(HttpMethod.GET))
+                        .andRespond(withSuccess(json, org.springframework.http.MediaType.APPLICATION_JSON));
+            }
+        }
+        try (var ignored = CurrentUserContext.use(CurrentUser.tenantUser("reader", "Reader", "tenant-a"))) {
+            for (int i = 0; i < invalidValues.size() * 2; i++) {
+                org.assertj.core.api.Assertions.assertThatThrownBy(() -> client.readUploadFacts(fileId))
+                        .hasMessageContaining("no authoritative upload identity");
             }
         }
         server.verify();

@@ -1398,6 +1398,133 @@ class MuYunSpringApplicationContextIT {
         }
     }
 
+    @Test
+    void disablingThroughActionsAndUpdatesRevokesSessionsBeforeAnUnusedTokenCanRevive() {
+        for (String path : List.of("action", "versionedAction", "update")) {
+            String username = "disabled_session_" + path;
+            String id = createPlatformUser(username, "DisablePassword123!");
+            var first = userSessionService.login(null, username, "DisablePassword123!");
+            var second = userSessionService.login(null, username, "DisablePassword123!");
+            try (var tenant = TenantContext.system("disable account regression");
+                 var actor = CurrentUserContext.use(CurrentUser.systemUser(UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID, "Admin"))) {
+                var user = userAccountService.select(id);
+                if (path.equals("action")) userAccountService.disable(id);
+                else if (path.equals("versionedAction")) userAccountService.disable(id, user.getVersion());
+                else { user.setEnabled(false); userAccountService.update(user); }
+                assertThat(userSessionDao.query(Criteria.of().eq("userId", id), ALL))
+                        .allSatisfy(session -> assertThat(session.getRevokedAt()).isNotNull());
+                // Do not authenticate either token while the account is disabled.
+                userAccountService.enable(id);
+            }
+            assertThat(userSessionService.currentUser(first.token())).isEmpty();
+            assertThat(userSessionService.currentUser(second.token())).isEmpty();
+            assertThat(userSessionService.login(null, username, "DisablePassword123!").token()).isNotBlank();
+        }
+    }
+
+    @Test
+    void fileReferenceReadRejectsOwnEmployeeIdWithAnotherEmployeesAssetAndPreservesPendingPreview() {
+        String tenant = insertActiveTenant("security_file_tenant");
+        String userId = "security_file_user";
+        insertUser(tenant, userId, userId);
+        jdbcTemplate.update("update iam_user set password_status = 'normal' where id = ?", userId);
+        insertOrganization(tenant, "security_file_org", "SEC-FILE", "File organization");
+        insertDepartment(tenant, "security_file_dept", "security_file_org", "SEC-DEPT", "Department");
+        insertEmployee(tenant, "security_file_self", "security_file_org", "security_file_dept", "SEC-SELF", "Self", false);
+        insertEmployee(tenant, "security_file_other", "security_file_org", "security_file_dept", "SEC-OTHER", "Other", false);
+        insertEmployeeAccount(tenant, "security_file_binding", "security_file_self", userId, false);
+        String dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aG1kAAAAASUVORK5CYII=";
+        var assets = applicationContext.getBean(net.ximatai.muyun.spring.platform.attachment.ManagedFileAssetService.class);
+        String own;
+        String other;
+        try (var scope = TenantContext.use(tenant)) {
+            own = transactionTemplate.execute(status -> assets.createInline(tenant, dataUrl).getId());
+            other = transactionTemplate.execute(status -> assets.createInline(tenant, dataUrl).getId());
+        }
+        jdbcTemplate.update("update iam_employee set avatar_asset_id = ? where id = ?", own, "security_file_self");
+        jdbcTemplate.update("update iam_employee set avatar_asset_id = ? where id = ?", other, "security_file_other");
+        String token = userSessionService.loginWithVerifiedIdentity(tenant, userId,
+                new net.ximatai.muyun.spring.iam.user.AuthenticationMethod("test:security"), userId, null, null).token();
+        for (String operation : List.of("preview", "download")) {
+            var body = Map.of("fieldName", "avatarAssetId", "draft", Map.of("id", "security_file_self", "avatarAssetId", other), "fileId", other);
+            var denied = restTemplate.exchange("/iam.employee/file-transfer/" + operation + "-ticket", HttpMethod.POST,
+                    new HttpEntity<>(body, bearerHeaders(token)), JsonNode.class);
+            assertThat(denied.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+            var allowed = restTemplate.exchange("/iam.employee/file-transfer/" + operation + "-ticket", HttpMethod.POST,
+                    new HttpEntity<>(Map.of("fieldName", "avatarAssetId", "draft", Map.of("id", "security_file_self"), "fileId", own), bearerHeaders(token)), JsonNode.class);
+            assertThat(allowed.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(allowed.getBody().path("url").asText()).isEqualTo(dataUrl);
+        }
+        applicationContext.getBean(net.ximatai.muyun.spring.iam.role.DefaultTenantRoleProvisioner.class)
+                .grantTenantAdminRoleToUser(tenant, userId);
+        var forgedSave = restTemplate.exchange("/iam.auth/profile", HttpMethod.POST,
+                new HttpEntity<>(Map.of("avatarAssetId", other), bearerHeaders(token)), JsonNode.class);
+        assertThat(forgedSave.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(jdbcTemplate.queryForObject("select avatar_asset_id from iam_employee where id = ?", String.class,
+                "security_file_self")).isEqualTo(own);
+        // A genuinely observed upload remains previewable before the record save.
+        var uploads = applicationContext.getBean(net.ximatai.muyun.spring.platform.attachment.FileReferenceUploadService.class);
+        String pending;
+        try (var scope = TenantContext.use(tenant); var actor = CurrentUserContext.use(CurrentUser.tenantUser(userId, userId, tenant))) {
+            pending = transactionTemplate.execute(status -> {
+                var asset = assets.createInline(tenant, dataUrl);
+                uploads.record(tenant, new net.ximatai.muyun.spring.platform.attachment.FileReferenceUploadRequest("iam.employee", null,
+                        "avatarAssetId", Map.of("id", "security_file_self"),
+                        new net.ximatai.muyun.spring.platform.attachment.FileReferenceUploadFile("avatar.png", "image/png", 1),
+                        net.ximatai.muyun.spring.platform.attachment.FileReferenceUploadIntent.REPLACE), asset.getId());
+                return asset.getId();
+            });
+        }
+        var allowed = restTemplate.exchange("/iam.employee/file-transfer/preview-ticket", HttpMethod.POST,
+                new HttpEntity<>(Map.of("fieldName", "avatarAssetId", "draft", Map.of("id", "security_file_self"), "fileId", pending), bearerHeaders(token)), JsonNode.class);
+        assertThat(allowed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        jdbcTemplate.update("update platform_file_reference_upload set expires_at = now() - interval '1 second' where file_id = ?", pending);
+        var expired = restTemplate.exchange("/iam.employee/file-transfer/preview-ticket", HttpMethod.POST,
+                new HttpEntity<>(Map.of("fieldName", "avatarAssetId", "draft", Map.of("id", "security_file_self"), "fileId", pending), bearerHeaders(token)), JsonNode.class);
+        assertThat(expired.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        jdbcTemplate.update("update platform_file_reference_upload set expires_at = now() + interval '1 hour' where file_id = ?", pending);
+        var saved = restTemplate.exchange("/iam.auth/profile", HttpMethod.POST,
+                new HttpEntity<>(Map.of("avatarAssetId", pending), bearerHeaders(token)), JsonNode.class);
+        assertThat(saved.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var cleared = restTemplate.exchange("/iam.auth/profile", HttpMethod.POST,
+                new HttpEntity<>(Map.of(), bearerHeaders(token)), JsonNode.class);
+        assertThat(cleared.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var removed = restTemplate.exchange("/iam.employee/file-transfer/preview-ticket", HttpMethod.POST,
+                new HttpEntity<>(Map.of("fieldName", "avatarAssetId", "draft", Map.of("id", "security_file_self"), "fileId", pending), bearerHeaders(token)), JsonNode.class);
+        assertThat(removed.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void tenantRoleCannotGrantOrEvaluateCrossTenantScopeEvenWhenAnUnsafeMarkerIsPresent() {
+        String tenant = insertActiveTenant("security_scope_a");
+        String otherTenant = insertActiveTenant("security_scope_b");
+        String userId = "security_scope_user";
+        String adminId = "security_scope_admin";
+        insertUser(tenant, userId, userId);
+        insertUser(tenant, adminId, adminId);
+        jdbcTemplate.update("update iam_user set password_status = 'normal' where id in (?, ?)", userId, adminId);
+        grantTenantScopedEmploymentAction(tenant, userId, "sec", "iam.organization", PlatformAction.QUERY, DataScopePolicy.ALL);
+        insertOrganization(otherTenant, "security_foreign_org", "SEC-FOREIGN", "Foreign organization");
+        try (var scope = TenantContext.use(tenant)) {
+            applicationContext.getBean(net.ximatai.muyun.spring.iam.role.DefaultTenantRoleProvisioner.class).grantTenantAdminRoleToUser(tenant, adminId);
+        }
+        String token = userSessionService.loginWithVerifiedIdentity(tenant, adminId,
+                new net.ximatai.muyun.spring.iam.user.AuthenticationMethod("test:security"), adminId, null, null).token();
+        var denied = restTemplate.exchange("/iam.role/grant/rv_act_role_sec", HttpMethod.POST,
+                new HttpEntity<>(Map.of("moduleAlias", "iam.organization", "actionCode", "query",
+                        "dataScopePolicy", "all", "tenantScopePolicy", "allTenants"), bearerHeaders(token)), JsonNode.class);
+        assertThat(denied.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        // Simulates an unsafe import or database writer; evaluation must still retain tenant isolation.
+        jdbcTemplate.update("update iam_role_action set data_scope_policy = 'all', tenant_scope_policy = 'allTenants' where role_id = ?",
+                "rv_act_role_sec");
+        try (var scope = TenantContext.use(tenant);
+             var actor = CurrentUserContext.use(CurrentUser.tenantUser(userId, userId, tenant))) {
+            var organizations = applicationContext.getBean(net.ximatai.muyun.spring.iam.organization.OrganizationService.class);
+            assertThat(organizations.list(Criteria.of(), ALL)).isNotEmpty()
+                    .allSatisfy(record -> assertThat(record.getTenantId()).isEqualTo(tenant));
+        }
+    }
+
     private String createPlatformUser(String username, String password) {
         try (var tenant = TenantContext.system("create login test user");
              var actor = CurrentUserContext.use(CurrentUser.systemUser(UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID, "Admin"))) {

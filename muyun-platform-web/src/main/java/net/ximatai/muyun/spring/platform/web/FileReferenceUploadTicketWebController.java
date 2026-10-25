@@ -1,5 +1,9 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.platform.ModuleRecordFacts;
+import net.ximatai.muyun.spring.platform.attachment.FileReferenceUploadService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
@@ -26,7 +30,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.util.List;
 import java.util.Map;
 
@@ -40,28 +43,29 @@ public class FileReferenceUploadTicketWebController {
     private final ManagedFileAssetService managedFileAssetService;
     private final PlatformModuleRuntimeContextService runtimeContextService;
     private final ObjectMapper objectMapper;
-
-    public FileReferenceUploadTicketWebController(ObjectProvider<FileReferenceFieldPolicy> policies,
-                                                   ObjectProvider<FileTransferAccessService> transferAccessService,
-                                                   PlatformModuleRuntimeContextService runtimeContextService) {
-        this(policies, transferAccessService, null, runtimeContextService, new ObjectMapper());
-    }
+    private final FileReferenceUploadService uploads;
+    private final ModuleRecordFacts recordFacts;
 
     @Autowired
     public FileReferenceUploadTicketWebController(ObjectProvider<FileReferenceFieldPolicy> policies,
                                                    ObjectProvider<FileTransferAccessService> transferAccessService,
                                                    ObjectProvider<ManagedFileAssetService> managedFileAssetService,
                                                    PlatformModuleRuntimeContextService runtimeContextService,
-                                                   ObjectMapper objectMapper) {
+                                                   ObjectMapper objectMapper,
+                                                   FileReferenceUploadService uploads,
+                                                   ModuleRecordFacts recordFacts) {
         this.policies = policies.orderedStream().toList();
         this.transferAccessService = transferAccessService.getIfAvailable();
-        this.managedFileAssetService = managedFileAssetService == null ? null : managedFileAssetService.getIfAvailable();
+        this.managedFileAssetService = managedFileAssetService.getIfAvailable();
         this.runtimeContextService = runtimeContextService;
         this.objectMapper = objectMapper;
+        this.uploads = java.util.Objects.requireNonNull(uploads, "uploads");
+        this.recordFacts = java.util.Objects.requireNonNull(recordFacts, "recordFacts");
     }
 
     @PostMapping("/upload-ticket")
-    public FileTransferAccess uploadTicket(@PathVariable String moduleAlias,
+    @Transactional
+    public FileReferenceUploadAccess uploadTicket(@PathVariable String moduleAlias,
                                            @RequestBody FileReferenceUploadTicketRequest body) {
         if (transferAccessService == null) {
             throw new PlatformConfigurationException("file transfer is not configured for this application");
@@ -73,7 +77,11 @@ public class FileReferenceUploadTicketWebController {
                     "database-inline file references use the inline upload transport");
         }
         authorize(request);
-        return transferAccessService.issueUploadAccess();
+        validateUpload(reference, request.file());
+        FileTransferAccess access = transferAccessService.issueUploadAccess();
+        String registrationId = uploads.registerTicket(TenantContext.currentTenantId().orElse(null), request, access);
+        return new FileReferenceUploadAccess(access.operation(), access.fileId(), access.accessToken(), access.url(),
+                access.expiresAt(), registrationId);
     }
 
     @PostMapping("/preview-ticket")
@@ -109,7 +117,7 @@ public class FileReferenceUploadTicketWebController {
                     "file-server file references use the upload ticket transport");
         }
         FileReferenceFieldPolicy policy = authorize(request);
-        validateInlineUpload(reference, facts);
+        validateUpload(reference, facts);
         if (managedFileAssetService == null) {
             throw new PlatformConfigurationException("managed inline file assets are not configured for this application");
         }
@@ -121,6 +129,7 @@ public class FileReferenceUploadTicketWebController {
         try {
             ManagedFileAsset asset = managedFileAssetService.createInline(ownerTenantId, facts.name(), facts.mediaType(),
                     file.getBytes());
+            uploads.record(ownerTenantId, request, asset.getId());
             return Map.of("items", List.of(Map.of("id", asset.getId())));
         } catch (java.io.IOException exception) {
             throw new PlatformException(PlatformErrorCodes.VALIDATION_FAILED, 400,
@@ -128,10 +137,17 @@ public class FileReferenceUploadTicketWebController {
         }
     }
 
+    /** Confirms a completed browser direct upload against its server-owned ticket registration. */
+    @PostMapping("/upload-registration")
+    public void registerUpload(@PathVariable String moduleAlias, @RequestBody FileReferenceUploadRegistrationRequest body) {
+        uploads.bindUploadedFile(moduleAlias, body.ticketId(), body.fileId());
+    }
+
     private FileTransferAccess readTicket(FileReferenceReadRequest request) {
         ResolvedFileReferenceFieldDescriptor reference = requireReference(request.moduleAlias(), request.relationCode(),
                 request.fieldName());
         FileReferenceFieldPolicy policy = authorizeRead(request);
+        request = authorizeReferenceValue(policy, request);
         if (reference.storagePolicy() == FileReferenceStoragePolicy.DATABASE_INLINE) {
             if (managedFileAssetService == null) {
                 throw new PlatformConfigurationException("managed inline file assets are not configured for this application");
@@ -146,6 +162,25 @@ public class FileReferenceUploadTicketWebController {
         return request.operation() == FileTransferOperation.PREVIEW
                 ? transferAccessService.issuePreviewAccess(request.fileId())
                 : transferAccessService.issueDownloadAccess(request.fileId());
+    }
+
+    private FileReferenceReadRequest authorizeReferenceValue(FileReferenceFieldPolicy policy, FileReferenceReadRequest request) {
+        String tenantId = policy.inlineAssetOwnerTenantId(request);
+        if (uploads.ownsPending(tenantId, request)) return request;
+        Object id = request.draft().get("id");
+        if (!(id instanceof String recordId) || recordId.isBlank()) {
+            throw new PlatformAccessDeniedException("file is not a current record field or own pending upload");
+        }
+        Map<String, Object> stored = runtimeContextService.fileReferenceRecordFacts(
+                request.moduleAlias(), request.relationCode(), recordId, recordFacts);
+        Object value = stored.get(request.fieldName());
+        boolean matches = request.fileId().equals(value)
+                || value instanceof java.util.Collection<?> values && values.contains(request.fileId());
+        if (!matches) throw new PlatformAccessDeniedException("file is not the current record field value");
+        FileReferenceReadRequest authoritative = new FileReferenceReadRequest(request.moduleAlias(), request.relationCode(),
+                request.fieldName(), stored, request.fileId(), request.operation());
+        policy.authorizeRead(authoritative);
+        return authoritative;
     }
 
     private ResolvedFileReferenceFieldDescriptor requireReference(FileReferenceUploadRequest request) {
@@ -196,7 +231,7 @@ public class FileReferenceUploadTicketWebController {
         }
     }
 
-    private void validateInlineUpload(ResolvedFileReferenceFieldDescriptor reference, FileReferenceUploadFile file) {
+    private void validateUpload(ResolvedFileReferenceFieldDescriptor reference, FileReferenceUploadFile file) {
         if (reference.maxFileSizeBytes() != null && file.sizeBytes() > reference.maxFileSizeBytes()) {
             throw new PlatformException(PlatformErrorCodes.VALIDATION_FAILED, 400,
                     "file reference exceeds maximum file size");

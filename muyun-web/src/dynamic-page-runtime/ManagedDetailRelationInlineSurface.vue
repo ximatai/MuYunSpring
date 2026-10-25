@@ -57,6 +57,7 @@ const props = withDefaults(
     uiDescriptor: ResolvedModuleUiDescriptor;
     relation: ResolvedDetailRelationDescriptor;
     parentRecord: QueryListRecord;
+    parentMode?: 'create' | 'edit' | 'view';
     reloadKey?: number;
     addRequestKey?: number;
     removeRequestKey?: number;
@@ -109,7 +110,9 @@ let draftSequence = 0;
 let recycleBinRequestSequence = 0;
 const sourceReferencePickerConfigFor = createSourceReferencePickerConfigAssembler();
 
-const parentId = computed(() => (props.parentRecord.id == null ? undefined : String(props.parentRecord.id)));
+const parentId = computed(() =>
+  props.parentMode === 'create' || props.parentRecord.id == null ? undefined : String(props.parentRecord.id),
+);
 const embeddedField = computed(() => props.relation.embeddedField);
 const embedded = computed(() => Boolean(embeddedField.value));
 const mutation = computed(() => props.relation.mutationContract);
@@ -243,7 +246,9 @@ const valid = computed(() => {
   }
   return true;
 });
-const selectableRows = computed(() => rows.value.filter((row) => row.id == null || deleteAllowed.value));
+const selectableRows = computed(() =>
+  rows.value.filter((row) => rowMode(row) === 'create' || deleteAllowed.value),
+);
 const allSelected = computed(
   () =>
     selectableRows.value.length > 0 &&
@@ -347,7 +352,7 @@ function cellInvalid(row: DraftRow, fieldName: string) {
 }
 
 function blankNewRow(row: DraftRow) {
-  if (row.id != null) return false;
+  if (rowMode(row) === 'edit') return false;
   return columns.value.every(
     (column) =>
       formFields.value.get(column.fieldName)?.calculationTiming != null || blankValue(row[column.fieldName]),
@@ -397,7 +402,10 @@ async function load() {
 function toDraftRow(record: QueryListRecord): DraftRow {
   return {
     ...cloneRecord(record),
-    __draftKey: record.id == null ? `new:${++draftSequence}` : `persisted:${String(record.id)}`,
+    __draftKey:
+      props.parentMode === 'create' || record.id == null
+        ? `new:${++draftSequence}`
+        : `persisted:${String(record.id)}`,
   };
 }
 
@@ -535,7 +543,7 @@ function setAllSelected(selected: boolean) {
 function removeSelectedRows(source: 'user' | 'assistant' = 'user') {
   if (selectedKeys.value.size === 0) return;
   const selected = rows.value.filter((row) => selectedKeys.value.has(row.__draftKey));
-  const persisted = selected.filter((row) => row.id != null);
+  const persisted = selected.filter((row) => rowMode(row) === 'edit');
   if (persisted.length > 0 && !deleteAllowed.value) return;
   if (source === 'user') draftRegistry()?.userChanged();
   removed.value = [...removed.value, ...persisted.map(cloneRecord)];
@@ -856,7 +864,7 @@ onMounted(() => void load());
     <template #selection="{ row }">
       <RecordSelectionCheckbox
         :checked="selectedKeys.has(row.__draftKey)"
-        :disabled="row.id != null && !deleteAllowed"
+        :disabled="rowMode(row) === 'edit' && !deleteAllowed"
         :aria-label="
           language.t(
             'platform.screen.ManagedDetailRelationInlineSurface.select-detail-record-value',
@@ -888,7 +896,7 @@ onMounted(() => void load());
         :code-parent-record="parentRecord"
         :content-relation="parentId ? { parentId, relationCode: relation.code } : undefined"
         :form-session-key="row.__draftKey"
-        :disabled="row.id != null && !updateAllowed"
+        :disabled="rowMode(row) === 'edit' && !updateAllowed"
         :show-labels="false"
         compact
         @update:field="(fieldName, value) => updateField(row, fieldName, value)"

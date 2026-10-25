@@ -1257,6 +1257,7 @@ export default defineComponent({
               :ui-descriptor="runtimeUiDescriptor"
               :relations="executableDetailRelations"
               :parent-record="(editorMode === 'view' ? selectedRecord : editingRecord)!"
+              :parent-mode="editorMode"
               :mutation-enabled="editorMode !== 'view'"
               :reload-key="detailRelationReloadKey"
               :validation-request-key="formValidationRequestKey"

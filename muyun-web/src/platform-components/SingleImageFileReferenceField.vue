@@ -33,7 +33,10 @@ const props = defineProps<{
   disabledHint?: string;
 }>();
 
-const emit = defineEmits<{ 'update:value': [value: string | undefined] }>();
+const emit = defineEmits<{
+  'update:value': [value: string | undefined];
+  'update:record-id': [recordId: string];
+}>();
 const fileId = computed(() => fileReferenceIds(props.value)[0]);
 const previewUrl = ref<string>();
 const previewLoading = ref(false);
@@ -176,6 +179,7 @@ function browserViewUrl(url: string) {
           :upload-advisory="uploadAdvisory"
           :upload-validation="uploadValidation"
           @update:value="emit('update:value', typeof $event === 'string' ? $event : undefined)"
+          @update:record-id="emit('update:record-id', $event)"
         />
         <UiButton
           v-if="!disabled"
@@ -208,6 +212,7 @@ function browserViewUrl(url: string) {
       :upload-advisory="uploadAdvisory"
       :upload-validation="uploadValidation"
       @update:value="emit('update:value', typeof $event === 'string' ? $event : undefined)"
+      @update:record-id="emit('update:record-id', $event)"
     />
     <button
       v-else

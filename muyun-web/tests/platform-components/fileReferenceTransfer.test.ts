@@ -1,12 +1,15 @@
-import { assert, it } from 'vitest';
+import { assert, expect, it } from 'vitest';
 import type { HttpClient, HttpRequestOptions } from '../../src/web-core/http.ts';
 import {
   acceptedMediaTypes,
   appendUploadedFileReference,
   fileReferenceUploadIntent,
   fileReferenceIds,
+  fileReferenceDraftRecordId,
   issueFileReferenceUploadAccess,
   replacedFileReferenceId,
+  registerFileReferenceUpload,
+  uploadInlineFileReference,
   uploadedFileId,
 } from '@/platform-components/fileReferenceTransfer.ts';
 import type { ResolvedFileReferenceFieldDescriptor } from '../../src/web-contracts/index.ts';
@@ -26,7 +29,7 @@ it('file-reference upload tickets use the current module standard endpoint', asy
   const http: HttpClient = {
     request: async <T>(request: HttpRequestOptions) => {
       requests.push(request);
-      return { url: 'https://files.example/upload' } as T;
+      return { url: 'https://files.example/upload', registrationId: 'registration-1' } as T;
     },
   };
 
@@ -41,6 +44,7 @@ it('file-reference upload tickets use the current module standard endpoint', asy
     ),
     {
       uploadUrl: 'https://files.example/upload',
+      registrationId: 'registration-1',
     },
   );
   assert.deepEqual(requests, [
@@ -84,4 +88,69 @@ it('file-reference upload intent distinguishes creation, append and replacement'
   assert.equal(replacedFileReferenceId('file-old', 'file-new', single), 'file-old');
   assert.equal(replacedFileReferenceId('file-old', 'file-old', single), undefined);
   assert.equal(replacedFileReferenceId(['file-1'], 'file-2', multiple), undefined);
+});
+
+it('requires a platform registration before using a FileServer upload ticket', async () => {
+  const http: HttpClient = {
+    request: async <T>() => ({ url: 'https://files.example/upload' }) as T,
+  };
+  await expect(
+    issueFileReferenceUploadAccess(
+      http,
+      'sales.contract',
+      single,
+      {},
+      new File(['pdf'], 'guide.pdf'),
+      'CREATE',
+    ),
+  ).rejects.toThrow('上传登记标识');
+});
+
+it('registers only the server-issued ticket and file identifier after direct upload', async () => {
+  const requests: HttpRequestOptions[] = [];
+  const http: HttpClient = {
+    request: async <T>(request: HttpRequestOptions) => {
+      requests.push(request);
+      return undefined as T;
+    },
+  };
+  await registerFileReferenceUpload(http, 'sales.contract', 'registration-1', 'file-1');
+  assert.deepEqual(requests, [
+    {
+      method: 'POST',
+      path: '/sales.contract/file-transfer/upload-registration',
+      body: { ticketId: 'registration-1', fileId: 'file-1' },
+    },
+  ]);
+});
+
+it('keeps DATABASE_INLINE content on the authenticated platform upload transport', async () => {
+  let observed: HttpRequestOptions | undefined;
+  const http: HttpClient = {
+    request: async <T>(request: HttpRequestOptions) => {
+      observed = request;
+      return { items: [{ id: 'asset-1' }] } as T;
+    },
+  };
+  const result = await uploadInlineFileReference(
+    http,
+    'iam.tenant',
+    { ...single, storagePolicy: 'DATABASE_INLINE' },
+    { id: 'tenant-1' },
+    new File(['pdf'], 'guide.pdf'),
+    'CREATE',
+  );
+  assert.equal(observed?.path, '/iam.tenant/file-transfer/inline-upload');
+  assert.ok(observed?.body instanceof FormData);
+  assert.equal(uploadedFileId(result.payload), 'asset-1');
+});
+
+it('preallocates one stable entity ID shared by uploads from the same new draft', () => {
+  const draft = { title: 'new document' };
+  const id = fileReferenceDraftRecordId(draft);
+  assert.match(id, /^[a-f0-9]{32}$/);
+  assert.equal(fileReferenceDraftRecordId(draft), id);
+  assert.notEqual(fileReferenceDraftRecordId({}), id);
+  assert.equal(fileReferenceDraftRecordId({ ...draft, id }), id);
+  assert.deepEqual(draft, { title: 'new document' });
 });

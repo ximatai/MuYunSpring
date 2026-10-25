@@ -10,8 +10,10 @@ import {
   acceptedMediaTypes,
   appendUploadedFileReference,
   fileReferenceIds,
+  fileReferenceDraftRecordId,
   fileReferenceUploadIntent,
   issueFileReferenceUploadAccess,
+  registerFileReferenceUpload,
   uploadInlineFileReference,
   uploadedFileId,
 } from './fileReferenceTransfer';
@@ -47,6 +49,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:value': [value: string | string[] | undefined];
+  /** The owner must retain this preallocated identity on the draft submitted to CRUD. */
+  'update:record-id': [recordId: string];
 }>();
 
 const accept = computed(() => acceptedMediaTypes(props.definition));
@@ -67,15 +71,33 @@ watch(
   { immediate: true },
 );
 
-function requestUploadAccess(file: File) {
-  return issueFileReferenceUploadAccess(
+const uploadRegistrations = new WeakMap<File, string>();
+
+async function requestUploadAccess(file: File) {
+  const recordId = fileReferenceDraftRecordId(props.record);
+  if (props.record.id !== recordId) emit('update:record-id', recordId);
+  const access = await issueFileReferenceUploadAccess(
     props.context.http,
     props.context.moduleAlias,
     props.definition,
-    props.record,
+    { ...props.record, id: recordId },
     file,
     fileReferenceUploadIntent(props.value, props.definition),
   );
+  uploadRegistrations.set(file, access.registrationId);
+  return access;
+}
+
+async function confirmUpload(receipt: FileTransferUploadReceipt) {
+  const ticketId = uploadRegistrations.get(receipt.file);
+  if (!ticketId) throw new Error('文件上传凭证未提供上传登记标识。');
+  await registerFileReferenceUpload(
+    props.context.http,
+    props.context.moduleAlias,
+    ticketId,
+    uploadedFileId(receipt.payload),
+  );
+  uploadRegistrations.delete(receipt.file);
 }
 
 function uploadFile(file: File) {
@@ -144,6 +166,7 @@ function releaseUploadedFile(fileId: string) {
   </div>
   <FileTransferUploader
     :request-upload-access="requestUploadAccess"
+    :confirm-upload="definition.storagePolicy === 'DATABASE_INLINE' ? undefined : confirmUpload"
     :upload-file="definition.storagePolicy === 'DATABASE_INLINE' ? uploadFile : undefined"
     :accept="accept"
     :allowed-media-types="definition.allowedMediaTypes"

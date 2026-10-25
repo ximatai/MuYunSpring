@@ -259,7 +259,11 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
         runtime.handler().bindParent(child, runtime.parent());
         child.setTenantId(runtime.parent().getTenantId());
         requireRelationAction(runtime, runtime.relation().mutationContract().createActionCode(), null);
-        String id = runtime.handler().childService().insert(child);
+        String id;
+        try (var ignored = net.ximatai.muyun.spring.ability.child.AggregateChildMutationContext.openRelation(
+                moduleAlias, relationCode, child)) {
+            id = runtime.handler().childService().insert(child);
+        }
         return outputRecord(runtime, id, runtime.parentScope());
     }
 
@@ -276,9 +280,12 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
         child.setId(persisted.getId());
         runtime.handler().bindParent(child, runtime.parent());
         child.setTenantId(persisted.getTenantId());
-        executeMutation(runtime.handler().childService(), PlatformAction.UPDATE, childId,
-                persistedChild.verifiedScope(),
-                () -> runtime.handler().childService().update(child));
+        try (var ignored = net.ximatai.muyun.spring.ability.child.AggregateChildMutationContext.openRelation(
+                moduleAlias, relationCode, child)) {
+            executeMutation(runtime.handler().childService(), PlatformAction.UPDATE, childId,
+                    persistedChild.verifiedScope(),
+                    () -> runtime.handler().childService().update(child));
+        }
         return outputRecord(runtime, childId, persistedChild.verifiedScope());
     }
 

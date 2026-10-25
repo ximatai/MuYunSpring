@@ -22,7 +22,7 @@ import static org.mockito.Mockito.when;
 class IdentityProviderServiceTest {
     private final ExternalIdentityDao identityDao = mock(ExternalIdentityDao.class);
     private final IdentityProviderService service = new IdentityProviderService(mock(IdentityProviderDao.class),
-            List.of(new StrictProtocol()), identityDao, name -> "SECRET_VAR".equals(name) ? "s3cr3t" : null);
+            List.of(new StrictProtocol()), identityDao, name -> "SECRET_VAR".equals(name) ? "s3cr3t" : null, mock(ExternalIdentityAdmissionLocks.class));
 
     @AfterEach
     void tearDown() {

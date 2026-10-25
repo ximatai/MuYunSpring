@@ -2029,3 +2029,55 @@ it('displays server field rejection without changing draft values or local valid
     wrapper.unmount();
   }
 });
+
+it.each(['image/png', 'application/pdf'])(
+  'retains the preallocated upload identity on the owning form draft for %s fields',
+  async (mediaType) => {
+    const requests: Array<{ body?: unknown }> = [];
+    const request = vi.fn(async (options: { body?: unknown }) => {
+      requests.push(options);
+      return { url: 'https://files.example/upload', registrationId: 'ticket-1' };
+    });
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        mode: 'create',
+        record: { title: 'new document' },
+        fileTransferContext: moduleContext('demo.document', request),
+        fields: new Map<string, RecordFormFieldDescriptor>([
+          [
+            'fileId',
+            {
+              fieldRef: { fieldName: 'fileId' },
+              label: '文件',
+              fileReference: {
+                fieldRef: { fieldName: 'fileId' },
+                allowedMediaTypes: [mediaType],
+                maxFileSizeBytes: 1024,
+                maxFiles: 1,
+                storagePolicy: 'MUYUN_FILE_SERVER',
+                uploadAvailable: true,
+                readAvailable: true,
+              },
+            },
+          ],
+        ]),
+      },
+    });
+    try {
+      const uploader = wrapper.findComponent({ name: 'FileTransferUploader' });
+      const requestAccess = uploader.props('requestUploadAccess') as (file: File) => Promise<unknown>;
+      await requestAccess(new File(['content'], 'file', { type: mediaType }));
+      const patch = wrapper.emitted('update:field')?.[0];
+      expect(patch?.[0]).toBe('id');
+      expect(patch?.[1]).toMatch(/^[a-f0-9]{32}$/);
+      const recordId = patch?.[1] as string;
+      expect(requests[0]?.body).toMatchObject({ draft: { id: recordId, title: 'new document' } });
+      await wrapper.setProps({ record: { ...wrapper.props('record'), id: recordId } });
+      await requestAccess(new File(['content'], 'another', { type: mediaType }));
+      expect(requests[1]?.body).toMatchObject({ draft: { id: recordId } });
+      expect(wrapper.emitted('update:field')).toHaveLength(1);
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);

@@ -37,12 +37,15 @@ const props = defineProps<{
   uiDescriptor: ResolvedModuleUiDescriptor;
   relation: ResolvedDetailRelationDescriptor;
   parentRecord: QueryListRecord;
+  parentMode?: 'create' | 'edit' | 'view';
   mutationEnabled?: boolean;
   reloadKey?: number;
 }>();
 
 const relationRef = computed(() => props.relation);
-const parentId = computed(() => (props.parentRecord.id == null ? undefined : String(props.parentRecord.id)));
+const parentId = computed(() =>
+  props.parentMode === 'create' || props.parentRecord.id == null ? undefined : String(props.parentRecord.id),
+);
 const parentPersisted = computed(() => Boolean(parentId.value));
 const mutationEnabled = computed(() => props.mutationEnabled === true);
 const runtime = useManagedDetailRelationRuntime<QueryListRecord>({
@@ -136,7 +139,7 @@ const formValid = ref(true);
 const formSessionKey = ref(0);
 const editorOpen = computed(() => draft.value != null);
 const editorTitle = computed(() =>
-  draft.value?.id == null
+  editorMode.value === 'create'
     ? language.t('platform.screen.ManagedDetailRelationSurface.add-value', '新增{value1}', {
         value1:
           props.relation.title ??
@@ -179,7 +182,9 @@ async function save() {
   if (!record || !formValid.value || runtime.busy.value) return;
   try {
     const completed =
-      record.id == null ? await runtime.create(record) : await runtime.update(String(record.id), record);
+      editorMode.value === 'create'
+        ? await runtime.create(record)
+        : await runtime.update(String(record.id), record);
     if (completed) draft.value = undefined;
   } catch (cause) {
     presentPlatformError(cause, { language, source: 'managed-detail-relation-dialog', phase: 'action' });

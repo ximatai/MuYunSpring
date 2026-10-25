@@ -88,6 +88,10 @@ class ExternalIdentityFederationIT {
     @Autowired UserSessionDao userSessionDao;
     @Autowired ApplicationContext applicationContext;
     @Autowired JdbcTemplate jdbcTemplate;
+    @Autowired org.springframework.transaction.support.TransactionTemplate transactionTemplate;
+    @Autowired net.ximatai.muyun.spring.iam.federation.ExternalIdentityService externalIdentityService;
+    @Autowired net.ximatai.muyun.spring.iam.user.UserSessionService userSessionService;
+    @Autowired BlockingProtocol blockingProtocol;
 
     @LocalServerPort int port;
     private TestRestTemplate restTemplate;
@@ -135,8 +139,14 @@ class ExternalIdentityFederationIT {
             second.setProviderType(MockExternalLoginProtocol.PROVIDER_TYPE);
             second.setEnabled(true);
             identityProviderService.insert(second);
+            IdentityProvider blocking = new IdentityProvider();
+            blocking.setId(BlockingProtocol.TYPE);
+            blocking.setTitle("Blocking test provider");
+            blocking.setProviderType(BlockingProtocol.TYPE);
+            blocking.setEnabled(true);
+            identityProviderService.insert(blocking);
             try (var tenantScope = TenantContext.use(TENANT)) {
-                for (String providerId : java.util.List.of(PROVIDER, FOREIGN_PROVIDER, SECOND_PROVIDER)) {
+                for (String providerId : java.util.List.of(PROVIDER, FOREIGN_PROVIDER, SECOND_PROVIDER, BlockingProtocol.TYPE)) {
                     TenantIdentityPolicy policy = new TenantIdentityPolicy();
                     policy.setProviderId(providerId);
                     policy.setEnabled(true);
@@ -351,6 +361,188 @@ class ExternalIdentityFederationIT {
                 "/iam.auth/external/mock/authorize");
     }
 
+    @Test
+    void authorityEditsRecheckBindingsAfterAConcurrentFirstBindCommits() throws Exception {
+        String providerId = "scope_race_idp";
+        String username = "scope_race_user";
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("federation-it", "Test"));
+             var system = TenantContext.system("authority race fixture")) {
+            IdentityProvider provider = new IdentityProvider();
+            provider.setId(providerId); provider.setTitle("Scope race");
+            provider.setProviderType(BlockingProtocol.TYPE); provider.setEnabled(true);
+            identityProviderService.insert(provider);
+            try (var tenant = TenantContext.use(TENANT)) {
+                TenantIdentityPolicy policy = new TenantIdentityPolicy();
+                policy.setProviderId(providerId); policy.setEnabled(true);
+                tenantIdentityPolicyService.insert(policy);
+                createUser(username);
+            }
+        }
+        String token = passwordLogin(username);
+        String userId = jdbcTemplate.queryForObject("select id from iam_user where tenant_id = ? and username = ?",
+                String.class, TENANT, username);
+        JsonNode start = post("/iam.auth/external/" + providerId + "/bind", Map.of(), token).getBody();
+        var accountLocked = new java.util.concurrent.CountDownLatch(1);
+        var releaseAccount = new java.util.concurrent.CountDownLatch(1);
+        try (var executor = java.util.concurrent.Executors.newFixedThreadPool(3)) {
+            var hold = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                jdbcTemplate.queryForList("select id from iam_user where id = ? for update", userId);
+                accountLocked.countDown();
+                await(releaseAccount);
+            }));
+            try {
+                assertThat(accountLocked.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                var bind = executor.submit(() -> post("/iam.auth/external/" + providerId + "/complete", Map.of(
+                        "state", start.path("state").asText(), "browserProof", start.path("browserProof").asText(),
+                        "parameters", Map.of("code", "scope-race-identity")), null).getBody());
+                // The bind holds provider/policy locks and now waits for the initiating account.
+                long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+                while (jdbcTemplate.queryForObject("select count(*) from pg_stat_activity where datname = current_database() "
+                                + "and wait_event_type = 'Lock' and query like 'select id from iam_user where tenant_id%for update'", Integer.class) == 0
+                        && System.nanoTime() < deadline) Thread.sleep(10);
+                assertThat(jdbcTemplate.queryForObject("select count(*) from pg_stat_activity where datname = current_database() "
+                        + "and wait_event_type = 'Lock' and query like 'select id from iam_user where tenant_id%for update'", Integer.class)).isPositive();
+                var edit = executor.submit(() -> {
+                    try (var actor = CurrentUserContext.use(CurrentUser.systemUser("federation-it", "Test"));
+                         var system = TenantContext.system("authority race edit")) {
+                        var provider = identityProviderService.select(providerId);
+                        provider.setExternalEnterpriseId("different-authority");
+                        return identityProviderService.update(provider);
+                    }
+                });
+                org.assertj.core.api.Assertions.assertThatThrownBy(() -> edit.get(300, java.util.concurrent.TimeUnit.MILLISECONDS))
+                        .isInstanceOf(java.util.concurrent.TimeoutException.class);
+                releaseAccount.countDown();
+                assertThat(bind.get(15, java.util.concurrent.TimeUnit.SECONDS).path("status").asText()).isEqualTo("succeeded");
+                org.assertj.core.api.Assertions.assertThatThrownBy(() -> edit.get(15, java.util.concurrent.TimeUnit.SECONDS))
+                        .hasCauseInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
+                        .hasRootCauseMessage("identity scope cannot change while bindings exist");
+                assertThat(jdbcTemplate.queryForObject("select external_enterprise_id from iam_identity_provider where id = ?",
+                        String.class, providerId)).isNull();
+            } finally {
+                releaseAccount.countDown();
+            }
+            hold.get(15, java.util.concurrent.TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void successfulAdmissionsLeaveProviderAndPolicyVersionsUnchanged() {
+        String username = "version_user";
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("federation-it", "Test"));
+             var tenant = TenantContext.use(TENANT)) {
+            createUser(username);
+        }
+        Integer providerVersion = jdbcTemplate.queryForObject("select version from iam_identity_provider where id = ?", Integer.class, BlockingProtocol.TYPE);
+        Integer policyVersion = jdbcTemplate.queryForObject("select version from iam_tenant_identity_policy where tenant_id = ? and provider_id = ?", Integer.class, TENANT, BlockingProtocol.TYPE);
+        String token = passwordLogin(username);
+        JsonNode bind = post("/iam.auth/external/" + BlockingProtocol.TYPE + "/bind", Map.of(), token).getBody();
+        assertThat(completeBlocking(bind, "external-version").path("status").asText()).isEqualTo("succeeded");
+        JsonNode login = post("/iam.auth/external/" + BlockingProtocol.TYPE + "/login", Map.of("tenantId", TENANT), null).getBody();
+        assertThat(completeBlocking(login, "external-version").path("status").asText()).isEqualTo("succeeded");
+        assertThat(jdbcTemplate.queryForObject("select version from iam_identity_provider where id = ?", Integer.class, BlockingProtocol.TYPE)).isEqualTo(providerVersion);
+        assertThat(jdbcTemplate.queryForObject("select version from iam_tenant_identity_policy where tenant_id = ? and provider_id = ?", Integer.class, TENANT, BlockingProtocol.TYPE)).isEqualTo(policyVersion);
+    }
+
+    @Test
+    void finalAdmissionSerializesWithUnbindPolicyDisableSessionRevocationAndAccountDisable() throws Exception {
+        for (String mutation : java.util.List.of("unbind", "provider", "policy", "session", "account")) {
+            String username = "race_" + mutation;
+            String externalId = "external_" + mutation;
+            try (var actor = CurrentUserContext.use(CurrentUser.systemUser("federation-it", "Test"));
+                 var tenant = TenantContext.use(TENANT)) {
+                createUser(username);
+            }
+            String token = passwordLogin(username);
+            String userId = jdbcTemplate.queryForObject("select id from iam_user where tenant_id = ? and username = ?",
+                    String.class, TENANT, username);
+            JsonNode start;
+            if (mutation.equals("unbind")) {
+                JsonNode bind = post("/iam.auth/external/" + BlockingProtocol.TYPE + "/bind", Map.of(), token).getBody();
+                assertThat(completeBlocking(bind, externalId).path("status").asText()).isEqualTo("succeeded");
+                start = post("/iam.auth/external/" + BlockingProtocol.TYPE + "/login", Map.of("tenantId", TENANT), null).getBody();
+            } else {
+                start = post("/iam.auth/external/" + BlockingProtocol.TYPE + "/bind", Map.of(), token).getBody();
+            }
+            var mutationWritten = new java.util.concurrent.CountDownLatch(1);
+            var commitMutation = new java.util.concurrent.CountDownLatch(1);
+            blockingProtocol.arm();
+            try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+                var completion = executor.submit(() -> completeBlocking(start, externalId));
+                assertThat(blockingProtocol.entered.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                var change = executor.submit(() -> {
+                    try (var actor = CurrentUserContext.use(CurrentUser.systemUser("federation-it", "Test"));
+                         var tenant = TenantContext.use(TENANT)) {
+                        transactionTemplate.executeWithoutResult(status -> {
+                            switch (mutation) {
+                                case "unbind" -> externalIdentityService.bindingsOfUser(userId)
+                                        .forEach(binding -> externalIdentityService.delete(binding.getId()));
+                                case "provider" -> identityProviderService.disable(BlockingProtocol.TYPE);
+                                case "policy" -> tenantIdentityPolicyService.disable(tenantIdentityPolicyService
+                                        .enabledPolicy(TENANT, BlockingProtocol.TYPE).orElseThrow().getId());
+                                case "session" -> userSessionService.revokeUserSessions(userId);
+                                case "account" -> userAccountService.disable(userId);
+                                default -> throw new AssertionError(mutation);
+                            }
+                            mutationWritten.countDown();
+                            await(commitMutation);
+                        });
+                    }
+                });
+                try {
+                    assertThat(mutationWritten.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                    blockingProtocol.release.countDown();
+                    // A plain MVCC read would observe the old enabled/bound/live state and finish here.
+                    org.assertj.core.api.Assertions.assertThatThrownBy(() -> completion.get(300, java.util.concurrent.TimeUnit.MILLISECONDS))
+                            .isInstanceOf(java.util.concurrent.TimeoutException.class);
+                } finally {
+                    commitMutation.countDown();
+                    blockingProtocol.release.countDown();
+                }
+                change.get(15, java.util.concurrent.TimeUnit.SECONDS);
+                JsonNode denied = completion.get(15, java.util.concurrent.TimeUnit.SECONDS);
+                assertThat(denied.path("status").asText()).as(mutation).isEqualTo("denied");
+                assertThat(denied.path("failure").asText()).as(mutation).isEqualTo(switch (mutation) {
+                    case "unbind" -> "identityNotBound";
+                    case "provider", "policy" -> "policyDisabled";
+                    case "session" -> "sessionEnded";
+                    case "account" -> "accountUnavailable";
+                    default -> throw new AssertionError(mutation);
+                });
+                assertThat(jdbcTemplate.queryForObject("select count(*) from iam_user_session where user_id = ? and authentication_method like 'external:%'",
+                        Integer.class, userId)).isZero();
+                if (!mutation.equals("unbind")) {
+                    assertThat(jdbcTemplate.queryForObject("select count(*) from iam_external_identity where user_id = ?",
+                            Integer.class, userId)).isZero();
+                }
+            } finally {
+                blockingProtocol.disarm();
+                try (var actor = CurrentUserContext.use(CurrentUser.systemUser("federation-it", "Test"));
+                     var tenant = TenantContext.use(TENANT)) {
+                    if (mutation.equals("provider")) identityProviderService.enable(BlockingProtocol.TYPE);
+                    if (mutation.equals("policy")) {
+                        var policy = tenantIdentityPolicyService.list(Criteria.of().eq("providerId", BlockingProtocol.TYPE), new PageRequest(0, 1)).getFirst();
+                        tenantIdentityPolicyService.enable(policy.getId());
+                    }
+                }
+            }
+        }
+    }
+
+    private JsonNode completeBlocking(JsonNode start, String externalId) {
+        return post("/iam.auth/external/" + BlockingProtocol.TYPE + "/complete", Map.of("state", start.path("state").asText(),
+                "browserProof", start.path("browserProof").asText(), "parameters", Map.of("code", externalId)), null).getBody();
+    }
+
+    private static void await(java.util.concurrent.CountDownLatch latch) {
+        try {
+            if (!latch.await(15, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("concurrent operation timed out");
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(exception);
+        }
+    }
+
     private JsonNode startLogin() {
         ResponseEntity<JsonNode> start = post("/iam.auth/external/" + PROVIDER + "/login", Map.of("tenantId", TENANT), null);
         assertThat(start.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -448,8 +640,30 @@ class ExternalIdentityFederationIT {
     @TestConfiguration(proxyBeanMethods = false)
     static class ForeignProtocolConfiguration {
         @Bean
+        BlockingProtocol blockingProtocol() { return new BlockingProtocol(); }
+
+        @Bean
         ExternalLoginProtocol foreignEnterpriseProtocol() {
             return new ForeignEnterpriseProtocol();
+        }
+    }
+
+    static final class BlockingProtocol implements ExternalLoginProtocol {
+        static final String TYPE = "blocking_idp";
+        volatile java.util.concurrent.CountDownLatch entered;
+        volatile java.util.concurrent.CountDownLatch release;
+        void arm() { entered = new java.util.concurrent.CountDownLatch(1); release = new java.util.concurrent.CountDownLatch(1); }
+        void disarm() { entered = null; release = null; }
+        @Override public String providerType() { return TYPE; }
+        @Override public URI authorizationUri(IdentityProviderDescriptor provider, ExternalAuthorizationContext context) {
+            return URI.create("https://idp.test/authorize?state=" + encode(context.state()));
+        }
+        @Override public VerifiedExternalIdentity verify(IdentityProviderDescriptor provider, Map<String, String> parameters,
+                                                        ExternalAuthorizationContext context) {
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            var current = entered;
+            if (current != null) { current.countDown(); await(release); }
+            return new VerifiedExternalIdentity("test-enterprise", parameters.get("code"), null, java.time.Instant.now());
         }
     }
 
