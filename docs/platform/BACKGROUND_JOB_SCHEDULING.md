@@ -150,6 +150,32 @@ muyun-iam
 - 静态贡献调用正常领域 Service，使用 `listForAction` / `selectForAction` 等动作感知查询读取受数据权限保护的数据；普通 `list/select` 不会因绑定了动作上下文而自动变成授权查询。写入保留原 Ability 与领域服务链路，不提供裸 DAO 调用捷径。
 - 静态参数使用 JSON 对象，原文及编码后的参数各不超过 16 KiB，完整冻结输入（含身份引用）仍受作业 16 KiB 限制；递归拒绝密码、密钥、令牌、认证头等凭据字段。贡献的参数校验应声明业务允许的参数，不在参数中保存凭据或业务全文。参数作为动作 payload，不绑定记录、表单、查询结构或 HTTP 请求。
 
+### 二开静态动作接入示例
+
+学校演示（`school-demo`）的 [DisableGraduatedStudentsAction](../../muyun-demo/src/main/java/net/ximatai/muyun/spring/demo/school/student/DisableGraduatedStudentsAction.java)
+贡献 `education.student / disableGraduated`（停用已毕业学生）：不接收参数、记录或表单，以 UTC 当日为界，
+每轮最多停用 100 个毕业日期已到且仍启用的学生。未填毕业日期的档案不处理，档案和班级关系保留；后续运行继续处理剩余记录。演示前可在学生档案填写已到期的毕业日期并保持启用，再创建计划并立即执行。
+[StudentService](../../muyun-demo/src/main/java/net/ximatai/muyun/spring/demo/school/student/StudentService.java)
+负责业务变更，[StudentWebController](../../muyun-demo-web/src/main/java/net/ximatai/muyun/spring/demo/school/student/StudentWebController.java)
+通过 `@CustomActionEndpoint(level = LIST, dataAuth = true)` 将同编码动作注册到标准动作目录。
+
+二开应用按以下契约接入：
+
+1. 正常声明静态模块与动作目录项，再以 Spring Bean 实现 `ScheduledModuleAction`，返回一致的 `moduleAlias`、`actionCode`。
+   静态动作允许定时调用的依据是唯一的领域贡献 Bean，不是目录的动态 `schedulable` 开关；移除贡献或停用动作可撤销调用。
+2. 动作必须是无需选中记录、无需表单的 `LIST` 动作，不使用对话执行器或可用表达式。`validate` 明确校验允许的参数；
+   无参数动作拒绝非空参数。平台在保存与执行时校验，但业务执行仍须保留自身不变量。
+3. 通过 `ModuleActionInvoker` 进入标准动作授权。动作需要数据范围时声明 `dataAuth = true`，模型使用 `StandardDataScopedEntity` 等标准权限字段契约，服务组合 `DataScopeAbility` 并使用动作感知查询，
+   自定义动作可用 `readScopeByPolicy(context.actionPolicy(), criteria)` 与 `withDataScopeTenant` 保持当前授权策略和租户范围；
+   不要改用普通查询或系统上下文绕过限制。写入仍调用正常领域服务及 Ability。计划发起人权限不等于系统权限。
+4. 调度为至少一次语义。动作必须幂等，并以稳定业务条件筛选待处理记录；重复运行不应重复产生业务效果。
+   一次模块动作在受租约保护的事务内执行，事务上限 **30 秒**；使用有界批次，超过该限制的长流程应接入独立作业处理器并拆分短事务。
+
+动态动作仍由元数据声明 `LIST / SERVICE`、`schedulable = true`、`formSupported = false`，并绑定真实执行器。
+执行器由应用部署的 `DynamicActionExecutor` Bean 提供，只有显式声明 `definition().bindable = true` 且支持对应类别与层级时才出现在手工绑定目录。
+当前内置及演示执行器均未开放手工绑定；仅勾选“允许定时调用”不能使未绑定的动作可执行。
+二开可贡献符合上述无记录、无表单契约的可绑定执行器，或沿用专题自动贡献的绑定动作，不通过任意脚本或 Controller 反射调用补齐执行。
+
 ### 计划、身份与执行
 
 专题模块为 `platform.scheduled_action_plan`，通过 `JobService.registerManaged` 在正常 CRUD 事务中维护底层计划；删除通过 `deleteManaged` 删除计划，保留已有运行。平台与租户类型分别为 `platform.module-action-platform`、`platform.module-action`，均使用 `default` 通道、最长五分钟、一次尝试及标准失败提醒。静态参数、身份引用与身份模式随运行生成冻结；人工重试保留原冻结输入，立即执行不替换执行身份。

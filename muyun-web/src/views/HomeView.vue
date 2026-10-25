@@ -5,7 +5,7 @@ const language = useLanguageContext();
 </script>
 <template>
   <section class="home-view">
-    <p class="home-eyebrow">Workspace</p>
+    <p class="home-eyebrow">{{ language.t('platform.screen.HomeView.workspace', '工作台') }}</p>
     <h2>{{ language.t('platform.screen.HomeView.select-a-menu-on-the-left', '请选择左侧菜单') }}</h2>
     <p>
       {{

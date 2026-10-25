@@ -10,6 +10,11 @@ import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.web.WebSupport;
+import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
+import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
+import org.springframework.web.bind.annotation.PostMapping;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.context.annotation.Profile;
@@ -27,6 +32,14 @@ import org.springframework.context.annotation.Profile;
 public class StudentWebController extends WebSupport<StudentService>
         implements CrudWeb<Student, StudentService>, StaticModuleUiContributor {
 
+    @PostMapping("/disableGraduated")
+    @CustomActionEndpoint(value = "disableGraduated",
+            title = "停用已毕业学生", level = PlatformActionLevel.LIST,
+            dataAuth = true)
+    public Object disableGraduated() {
+        return webScope(() -> service().disableGraduated(LocalDate.now(ZoneOffset.UTC)));
+    }
+
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(StudentService.MODULE_ALIAS)
@@ -36,6 +49,7 @@ public class StudentWebController extends WebSupport<StudentService>
                                 .field("studentNo", field -> field.label("学号").width("140px"))
                                 .field("title", field -> field.label("学生姓名").width("160px"))
                                 .field("grade", field -> field.label("年级").width("120px"))
+                                .field("graduationDate", field -> field.label("毕业日期"))
                                 .field("enabled", field -> field.label("启用状态").enabledStatus()
                                         .width("90px").align("center"))))
                         .detail(detail -> detail.editor(form -> form
@@ -43,6 +57,7 @@ public class StudentWebController extends WebSupport<StudentService>
                                 .field("studentNo", field -> field.label("学号").required())
                                 .field("title", field -> field.label("学生姓名").required())
                                 .field("grade", field -> field.label("年级").required())
+                                .field("graduationDate", field -> field.label("毕业日期"))
                                 .field("enabled", field -> field.label("启用状态").enabledStatus())))
                         .traits(traits -> traits.operations(operations -> operations.standardCrud()
                                 .enabledLifecycle().recycleBin()))))
