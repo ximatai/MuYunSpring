@@ -70,13 +70,13 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
 
     @Override
     public QueryDescriptor queryDescriptor() {
-        return QueryDescriptors.fromModel(MODULE_ALIAS, PlatformModuleAction.class, java.util.List.of("id", "moduleAlias", "actionCode", "entityAlias", "permissionActionCode", "title", "category", "actionLevel", "accessMode", "actionAuth", "dataAuth", "defaultGrantPolicy", "accessModeOverride", "actionAuthOverride", "dataAuthOverride", "defaultGrantPolicyOverride", "executorType", "executorKey", "formSupported", "sourceType", "sourceId", "bindingType", "bindingId", "bindingAlias", "systemManaged", "enabled", "sortOrder", "createdAt", "updatedAt"),
+        return QueryDescriptors.fromModel(MODULE_ALIAS, PlatformModuleAction.class, java.util.List.of("id", "moduleAlias", "actionCode", "entityAlias", "permissionActionCode", "title", "category", "actionLevel", "accessMode", "actionAuth", "dataAuth", "defaultGrantPolicy", "accessModeOverride", "actionAuthOverride", "dataAuthOverride", "defaultGrantPolicyOverride", "executorType", "executorKey", "formSupported", "schedulable", "sourceType", "sourceId", "bindingType", "bindingId", "bindingAlias", "systemManaged", "enabled", "sortOrder", "createdAt", "updatedAt"),
                 net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"));
     }
 
     @Override
     public Set<String> editablePlatformManagedFields() {
-        return Set.of("sortOrder", "accessModeOverride", "actionAuthOverride", "dataAuthOverride", "defaultGrantPolicyOverride");
+        return Set.of("schedulable", "sortOrder", "accessModeOverride", "actionAuthOverride", "dataAuthOverride", "defaultGrantPolicyOverride");
     }
 
     /** Platform-managed actions allow directory ordering and explicit permission governance overrides. */
@@ -311,6 +311,10 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
             action.setSystemManaged(false);
         }
         validateManualActionBinding(action, module);
+        if (Boolean.TRUE.equals(action.getSchedulable()) && (module.getModuleKind() != ModuleKind.DYNAMIC
+                || action.getActionLevel() != net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel.LIST
+                || Boolean.TRUE.equals(action.getFormSupported()) || action.getExecutorType() != EntityActionExecutorType.SERVICE))
+            throw new IllegalArgumentException("Only headless dynamic module actions can be schedulable");
         action.setTenantId(null);
         rejectDuplicate(action, Criteria.of()
                         .eq("moduleAlias", action.getModuleAlias())

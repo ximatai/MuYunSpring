@@ -2021,6 +2021,7 @@ export interface PlatformModule extends StandardEnabledTreeEntity {
 
 /** A governed operation exposed by one platform module. */
 export interface PlatformModuleAction extends StandardEnabledSortableEntity {
+  schedulable?: boolean;
   bindingPending?: boolean;
   formSupported?: boolean;
   moduleAlias?: string;

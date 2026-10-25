@@ -53,6 +53,7 @@ public class JobPlan extends StandardEntity {
     @Column(name = "managed_by", type = ColumnType.VARCHAR, length = 128, comment = "managedBy")
     private String managedBy;
 
+    /** Persisted {@link JobIdentityMode} name; SERVICE_ACCOUNT is reserved. */
     @Column(name = "identity_mode", type = ColumnType.VARCHAR, length = 32, comment = "identityMode", nullable = false)
     private String identityMode;
 

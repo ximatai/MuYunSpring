@@ -136,6 +136,10 @@ public class PlatformModuleAction extends StandardEnabledSortableEntity implemen
             defaultVal = @Default(bool = TrueOrFalse.FALSE))
     private Boolean systemManaged = Boolean.FALSE;
 
+    @Column(name = "schedulable", comment = "Whether action permits scheduled invocation",
+            defaultVal = @Default(bool = TrueOrFalse.FALSE))
+    private Boolean schedulable = Boolean.FALSE;
+
     public EntityActionAccessMode effectiveAccessMode() {
         return accessModeOverride == null ? accessMode : accessModeOverride;
     }

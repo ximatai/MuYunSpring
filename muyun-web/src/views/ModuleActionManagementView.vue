@@ -672,6 +672,19 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
         <h3>
           {{ language.t('platform.screen.ModuleActionManagementView.permission-governance', '权限治理') }}
         </h3>
+        <label v-if="moduleKind === 'dynamic'" class="checkbox-field">
+          <UiCheckbox
+            :checked="draft.schedulable === true"
+            :disabled="formDisabled || draft.actionLevel !== 'LIST' || draft.formSupported === true"
+            @update:checked="updateDraft('schedulable', $event)"
+            >{{
+              language.t(
+                'platform.screen.ModuleActionManagementView.schedulable',
+                '允许定时调用（无需表单的模块动作）',
+              )
+            }}</UiCheckbox
+          >
+        </label>
         <div class="governance-grid">
           <section class="governance-item">
             <header>
@@ -1015,6 +1028,19 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
           )
         }}
       </p>
+      <label v-if="moduleKind === 'dynamic'" class="checkbox-field">
+        <UiCheckbox
+          :checked="draft.schedulable === true"
+          :disabled="formDisabled || draft.actionLevel !== 'LIST' || draft.formSupported === true"
+          @update:checked="updateDraft('schedulable', $event)"
+          >{{
+            language.t(
+              'platform.screen.ModuleActionManagementView.schedulable',
+              '允许定时调用（无需表单的模块动作）',
+            )
+          }}</UiCheckbox
+        >
+      </label>
       <label class="checkbox-field">
         <UiCheckbox
           :checked="draft.actionAuth !== false"
