@@ -29,10 +29,18 @@ public class WorkflowNodeOvertimeJob implements JobHandler {
 
     @Override
     public JobResult execute(JobContext context) {
-        context.checkCancelled();
-        // Node updates are version-checked and idempotent; like the former scheduler, the scan manages its own
-        // writes instead of holding the run row for the whole pass.
-        var result = scanService.scan(null);
+        var now = java.time.Instant.now();
+        String cursor = null;
+        int scanned = 0, warned = 0, overdue = 0;
+        do {
+            String afterId = cursor;
+            var batch = context.transaction(() -> scanService.scanBatch(now, afterId));
+            scanned += batch.result().scannedCount();
+            warned += batch.result().warnedCount();
+            overdue += batch.result().overdueCount();
+            cursor = batch.nextCursor();
+        } while (cursor != null);
+        var result = new WorkflowNodeOvertimeScanResult(scanned, warned, overdue);
         return JobResult.success("COMPLETE", Map.of("scanned", (long) result.scannedCount(),
                 "warned", (long) result.warnedCount(), "overdue", (long) result.overdueCount(),
                 "updated", (long) result.updatedCount()));

@@ -114,8 +114,8 @@ public final class JobService {
                 throw new PlatformAccessDeniedException("Topic-managed job configuration is read-only");
             // Scans update runtime state continuously, so administrators are checked against the configuration
             // revision only; the topic facade is the source of truth for managed plans and overwrites.
-            if (row != null && !trusted && request.getConfigRevision() != null
-                    && !Objects.equals(request.getConfigRevision(), row.getConfigRevision()))
+            if (row != null && !trusted && (request.getConfigRevision() == null
+                    || !Objects.equals(request.getConfigRevision(), row.getConfigRevision())))
                 throw new OptimisticLockException("Job plan changed");
             Instant now = store.now();
             if (row == null) {
@@ -359,7 +359,12 @@ public final class JobService {
         });
     }
     <T> T protectedTransaction(String id, String token, Runnable locks, Supplier<T> writes) {
-        return tx(() -> { locks.run(); store.leased(id, token); return writes.get(); });
+        return tx(() -> {
+            locks.run();
+            var row = store.leased(id, token);
+            if (Boolean.TRUE.equals(row.getCancelRequested())) throw new JobFailure("CANCELLED", false);
+            return writes.get();
+        });
     }
     boolean cancelled(String id, String token) {
         return system(() -> tx(() -> Boolean.TRUE.equals(store.leased(id, token).getCancelRequested())));

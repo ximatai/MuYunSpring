@@ -40,6 +40,7 @@ class JobMaintenanceIT extends PlatformPostgresIntegrationTest {
     @DynamicPropertySource static void properties(DynamicPropertyRegistry registry) {
         registry.add("muyun.database.repository-schema-mode", () -> "ENSURE");
     }
+    @Autowired PlatformTransactionManager transactions;
     @Autowired JobService jobs;
     @Autowired JobPlanDao plans;
     @Autowired JobRunDao runs;
@@ -114,12 +115,15 @@ class JobMaintenanceIT extends PlatformPostgresIntegrationTest {
         var tenantA = fixture("tenant-a", false);
         var tenantB = fixture("tenant-b", true);
         // Raw DAO scanning has always included all tenant partitions, unlike workflow read facades.
-        var before = scans.scan(null);
+        var before = new org.springframework.transaction.support.TransactionTemplate(transactions)
+                .execute(status -> scans.scanBatch(null, null).result());
         assertThat(before).isEqualTo(new WorkflowNodeOvertimeScanResult(3, 1, 2));
         var original = eventFacts();
         resetScan();
         try (var ignored = TenantContext.system("compare previous scan scope")) {
-            assertThat(scans.scan(null)).isEqualTo(before);
+            var comparison = new org.springframework.transaction.support.TransactionTemplate(transactions)
+                    .execute(status -> scans.scanBatch(null, null).result());
+            assertThat(comparison).isEqualTo(before);
         }
         assertThat(eventFacts()).containsExactlyInAnyOrderElementsOf(original);
         resetScan();

@@ -61,6 +61,22 @@ class ScheduledActionPlanServiceTest {
         }
         verifyNoInteractions(jobs);
     }
+    @Test void updatesRequireTheExpectedRecordVersion() throws Exception {
+        var omitted = new ObjectMapper().readValue("{}", ScheduledActionPlan.class);
+        var initial = row(); initial.setVersion(0);
+        assertThatThrownBy(() -> service.expectedVersionForUpdate(omitted, initial))
+                .isInstanceOf(net.ximatai.muyun.spring.ability.OptimisticLockException.class);
+        var existing = row(); existing.setVersion(3);
+        var incoming = row();
+        assertThatThrownBy(() -> service.expectedVersionForUpdate(incoming, existing))
+                .isInstanceOf(net.ximatai.muyun.spring.ability.OptimisticLockException.class);
+        incoming.setVersion(2);
+        assertThatThrownBy(() -> service.expectedVersionForUpdate(incoming, existing))
+                .isInstanceOf(net.ximatai.muyun.spring.ability.OptimisticLockException.class);
+        incoming.setVersion(3);
+        assertThat(service.expectedVersionForUpdate(incoming, existing)).isEqualTo(3);
+        verifyNoInteractions(jobs);
+    }
     @Test void boundsAndCredentialChecksApplyRecursively() {
         assertThatThrownBy(() -> ScheduledActionPlanService.arguments("{\"nested\":[{\"access_token\":\"secret\"}]}" )).hasMessageContaining("Credentials");
         assertThatThrownBy(() -> ScheduledActionPlanService.arguments("{\"value\":\"" + "x".repeat(16384) + "\"}")).hasMessageContaining("16 KiB");

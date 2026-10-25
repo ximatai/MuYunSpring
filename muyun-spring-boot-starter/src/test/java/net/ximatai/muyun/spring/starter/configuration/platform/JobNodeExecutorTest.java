@@ -55,6 +55,7 @@ class JobNodeExecutorTest {
         var renewed = new CountDownLatch(1);
         var block = new CountDownLatch(1);
         when(jobs.runOne(anyString(), anyString(), any(BooleanSupplier.class))).thenAnswer(invocation -> {
+            assertThat(invocation.getArgument(2, BooleanSupplier.class).getAsBoolean()).isTrue();
             handlerEntered.countDown();
             block.await();
             return false;
@@ -101,6 +102,7 @@ class JobNodeExecutorTest {
         var released = new AtomicBoolean();
         var fencedBeforeInterrupt = new AtomicBoolean();
         when(jobs.runOne(anyString(), anyString(), any(BooleanSupplier.class))).thenAnswer(invocation -> {
+            assertThat(invocation.getArgument(2, BooleanSupplier.class).getAsBoolean()).isTrue();
             entered.countDown();
             try { new CountDownLatch(1).await(); }
             catch (InterruptedException stop) { fencedBeforeInterrupt.set(released.get()); interrupted.countDown(); }
@@ -116,6 +118,48 @@ class JobNodeExecutorTest {
         assertThat(fencedBeforeInterrupt).isTrue();
     }
 
+    @Test
+    void acceptedHandlerKeepsItsGracePeriodBeforeOwnersAreReleased() throws Exception {
+        var jobs = mock(JobService.class);
+        var entered = new CountDownLatch(1); var finish = new CountDownLatch(1);
+        var interrupted = new AtomicBoolean();
+        when(jobs.runOne(anyString(), anyString(), any(BooleanSupplier.class))).thenAnswer(call -> {
+            assertThat(call.getArgument(2, BooleanSupplier.class).getAsBoolean()).isTrue();
+            entered.countDown();
+            try { finish.await(); }
+            catch (InterruptedException stop) { interrupted.set(true); }
+            return false;
+        });
+        var properties = properties(); properties.setShutdownGrace(Duration.ofSeconds(2));
+        var executor = new JobNodeExecutor(jobs, new JobRegistry(List.of()), properties);
+        var completion = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+        try {
+            executor.start(); assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            completion.schedule(finish::countDown, 100, TimeUnit.MILLISECONDS);
+            executor.stop();
+            assertThat(interrupted).isFalse();
+            verify(jobs).releaseNode(anyString());
+        } finally { finish.countDown(); completion.shutdownNow(); executor.stop(); }
+    }
+
+    @Test
+    void shutdownDoesNotWaitForDatabaseConnectionTimeout() throws Exception {
+        var jobs = mock(JobService.class);
+        var unavailable = new CountDownLatch(1);
+        var claiming = new CountDownLatch(1);
+        when(jobs.runOne(anyString(), anyString(), any(BooleanSupplier.class))).thenAnswer(call -> {
+            claiming.countDown(); unavailable.await(30, TimeUnit.SECONDS); return false;
+        });
+        doAnswer(call -> { unavailable.await(30, TimeUnit.SECONDS); return null; }).when(jobs).releaseNode(anyString());
+        var properties = properties(); properties.setShutdownGrace(Duration.ofSeconds(30));
+        var executor = new JobNodeExecutor(jobs, new JobRegistry(List.of()), properties);
+        executor.start();
+        try {
+            assertThat(claiming.await(2, TimeUnit.SECONDS)).isTrue();
+            org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(3), () -> { executor.stop(); });
+            assertThat(executor.isRunning()).isFalse();
+        } finally { unavailable.countDown(); }
+    }
     private MuYunSpringJobProperties properties() {
         var properties = new MuYunSpringJobProperties();
         properties.setScheduledEnabled(false);

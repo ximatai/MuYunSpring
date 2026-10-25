@@ -74,6 +74,8 @@ public class JobPlanWebController extends StaticModuleWebControllerAdapter<JobPl
                                 .field("scope", field -> field.label("作用范围").readOnly())
                                 .field("objectKey", field -> field.label("业务对象键").readOnly())
                                 .field("managedBy", field -> field.label("托管方").readOnly())
+                                // Formula read-only retains the expected revision in the standard form payload.
+                                .field("configRevision", field -> field.label("配置修订").enabledWhen(UiFormula.booleanExpression("!(PRESENT({id}))")))
                                 .field("identityMode", field -> field.label("执行身份").readOnly())
                                 .field("scheduleKind", field -> field.label("计划类型").enabledWhen(editable))
                                 .field("expression", field -> field.label("Cron 表达式").enabledWhen(editable))

@@ -5,6 +5,10 @@ import net.ximatai.muyun.database.core.orm.*;
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.notification.*;
+import net.ximatai.muyun.spring.platform.workflow.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import static org.mockito.Mockito.*;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,17 +34,21 @@ import static org.assertj.core.api.Assertions.*;
 class JobRepositoryIT extends PlatformPostgresIntegrationTest {
     @Autowired JobPlanDao plans;
     @Autowired JobRunDao runs;
+    @Autowired WorkflowNodeInstanceDao nodes;
+    @Autowired WorkflowInstanceDao instances;
+    @Autowired WorkflowEventDao events;
     @Autowired IDatabaseOperations<?> db;
     @Autowired PlatformTransactionManager manager;
     private JobService first, second;
     private TransactionTemplate tx;
+    private java.util.function.Function<JobContext, JobResult> execution;
     private final AtomicInteger executions = new AtomicInteger();
 
     @DynamicPropertySource static void properties(DynamicPropertyRegistry properties) {
         properties.add("muyun.database.repository-schema-mode", () -> "ENSURE");
     }
     @BeforeEach void setup() {
-        tx = new TransactionTemplate(manager); executions.set(0);
+        tx = new TransactionTemplate(manager); executions.set(0); execution = null;
         var beans = new DefaultListableBeanFactory();
         beans.registerSingleton("access", (JobManagementAccess) tenant -> { });
         beans.registerSingleton("recipients", (JobFailureRecipientResolver) tenant -> BusinessNotificationRecipients.none());
@@ -48,7 +56,9 @@ class JobRepositoryIT extends PlatformPostgresIntegrationTest {
         first = service(registry, beans); second = service(registry, beans);
         global(() -> { db.execute("delete from platform_job_run"); db.execute("delete from platform_job_plan");
             db.execute("create table if not exists job_fencing_fixture (id varchar primary key, value integer)");
-            db.execute("delete from job_fencing_fixture"); return null; });
+            db.execute("delete from job_fencing_fixture");
+            db.execute("delete from platform_workflow_event"); db.execute("delete from platform_workflow_node_instance");
+            db.execute("delete from platform_workflow_instance"); return null; });
     }
     private JobService service(JobRegistry registry, DefaultListableBeanFactory beans) {
         return new JobService(plans, runs, db, manager, registry, beans.getBeanProvider(JobFailureRecipientResolver.class),
@@ -62,6 +72,7 @@ class JobRepositoryIT extends PlatformPostgresIntegrationTest {
                         "default", null, Duration.ofMinutes(5), 3, Duration.ZERO, input -> "shared", false, 3, true, scope == JobScope.TENANT ? 30 : null);
             }
             public JobResult execute(JobContext context) {
+                if (execution != null) return execution.apply(context);
                 context.transaction(() -> { executions.incrementAndGet(); return null; });
                 return JobResult.success("COMPLETE", Map.of("processed", 1L));
             }
@@ -99,8 +110,16 @@ class JobRepositoryIT extends PlatformPostgresIntegrationTest {
         assertThat(claims.stream().filter(Objects::nonNull)).hasSize(1);
         assertThat(second.claim("missing", "b")).isNull();
         var a = queued("test.tenant", "tenant-a", "v1"); var b = queued("test.tenant", "tenant-b", "v1");
-        assertThat(first.claim("default", "a").getId()).isIn(a.getId(), b.getId());
-        assertThat(second.claim("default", "b").getId()).isIn(a.getId(), b.getId());
+        var tenantClaims = List.of(first.claim("default", "tenant-owner-a"), second.claim("default", "tenant-owner-b"));
+        assertThat(tenantClaims).extracting(JobRun::getId).containsExactlyInAnyOrder(a.getId(), b.getId());
+        assertThat(tenantClaims).allSatisfy(run -> {
+            assertThat(run.getTenantId()).isEqualTo(run.getId().equals(a.getId()) ? "tenant-a" : "tenant-b");
+            assertThat(run.getStatus()).isEqualTo("RUNNING");
+            assertThat(run.getLeaseToken()).isNotBlank(); assertThat(run.getLeaseUntil()).isAfter(run.getStartedAt());
+            assertThat(run.getAttempts()).isEqualTo(1);
+        });
+        assertThat(tenantClaims).extracting(JobRun::getNodeId).containsExactly("tenant-owner-a", "tenant-owner-b");
+        assertThat(tenantClaims).extracting(JobRun::getLeaseToken).doesNotHaveDuplicates();
     }
     @Test void blockedMutexBacklogCannotStarveAnotherTenant() {
         queued("test.platform", null, "active"); first.claim("default", "active-owner");
@@ -203,6 +222,136 @@ class JobRepositoryIT extends PlatformPostgresIntegrationTest {
         var pending = queued("test.platform", null, "v2"); first.cancel(pending.getId());
         global(() -> { assertThat(runs.findById(pending.getId()).getStatus()).isEqualTo("CANCELLED"); return null; });
     }
+    @Test void administratorUpdatesRequireConfigRevisionButRuntimeStateDoesNotConflict() {
+        first.registerDefaults();
+        var request = global(() -> plans.query(Criteria.of(), PageRequest.of(1, 1)).getFirst());
+        Integer revision = request.getConfigRevision();
+        request.setConfigRevision(null);
+        assertThatThrownBy(() -> first.configure(request)).isInstanceOf(net.ximatai.muyun.spring.ability.OptimisticLockException.class);
+        request.setConfigRevision(revision);
+        first.runNow(request.getId()); // Updates the storage version, not the configuration revision.
+        request.setIntervalMillis(7200000L);
+        var updated = first.configure(request);
+        assertThat(updated.getConfigRevision()).isEqualTo(revision + 1);
+        assertThatThrownBy(() -> first.configure(request)).isInstanceOf(net.ximatai.muyun.spring.ability.OptimisticLockException.class);
+        global(() -> {
+            assertThat(plans.findById(request.getId()).getIntervalMillis()).isEqualTo(7200000L); return null;
+        });
+    }
+    @ParameterizedTest @ValueSource(ints = {1, 3})
+    void maximumRuntimeTransitionsReleaseLeaseAndMutexAndRejectOldToken(int attempts) {
+        var queued = queued("test.platform", null, "timeout"); var leased = first.claim("default", "owner");
+        global(() -> { db.execute("update platform_job_run set started_at=clock_timestamp()-interval '6 minutes', attempts=? where id=?", attempts, queued.getId()); return null; });
+        first.renewNode("owner");
+        global(() -> {
+            var row = runs.findById(queued.getId());
+            assertThat(row.getStatus()).isEqualTo(attempts == 1 ? "RETRY" : "FAILED");
+            assertThat(row.getResultCode()).isEqualTo("MAXIMUM_RUNTIME_EXCEEDED");
+            assertThat(row.getLeaseToken()).isNull(); assertThat(row.getLeaseUntil()).isNull(); assertThat(row.getNodeId()).isNull();
+            assertThat(row.getFinishedAt() != null).isEqualTo(attempts == 3);
+            if (attempts == 1) db.execute("update platform_job_run set available_at=clock_timestamp()+interval '1 day' where id=?", row.getId());
+            return null;
+        });
+        assertThatThrownBy(() -> first.protectedTransaction(leased.getId(), leased.getLeaseToken(), () -> { }, () -> {
+            db.execute("insert into job_fencing_fixture values ('stale',1)"); return null;
+        })).isInstanceOf(JobFailure.class).hasMessageContaining("LEASE_LOST");
+        var independent = queued("test.platform", null, "after-timeout");
+        assertThat(second.claim("default", "next-owner").getId()).isEqualTo(independent.getId());
+        assertThat(db.query("select * from job_fencing_fixture")).isEmpty();
+    }
+    @Test void protectedTransactionLockTimeoutRollsBackBusinessWritesAndRetriesOnUsableConnection() throws Exception {
+        global(() -> { db.execute("insert into job_fencing_fixture values ('locked',0)"); return null; });
+        var pool = Executors.newSingleThreadExecutor(); var held = new CountDownLatch(1); var release = new CountDownLatch(1);
+        var blocker = pool.submit(() -> tx.execute(status -> {
+            db.execute("update job_fencing_fixture set value=1 where id='locked'"); held.countDown(); await(release); return null;
+        }));
+        try {
+            assertThat(held.await(5, TimeUnit.SECONDS)).isTrue();
+            var timedOut = new java.util.concurrent.atomic.AtomicReference<RuntimeException>();
+            var connectionPid = new java.util.concurrent.atomic.AtomicReference<Object>();
+            execution = context -> {
+                try {
+                    context.transaction(() -> {
+                        connectionPid.set(db.row("select pg_backend_pid() as pid").get("pid"));
+                        db.query("select set_config('lock_timeout','100',true)");
+                        db.execute("insert into job_fencing_fixture values ('rolled-back',1)");
+                        db.execute("update job_fencing_fixture set value=2 where id='locked'"); return null;
+                    });
+                } catch (RuntimeException failure) { timedOut.set(failure); throw failure; }
+                return JobResult.success("COMPLETE", Map.of());
+            };
+            var queued = queued("test.platform", null, "timeout");
+            assertThat(first.runOne("default", "owner")).isTrue();
+            assertThat(timedOut.get()).hasRootCauseInstanceOf(java.sql.SQLException.class);
+            Throwable cause = timedOut.get();
+            while (cause.getCause() != null) cause = cause.getCause();
+            assertThat(((java.sql.SQLException) cause).getSQLState()).isEqualTo("55P03");
+            global(() -> {
+                var run = runs.findById(queued.getId());
+                assertThat(run.getStatus()).isEqualTo("RETRY"); assertThat(run.getResultCode()).isEqualTo("EXECUTION_FAILED");
+                assertThat(run.getLeaseToken()).isNull(); assertThat(run.getLeaseUntil()).isNull();
+                assertThat(db.query("select * from job_fencing_fixture where id='rolled-back'")).isEmpty(); return null;
+            });
+            // Hikari returns this thread's physical connection; verify it is reusable after rollback.
+            var recoveredPid = tx.execute(status -> {
+                var pid = db.row("select pg_backend_pid() as pid").get("pid");
+                db.execute("insert into job_fencing_fixture values ('usable',3)"); return pid;
+            });
+            assertThat(recoveredPid).isEqualTo(connectionPid.get());
+            assertThat(db.query("select * from job_fencing_fixture where id='usable'")).hasSize(1);
+        } finally { release.countDown(); blocker.get(5, TimeUnit.SECONDS); pool.shutdownNow(); }
+    }
+    @ParameterizedTest @ValueSource(strings = {"complete", "cancel", "lease", "failure"})
+    void workflowScanCommitsFiniteBatchesAndFencesSubsequentWrites(String mode) {
+        global(() -> {
+            var instance = new WorkflowInstance(); instance.setId("workflow-fixture"); instance.setDefinitionId("definition");
+            instance.setWorkflowVersionId("version"); instance.setVersionNo(1); instance.setModuleAlias("test.workflow");
+            instance.setRecordId("record"); instance.setSnapshotText("{}"); instance.setStartedAt(Instant.now());
+            net.ximatai.muyun.spring.common.model.EntityLifecycle.prepareInsert(instance, Instant.now()); instances.insert(instance);
+            for (int index = 0; index < 205; index++) {
+                var node = new WorkflowNodeInstance(); node.setId("node-%04d".formatted(index)); node.setInstanceId(instance.getId());
+                node.setNodeKey("approval"); node.setNodeRunId("approval:" + index); node.setNodeType(WorkflowNodeType.APPROVAL);
+                node.setNodeStatus(WorkflowNodeStatus.ACTIVE); node.setActivatedAt(Instant.now().minusSeconds(600));
+                node.setOvertimeDurationMinutes(1); node.setOvertimeStatus(WorkflowOvertimeStatus.NORMAL);
+                net.ximatai.muyun.spring.common.model.EntityLifecycle.prepareInsert(node, Instant.now());
+                node.setUpdatedBy("original-editor"); nodes.insert(node);
+            }
+            return null;
+        });
+        var publisher = mock(org.springframework.context.ApplicationEventPublisher.class);
+        if (mode.equals("failure")) doAnswer(call -> {
+            var fact = (WorkflowEventWriter.Persisted) call.getArgument(0);
+            if (fact.event().getNodeInstanceId().equals("node-0202")) throw new IllegalStateException("batch failed");
+            return null;
+        }).when(publisher).publishEvent(any(Object.class));
+        var scan = spy(new WorkflowNodeOvertimeScanService(nodes, instances, new WorkflowEventWriter(events, publisher), new WorkflowRuntimeEventFactory()));
+        var batches = new AtomicInteger();
+        doAnswer(call -> {
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+            var batch = call.callRealMethod();
+            if (batches.incrementAndGet() == 1) {
+                if (mode.equals("cancel")) db.execute("update platform_job_run set cancel_requested=true where status='RUNNING'");
+                if (mode.equals("lease")) db.execute("update platform_job_run set lease_until=clock_timestamp()-interval '1 second' where status='RUNNING'");
+            }
+            return batch;
+        }).when(scan).scanBatch(any(), org.mockito.ArgumentMatchers.nullable(String.class));
+        var job = new WorkflowNodeOvertimeJob(scan, 300000, 60000);
+        execution = job::execute;
+        var queued = queued("test.platform", null, "workflow"); first.runOne("default", "owner");
+        global(() -> {
+            int committed = mode.equals("complete") ? 205 : 200;
+            assertThat(nodes.query(Criteria.of().eq("overtimeStatus", WorkflowOvertimeStatus.OVERDUE), PageRequest.of(1, 300)))
+                    .hasSize(committed).allSatisfy(node -> assertThat(node.getUpdatedBy()).isEqualTo("original-editor"));
+            assertThat(events.query(Criteria.of(), PageRequest.of(1, 300))).hasSize(committed)
+                    .allSatisfy(event -> assertThat(event.getOperatorId()).isEqualTo("SYSTEM"));
+            assertThat(runs.findById(queued.getId()).getStatus()).isEqualTo(switch (mode) {
+                case "complete" -> "SUCCEEDED"; case "cancel" -> "CANCELLED"; case "failure" -> "RETRY"; default -> "RUNNING";
+            });
+            if (!mode.equals("complete")) assertThat(nodes.findById("node-0200").getOvertimeStatus()).isEqualTo(WorkflowOvertimeStatus.NORMAL);
+            return null;
+        });
+        assertThat(batches).hasValue(mode.equals("complete") ? 2 : 1);
+    }
     private void insertHistory(String plan, Instant finished) { runs.insert(history(plan, finished)); }
     private JobRun history(String plan, Instant finished) {
         var row = new JobRun(); row.setJobType("test.platform"); row.setScope("PLATFORM"); row.setPlanId(plan);
@@ -238,7 +387,7 @@ class JobRepositoryIT extends PlatformPostgresIntegrationTest {
         catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new IllegalStateException(interrupted); }
     }
     @SpringBootConfiguration @EnableAutoConfiguration
-    @EnableMuYunRepositories(basePackageClasses = JobPlanDao.class)
+    @EnableMuYunRepositories(basePackageClasses = {JobPlanDao.class, WorkflowNodeInstanceDao.class})
     static class Application {
         @Bean net.ximatai.muyun.database.spring.boot.JdbiConfigurer bigIntegerJdbiConfigurer() {
             // Production registers this in the starter; repository tests assemble the platform without it.

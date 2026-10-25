@@ -4,11 +4,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
 import net.ximatai.muyun.spring.common.platform.ActionAuthorizationResult;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -17,7 +19,7 @@ import java.util.Map;
 
 @Service
 public class WorkflowNodeOvertimeScanService {
-    private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
+    public static final int BATCH_SIZE = 200;
     private static final String SYSTEM_OPERATOR = ActionAuthorizationResult.OPERATOR_SYSTEM;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -36,13 +38,15 @@ public class WorkflowNodeOvertimeScanService {
         this.eventFactory = eventFactory;
     }
 
-    @Transactional
-    public WorkflowNodeOvertimeScanResult scan(Instant now) {
+    /** Must join the job fencing transaction so node changes and events commit together. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Batch scanBatch(Instant now, String afterId) {
         Instant effectiveNow = now == null ? Instant.now() : now;
-        List<WorkflowNodeInstance> candidates = nodeDao.query(Criteria.of()
-                        .eq("nodeStatus", WorkflowNodeStatus.ACTIVE)
-                        .eq("nodeType", WorkflowNodeType.APPROVAL),
-                ALL);
+        Criteria criteria = Criteria.of().eq("nodeStatus", WorkflowNodeStatus.ACTIVE)
+                .eq("nodeType", WorkflowNodeType.APPROVAL);
+        if (afterId != null) criteria.gt("id", afterId);
+        List<WorkflowNodeInstance> candidates = nodeDao.query(criteria,
+                PageRequest.of(1, BATCH_SIZE), Sort.asc("id"));
         int warned = 0;
         int overdue = 0;
         for (WorkflowNodeInstance node : candidates) {
@@ -53,8 +57,11 @@ public class WorkflowNodeOvertimeScanService {
                 warned += markWarned(node, effectiveNow);
             }
         }
-        return new WorkflowNodeOvertimeScanResult(candidates.size(), warned, overdue);
+        return new Batch(new WorkflowNodeOvertimeScanResult(candidates.size(), warned, overdue),
+                candidates.size() < BATCH_SIZE ? null : candidates.getLast().getId());
     }
+
+    public record Batch(WorkflowNodeOvertimeScanResult result, String nextCursor) { }
 
     private WorkflowOvertimeStatus targetStatus(WorkflowNodeInstance node, Instant now) {
         if (!isActiveApproval(node) || node.getActivatedAt() == null) {

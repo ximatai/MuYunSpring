@@ -10,6 +10,9 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 @Setter
 @Table(name = "platform_scheduled_action_plan", comment = "Scheduled module action plan")
 public class ScheduledActionPlan extends StandardEntity {
+    /** An absent update version must stay absent; insert lifecycle initializes persisted version zero. */
+    public ScheduledActionPlan() { setVersion(null); }
+
     @Column(name = "module_alias", type = ColumnType.VARCHAR, length = 128, nullable = false, comment = "moduleAlias")
     private String moduleAlias;
     @Column(name = "action_code", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "actionCode")
