@@ -289,6 +289,13 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     }
 
     @Override
+    public void afterUpdate(UserAccount user, int updated) {
+        if (updated > 0 && Boolean.FALSE.equals(user.getEnabled())) {
+            revokeUserSessions(user.getId(), "user disabled");
+        }
+    }
+
+    @Override
     public void afterDelete(String id, UserAccount entity, int deleted) {
         cleanupDeletedUserReferences(id);
     }

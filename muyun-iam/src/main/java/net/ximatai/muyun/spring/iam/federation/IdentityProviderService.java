@@ -53,20 +53,23 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
     private final Map<String, ExternalLoginProtocol> protocols;
     private final ExternalIdentityDao identityDao;
     private final Function<String, String> environment;
+    private final ExternalIdentityAdmissionLocks admissionLocks;
 
     @Autowired
     public IdentityProviderService(IdentityProviderDao dao, List<ExternalLoginProtocol> protocols,
-                                   ExternalIdentityDao identityDao) {
-        this(dao, protocols, identityDao, System::getenv);
+                                   ExternalIdentityDao identityDao, ExternalIdentityAdmissionLocks admissionLocks) {
+        this(dao, protocols, identityDao, System::getenv, admissionLocks);
     }
 
     IdentityProviderService(IdentityProviderDao dao, List<ExternalLoginProtocol> protocols,
-                            ExternalIdentityDao identityDao, Function<String, String> environment) {
+                            ExternalIdentityDao identityDao, Function<String, String> environment,
+                            ExternalIdentityAdmissionLocks admissionLocks) {
         super(MODULE_ALIAS, IdentityProvider.class, dao);
         this.protocols = protocols.stream().collect(Collectors.toUnmodifiableMap(
                 ExternalLoginProtocol::providerType, Function.identity()));
         this.identityDao = Objects.requireNonNull(identityDao, "identityDao");
         this.environment = Objects.requireNonNull(environment, "environment");
+        this.admissionLocks = Objects.requireNonNull(admissionLocks, "admissionLocks");
     }
 
     @Override
@@ -99,6 +102,7 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
     @Override
     public void beforeUpdate(IdentityProvider provider, IdentityProvider existing) {
         requireSystemAdministrator();
+        admissionLocks.providerMutation(provider.getId());
         validate(provider);
         if (existing != null && identityScopeChanged(existing, provider) && hasBindings(existing.getId())) {
             // Bindings are only meaningful under the authority that issued them: the same external user id from
@@ -112,6 +116,7 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
     @Override
     public void beforeDelete(String id) {
         requireSystemAdministrator();
+        admissionLocks.providerMutation(id);
     }
 
     /** Resolves an enabled provider whose protocol is installed, regardless of the caller's tenant. */

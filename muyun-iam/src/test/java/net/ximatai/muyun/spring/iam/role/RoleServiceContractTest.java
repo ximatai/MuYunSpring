@@ -1006,6 +1006,30 @@ class RoleServiceContractTest {
     }
 
     @Test
+    void crossTenantGrantRequiresAnExplicitPlatformPrincipalAndPlatformContext() {
+        RoleDao roles = mock(RoleDao.class);
+        RoleActionDao actions = mock(RoleActionDao.class);
+        when(roles.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(
+                platformRole("platform-role", RoleAssignmentType.EMPLOYMENT, RoleKind.STANDARD, RoleSharePolicy.PLATFORM)));
+        RoleService service = service(roles, mock(AccountRoleGrantDao.class), mock(EmploymentRoleGrantDao.class), actions);
+        try (var system = TenantContext.system("grant admission test")) {
+            assertThatThrownBy(() -> service.grantAction("platform-role", "sales.contract", "query",
+                    DataScopePolicy.ALL, TenantScopePolicy.ALL_TENANTS))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            try (var tenantActor = CurrentUserContext.use(CurrentUser.tenantUser("tenant-admin", "Admin", "tenant_a"))) {
+                assertThatThrownBy(() -> service.grantAction("platform-role", "sales.contract", "query",
+                        DataScopePolicy.ALL, TenantScopePolicy.ALL_TENANTS))
+                        .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            }
+            try (var platformActor = CurrentUserContext.use(CurrentUser.systemUser("admin", "Admin"))) {
+                assertThat(service.grantAction("platform-role", "sales.contract", "query", DataScopePolicy.ALL,
+                        TenantScopePolicy.ALL_TENANTS)).isEqualTo(1);
+            }
+        }
+        verify(actions).insert(argThat(action -> action.getTenantScopePolicy() == TenantScopePolicy.ALL_TENANTS));
+    }
+
+    @Test
     void shouldGrantAndRevokeRoleActionAsEnabledFact() {
         RoleDao roleDao = mock(RoleDao.class);
         RoleActionDao actionDao = mock(RoleActionDao.class);

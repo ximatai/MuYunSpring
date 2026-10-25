@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.child.ChildRelation;
+import net.ximatai.muyun.spring.ability.child.AggregateChildMutationContext;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
@@ -184,7 +185,14 @@ class ManagedDetailRelationGatewayWebTest {
                 .thenReturn(List.of(property));
         when(childService.pageQuery(any(Criteria.class), any(PageRequest.class), any(net.ximatai.muyun.database.core.orm.Sort[].class))).thenReturn(
                 PageResult.of(List.of(property), 1, PageRequest.of(1, 20)));
-        when(childService.insert(any(FieldUiControlProperty.class))).thenReturn("property-2");
+        when(childService.insert(any(FieldUiControlProperty.class))).thenAnswer(invocation -> {
+            assertRelationFrame(invocation.getArgument(0));
+            return "property-2";
+        });
+        when(childService.update(any(FieldUiControlProperty.class))).thenAnswer(invocation -> {
+            assertRelationFrame(invocation.getArgument(0));
+            return 1;
+        });
         when(childService.select("property-2")).thenReturn(property("property-2", "select"));
         when(childService.select("property-1")).thenReturn(property);
 
@@ -209,10 +217,12 @@ class ManagedDetailRelationGatewayWebTest {
 
         org.mockito.ArgumentCaptor<FieldUiControlProperty> inserted = org.mockito.ArgumentCaptor.forClass(FieldUiControlProperty.class);
         verify(childService).insert(inserted.capture());
+        assertThat(AggregateChildMutationContext.relationOf(inserted.getValue())).isEmpty();
         assertThat(inserted.getValue().getFieldUiControlAlias()).isEqualTo("select");
         assertThat(inserted.getValue().getTenantId()).isNull();
         org.mockito.ArgumentCaptor<FieldUiControlProperty> updated = org.mockito.ArgumentCaptor.forClass(FieldUiControlProperty.class);
         verify(childService).update(updated.capture());
+        assertThat(AggregateChildMutationContext.relationOf(updated.getValue())).isEmpty();
         assertThat(updated.getValue().getAttributeAlias()).isEqualTo("placeholder");
         assertThat(updated.getValue().getTitle()).isEqualTo("Changed title");
         assertThat(updated.getValue().getTenantId()).isNull();
@@ -468,6 +478,42 @@ class ManagedDetailRelationGatewayWebTest {
                 .andExpect(jsonPath("$.changes[0].resourceKey").value("properties"))
                 .andExpect(jsonPath("$.changes[0].scope").value("select"))
                 .andExpect(jsonPath("$.changes[0].recordId").value("property-1"));
+    }
+
+    @Test void relationMutationFailuresNeverLeakTheirProvenance() {
+        var parentService = mock(FieldUiControlService.class);
+        var childService = mock(FieldUiControlPropertyService.class);
+        when(parentService.select("select")).thenReturn(parent("select"));
+        var stored = property("property-1", "select"); stored.setVersion(1);
+        when(childService.select("property-1")).thenReturn(stored);
+        var observed = new AtomicReference<FieldUiControlProperty>();
+        when(childService.insert(any(FieldUiControlProperty.class))).thenAnswer(invocation -> {
+            FieldUiControlProperty child = invocation.getArgument(0); observed.set(child);
+            assertRelationFrame(child);
+            throw new IllegalStateException("insert failed");
+        });
+        when(childService.update(any(FieldUiControlProperty.class))).thenAnswer(invocation -> {
+            FieldUiControlProperty child = invocation.getArgument(0); observed.set(child);
+            assertRelationFrame(child);
+            throw new IllegalStateException("update failed");
+        });
+        var gateway = gateway(parentService, childService, mutation(true, true, true), new AllowAllPolicyService());
+        assertThatThrownBy(() -> gateway.insert(FieldUiControlService.MODULE_ALIAS, parentService, "select", "properties",
+                Map.of("attributeAlias", "placeholder"))).hasMessage("insert failed");
+        assertThat(AggregateChildMutationContext.relationOf(observed.get())).isEmpty();
+        assertThatThrownBy(() -> gateway.update(FieldUiControlService.MODULE_ALIAS, parentService, "select", "properties",
+                "property-1", Map.of("title", "Changed", "version", 1))).hasMessage("update failed");
+        assertThat(AggregateChildMutationContext.relationOf(observed.get())).isEmpty();
+    }
+
+    private static void assertRelationFrame(FieldUiControlProperty child) {
+        assertThat(AggregateChildMutationContext.relationOf(child)).get().satisfies(relation -> {
+            assertThat(relation.moduleAlias()).isEqualTo(FieldUiControlService.MODULE_ALIAS);
+            assertThat(relation.relationCode()).isEqualTo("properties");
+            assertThat(relation.child()).isSameAs(child);
+        });
+        var unrelated = property(child.getId(), child.getFieldUiControlAlias());
+        assertThat(AggregateChildMutationContext.relationOf(unrelated)).isEmpty();
     }
 
     private static MockMvc mvc(FieldUiControlService parentService, ManagedDetailRelationGateway gateway,

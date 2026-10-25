@@ -27,6 +27,7 @@ const props = withDefaults(
     uiDescriptor: ResolvedModuleUiDescriptor;
     relations: ResolvedDetailRelationDescriptor[];
     parentRecord: QueryListRecord;
+    parentMode?: 'create' | 'edit' | 'view';
     surface?: 'detail' | 'list-expansion';
     mutationEnabled?: boolean;
     reloadKey?: number;
@@ -50,6 +51,7 @@ const emit = defineEmits<{
   ];
 }>();
 
+const persistedParentId = computed(() => (props.parentMode === 'create' ? undefined : props.parentRecord.id));
 const relationValidity = ref<Record<string, boolean>>({});
 const addRequestKeys = ref<Record<string, number>>({});
 const removeRequestKeys = ref<Record<string, number>>({});
@@ -101,7 +103,7 @@ function relationRecycleBinAllowed(relation: ResolvedDetailRelationDescriptor) {
   return Boolean(
     aggregateInlineEditing(relation) &&
     relation.editing?.recycleBinEnabled &&
-    props.parentRecord.id != null &&
+    persistedParentId.value != null &&
     recycleBinAvailability.value[relation.code] === true,
   );
 }
@@ -125,7 +127,7 @@ function updateRelationValidity(relationCode: string, valid: boolean) {
   emit('validity-change', Object.values(relationValidity.value).every(Boolean));
 }
 
-watch([() => props.parentRecord.id, () => props.mutationEnabled], () => {
+watch([persistedParentId, () => props.mutationEnabled], () => {
   relationValidity.value = {};
   recycleBinAvailability.value = {};
   emit('validity-change', true);
@@ -137,7 +139,7 @@ const visibleRelations = computed(() =>
     if (visible?.constant === false) return false;
     if (visible?.formula && !evaluateUiFormula(visible.formula, props.parentRecord)) return false;
     if (relation.embeddedField) return true;
-    if (props.parentRecord.id == null) return false;
+    if (persistedParentId.value == null) return false;
     if (!hasExecutableDetailRelationQueryContract(relation)) return false;
     const actionCode = relation.queryContract.actionCode;
     if (
@@ -251,6 +253,7 @@ watch(
       :ui-descriptor="uiDescriptor"
       :relation="relation"
       :parent-record="parentRecord"
+      :parent-mode="parentMode"
       :reload-key="reloadKey"
       :add-request-key="addRequestKeys[relation.code] ?? 0"
       :remove-request-key="removeRequestKeys[relation.code] ?? 0"
@@ -275,6 +278,7 @@ watch(
       :ui-descriptor="uiDescriptor"
       :relation="relation"
       :parent-record="parentRecord"
+      :parent-mode="parentMode"
       :mutation-enabled="mutationEnabled"
       :reload-key="reloadKey"
     />
@@ -282,7 +286,7 @@ watch(
       v-else
       :source-context="sourceContext"
       :relation="relation"
-      :record-id="parentRecord.id == null ? undefined : String(parentRecord.id)"
+      :record-id="persistedParentId == null ? undefined : String(persistedParentId)"
       :reload-key="reloadKey"
     />
   </RecordDetailExtensionSection>

@@ -1153,6 +1153,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             :disabled="fieldDisabled(field)"
             :disabled-hint="field.disabledHint"
             @update:value="updateField(field.fieldName, $event)"
+            @update:record-id="updateField('id', $event)"
           />
           <RecordFileReferenceTransfer
             v-else-if="
@@ -1166,6 +1167,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             :disabled="fieldDisabled(field)"
             :disabled-hint="field.disabledHint"
             @update:value="updateField(field.fieldName, $event)"
+            @update:record-id="updateField('id', $event)"
           />
           <UiTreeSelect
             v-else-if="field.controlType === 'select' && optionFieldIsTree(field)"

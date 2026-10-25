@@ -48,4 +48,32 @@ class AggregateChildMutationContextTest {
         }
         assertThat(AggregateChildMutationContext.parentOf(child)).isEmpty();
     }
+    @Test void standaloneRelationFramesMatchOnlyTheExactChildAndRestoreNestedScopes() throws Exception {
+        var child = new Row(); child.setId("same-id");
+        var unrelated = new Row(); unrelated.setId("same-id");
+        assertThat(AggregateChildMutationContext.relationOf(child)).isEmpty();
+        try (var outer = AggregateChildMutationContext.openRelation("test.parent", "lines", child)) {
+            assertThat(AggregateChildMutationContext.relationOf(child)).get().satisfies(relation -> {
+                assertThat(relation.moduleAlias()).isEqualTo("test.parent");
+                assertThat(relation.relationCode()).isEqualTo("lines");
+                assertThat(relation.child()).isSameAs(child);
+            });
+            assertThat(AggregateChildMutationContext.relationOf(unrelated)).isEmpty();
+            try (var executor = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+                assertThat(executor.submit(() -> AggregateChildMutationContext.relationOf(child)).get()).isEmpty();
+            }
+            assertThatThrownBy(() -> {
+                try (var nested = AggregateChildMutationContext.openRelation("test.other", "items", unrelated)) {
+                    assertThat(AggregateChildMutationContext.relationOf(child)).isEmpty();
+                    assertThat(AggregateChildMutationContext.relationOf(unrelated).orElseThrow().moduleAlias()).isEqualTo("test.other");
+                    throw new IllegalStateException("failed child");
+                }
+            }).hasMessage("failed child");
+            assertThat(AggregateChildMutationContext.relationOf(child).orElseThrow().relationCode()).isEqualTo("lines");
+            assertThat(AggregateChildMutationContext.relationOf(unrelated)).isEmpty();
+        }
+        assertThat(AggregateChildMutationContext.relationOf(child)).isEmpty();
+        assertThat(AggregateChildMutationContext.relationOf(unrelated)).isEmpty();
+    }
+
 }

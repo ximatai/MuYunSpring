@@ -120,6 +120,7 @@ watch(
       :ui-descriptor="uiDescriptor"
       :relations="[displayRelation]"
       :parent-record="parentRecord"
+      parent-mode="view"
       surface="list-expansion"
       :mutation-enabled="false"
     />

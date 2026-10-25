@@ -201,6 +201,19 @@ class RoleDataScopeCriteriaServiceTest {
     }
 
     @Test
+    void ignoresCrossTenantMarkerWithoutAnAuthoritativePlatformRole() {
+        RoleService roles = mock(RoleService.class);
+        whenActionGrants(roles, "user-1", "sales.contract", "view",
+                grant(DataScopePolicy.ALL, "tenant-role", TenantScopePolicy.ALL_TENANTS));
+        var service = new RoleDataScopeCriteriaService(roles, mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(), Optional.empty(), Optional.empty());
+        var result = service.resolveReadScope("sales.contract", "query", Criteria.of(),
+                Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant-a")));
+        assertThat(result.crossTenant()).isFalse();
+        assertThat(result.restricted()).isFalse();
+    }
+
+    @Test
     void shouldMarkAllDataScopeAsCrossTenantWhenRoleAllowsAllTenants() {
         RoleService roleService = mock(RoleService.class);
         whenActionGrants(roleService, "user-1", "sales.contract", "view",
@@ -1159,6 +1172,7 @@ class RoleDataScopeCriteriaServiceTest {
         RoleService roleService = mock(RoleService.class);
         RoleAction sourceGrant = referenceGrant("studentId", "view");
         sourceGrant.setTenantScopePolicy(TenantScopePolicy.ALL_TENANTS);
+        when(roleService.isPlatformRole(sourceGrant.getRoleId())).thenReturn(true);
         whenActionGrants(roleService, "user-1", "sales.score", "view", sourceGrant);
         whenActionGrants(roleService, "user-1", "school.student", "view",
                 grant(DataScopePolicy.OWNER)
@@ -1213,6 +1227,7 @@ class RoleDataScopeCriteriaServiceTest {
                                   String moduleAlias,
                                   String actionCode,
                                   RoleAction... grants) {
+        when(roleService.isPlatformRole("role-cross")).thenReturn(true);
         when(roleService.effectiveActionGrantsWithContext(userId, moduleAlias, actionCode))
                 .thenReturn(Arrays.stream(grants)
                         .map(grant -> effectiveActionGrant(grant, null))

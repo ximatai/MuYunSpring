@@ -12,6 +12,7 @@ import java.util.function.Supplier;
 
 @Service
 public class UserSessionRevocationService {
+    private static final int MAX_REVOKE_ATTEMPTS = 64;
     private final UserSessionRecordService userSessionRecordService;
     private final Supplier<UserSessionLifecycleEventPublisher> userSessionLifecycleEventPublisher;
     private final Clock clock;
@@ -72,7 +73,7 @@ public class UserSessionRevocationService {
 
     private boolean revoke(UserSession session, Instant now, String reason, UserSessionLifecycleEvent.Type eventType) {
         UserSession current = session;
-        for (int attempt = 0; attempt < 2 && current != null && current.getRevokedAt() == null; attempt++) {
+        for (int attempt = 0; attempt < MAX_REVOKE_ATTEMPTS && current != null && current.getRevokedAt() == null; attempt++) {
             Integer expectedVersion = current.getVersion();
             current.setRevokedAt(now);
             current.setRevokedReason(reason);
@@ -82,6 +83,10 @@ public class UserSessionRevocationService {
                 return true;
             }
             current = sessionById(current.getId());
+        }
+        if (current != null && current.getRevokedAt() == null) {
+            // Do not let an enclosing disable/password-reset transaction commit with a live session.
+            throw new net.ximatai.muyun.spring.ability.OptimisticLockException("会话状态发生并发变化，请重试");
         }
         return false;
     }

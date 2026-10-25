@@ -597,6 +597,36 @@ public class PlatformModuleRuntimeContextService {
                 .findFirst().orElse(null);
     }
 
+    private ObjectProvider<net.ximatai.muyun.spring.ability.CrudAbility<?>> fileReferenceRecordAbilities;
+
+    @Autowired
+    void setFileReferenceRecordAbilities(ObjectProvider<net.ximatai.muyun.spring.ability.CrudAbility<?>> abilities) {
+        this.fileReferenceRecordAbilities = abilities;
+    }
+
+    /** Reads the declared target entity, never a field value supplied in the browser draft. Policy owns admission. */
+    public Map<String, Object> fileReferenceRecordFacts(String moduleAlias, String relationCode, String recordId,
+                                                       net.ximatai.muyun.spring.common.platform.ModuleRecordFacts facts) {
+        if (relationCode == null) return facts.read(moduleAlias, recordId);
+        var relation = context(moduleAlias).uiDescriptor().detailRelations().stream()
+                .filter(value -> relationCode.equals(value.code())).findFirst()
+                .orElseThrow(() -> new PlatformAccessDeniedException("file reference relation is unavailable"));
+        String targetModule = relation.targetModuleAlias();
+        var staticTarget = staticModuleCatalog.find(targetModule);
+        if (staticTarget.isPresent()) {
+            Class<?> model = staticTarget.get().entityModelClasses().get(relation.targetEntityAlias());
+            var ability = fileReferenceRecordAbilities.orderedStream().filter(value -> model != null && model.equals(value.modelClass()))
+                    .findFirst().orElseThrow(() -> new PlatformAccessDeniedException("file reference entity is unavailable"));
+            return facts.read(ability.getModuleAlias(), recordId);
+        }
+        var record = dynamicRecordService.select(targetModule, relation.targetEntityAlias(), recordId);
+        if (record == null) throw new PlatformAccessDeniedException("file reference record is unavailable");
+        Map<String, Object> values = new LinkedHashMap<>(record.getValues());
+        values.put("id", record.getId());
+        values.put("tenantId", record.getTenantId());
+        return values;
+    }
+
     private ResolvedModuleUiDescriptor uiDescriptor(String moduleAlias,
                                                     ModuleKind moduleKind,
                                                     String title,

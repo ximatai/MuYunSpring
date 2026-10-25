@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.platform.attachment.FileTransferAccess;
 import net.ximatai.muyun.spring.platform.attachment.FileTransferClient;
 import net.ximatai.muyun.spring.platform.attachment.FileTransferFileMetadata;
 import net.ximatai.muyun.spring.platform.attachment.FileTransferOperation;
+import net.ximatai.muyun.spring.platform.attachment.FileTransferUploadFacts;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -39,6 +40,18 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
     @Override
     public FileTransferFileMetadata readMetadata(String fileId) {
         return metadata(accessService.issueMetadataAccess(fileId), FileTransferOperation.METADATA);
+    }
+
+    @Override
+    public FileTransferUploadFacts readUploadFacts(String fileId) {
+        JsonNode source = metadataNode(accessService.issueMetadataAccess(fileId), FileTransferOperation.METADATA);
+        String uploader = text(source, "uploadedBy");
+        String tenant = text(source, "tenantId");
+        if (!source.path("uploadedBy").isTextual() || !source.path("tenantId").isTextual()
+                || uploader == null || uploader.isBlank() || tenant == null || tenant.isBlank()) {
+            throw new PlatformException("file server returned no authoritative upload identity");
+        }
+        return new FileTransferUploadFacts(toMetadata(source, fileId), uploader, tenant);
     }
 
     @Override
@@ -88,6 +101,10 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
     }
 
     private FileTransferFileMetadata metadata(FileTransferAccess access, FileTransferOperation expectedOperation) {
+        return toMetadata(metadataNode(access, expectedOperation), access.fileId());
+    }
+
+    private JsonNode metadataNode(FileTransferAccess access, FileTransferOperation expectedOperation) {
         if (access.operation() != expectedOperation) {
             throw new IllegalStateException("unexpected file transfer access operation: " + access.operation());
         }
@@ -102,7 +119,7 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
             JsonNode metadata = expectedOperation == FileTransferOperation.PROMOTE
                     ? requiredFirstItem(data)
                     : data;
-            return toMetadata(metadata, access.fileId());
+            return metadata;
         } catch (RestClientException | java.io.IOException exception) {
             throw new PlatformException("file server " + expectedOperation.name().toLowerCase()
                     + " request failed for file: " + access.fileId(), exception);
@@ -139,9 +156,13 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
         if ((imageWidth == null) != (imageHeight == null)) {
             throw new PlatformException("file server returned incomplete image dimensions for: " + fileId);
         }
+        JsonNode temporary = source.get("temporary");
+        if (temporary == null || !temporary.isBoolean()) {
+            throw new PlatformException("file server returned no reliable temporary state for: " + fileId);
+        }
         return new FileTransferFileMetadata(fileId, text(source, "originalFilename"), text(source, "extension"),
                 text(source, "mimeType"), sizeBytes, text(source, "sha256"), text(source, "status"),
-                source.path("temporary").asBoolean(), instant(source, "uploadedAt"), imageWidth, imageHeight);
+                temporary.booleanValue(), instant(source, "uploadedAt"), imageWidth, imageHeight);
     }
 
     private Integer imageDimension(JsonNode source, String name) {

@@ -5366,6 +5366,13 @@ describe('ModulePageHost', () => {
         expect.objectContaining({ mode: 'TREE', formValues: { organizationId: 'org-1' } }),
       ]),
     );
+    wrapper
+      .findComponent({ name: 'ModulePageRecordContent' })
+      .vm.$emit('update:field', 'id', 'preallocated-main');
+    await flushPromises();
+    await pickerConfigs.ownerId.provider.resolve(['user-1']);
+    expect(ownerBodies.at(-1)).toMatchObject({ formValues: { id: 'preallocated-main' } });
+    expect(ownerBodies.at(-1)).not.toHaveProperty('source');
   });
 
   it.each(['complete', 'fail'])(
@@ -5793,6 +5800,13 @@ describe('ModulePageHost', () => {
         expect.objectContaining({ mode: 'TRANSLATE', values: ['organization-root'] }),
       ]),
     );
+    editor.vm.$emit('update-field', 'id', 'preallocated-navigator');
+    await flushPromises();
+    await organizationPicker().scopedTree.provider.loadRoot({ keyword: '', signal: controller.signal });
+    expect(organizationBodies.at(-1)).toMatchObject({
+      formValues: { id: 'preallocated-navigator', tenantId: 'tenant-1' },
+    });
+    expect(organizationBodies.at(-1)).not.toHaveProperty('source');
     wrapper.unmount();
   });
 

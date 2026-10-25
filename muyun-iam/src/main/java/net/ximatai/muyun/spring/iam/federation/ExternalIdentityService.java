@@ -48,6 +48,10 @@ public class ExternalIdentityService extends TenantActiveScopedService<ExternalI
                 .eq("externalUserId", externalUserId)));
     }
 
+    <R> R inAdmissionTransaction(java.util.function.Supplier<R> work) {
+        return inMutationTransaction(work);
+    }
+
     /** Stamps a successful sign-in through the binding; internal state, not a business edit. */
     void recordAuthentication(String identityId, java.time.Instant at) {
         net.ximatai.muyun.spring.ability.VersionedRecordMutation.update(getDao(), () -> selectActiveRaw(identityId),

@@ -73,6 +73,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
     private final ActiveTenantVerifier activeTenantVerifier;
     private final ExternalIdentityFederationSettings settings;
     private final Clock clock;
+    private final ExternalIdentityAdmissionLocks admissionLocks;
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Autowired
@@ -83,9 +84,10 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                                 UserAccountService userAccountService,
                                 UserSessionService userSessionService,
                                 ActiveTenantVerifier activeTenantVerifier,
-                                ExternalIdentityFederationSettings settings) {
+                                ExternalIdentityFederationSettings settings,
+                                ExternalIdentityAdmissionLocks admissionLocks) {
         this(providers, policies, identities, transactionDao, userAccountService, userSessionService,
-                activeTenantVerifier, settings, Clock.systemUTC());
+                activeTenantVerifier, settings, Clock.systemUTC(), admissionLocks);
     }
 
     ExternalLoginService(IdentityProviderService providers,
@@ -96,7 +98,8 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                          UserSessionService userSessionService,
                          ActiveTenantVerifier activeTenantVerifier,
                          ExternalIdentityFederationSettings settings,
-                         Clock clock) {
+                         Clock clock,
+                         ExternalIdentityAdmissionLocks admissionLocks) {
         this.providers = Objects.requireNonNull(providers, "providers");
         this.policies = Objects.requireNonNull(policies, "policies");
         this.identities = Objects.requireNonNull(identities, "identities");
@@ -108,6 +111,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         Objects.requireNonNull(settings.apiBaseUrl(), "muyun.iam.federation.api-base-url is required");
         Objects.requireNonNull(settings.workbenchUrl(), "muyun.iam.federation.workbench-url is required");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.admissionLocks = Objects.requireNonNull(admissionLocks, "admissionLocks");
     }
 
     /** Providers a tenant's sign-in entry offers; empty for an unknown or inactive tenant. */
@@ -189,14 +193,9 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         LoginResult login = null;
         try {
             outcome = now.isBefore(claimed.getExpiresAt())
-                    ? resolve(claimed, state, parameters)
+                    ? resolve(claimed, state, parameters, ip, userAgent)
                     : Outcome.of(ExternalLoginStatus.EXPIRED, null);
-            if (outcome.status() == ExternalLoginStatus.SUCCEEDED && claimed.getPurpose() == ExternalLoginPurpose.LOGIN) {
-                login = signIn(claimed, outcome, ip, userAgent, now);
-                if (login == null) {
-                    outcome = Outcome.denied(ExternalLoginFailure.ACCOUNT_UNAVAILABLE);
-                }
-            }
+            login = outcome.login();
         } catch (RuntimeException exception) {
             // A claimed transaction must always reach a final state; platform faults are not provider faults.
             log.warn("External login transaction {} failed during completion", claimed.getId(), exception);
@@ -299,7 +298,8 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                 transaction.getExpiresAt());
     }
 
-    private Outcome resolve(ExternalLoginTransaction transaction, String state, Map<String, String> parameters) {
+    private Outcome resolve(ExternalLoginTransaction transaction, String state, Map<String, String> parameters,
+                            String ip, String userAgent) {
         Optional<IdentityProvider> usable = providers.findUsable(transaction.getProviderId());
         Optional<TenantIdentityPolicy> policy = policies.enabledPolicy(transaction.getTenantId(), transaction.getProviderId());
         if (usable.isEmpty() || policy.isEmpty() || !tenantActive(transaction.getTenantId())) {
@@ -328,13 +328,39 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                 && !descriptor.externalEnterpriseId().equals(identity.externalEnterpriseId())) {
             return Outcome.denied(ExternalLoginFailure.ENTERPRISE_MISMATCH);
         }
-        try (TenantContext.Scope ignored = TenantContext.use(transaction.getTenantId())) {
-            Optional<ExternalIdentity> existing = identities.findByExternalIdentity(
-                    descriptor.identityNamespace(), identity.externalEnterpriseId(), identity.externalUserId());
-            return transaction.getPurpose() == ExternalLoginPurpose.LOGIN
-                    ? resolveLogin(existing)
-                    : resolveBind(transaction, descriptor, identity, existing);
-        }
+        // Provider I/O above is outside the transaction. All final facts below are re-read under row locks.
+        return identities.inAdmissionTransaction(() -> {
+            if (!admissionLocks.configuration(transaction.getTenantId(), transaction.getProviderId())) {
+                return Outcome.denied(ExternalLoginFailure.POLICY_DISABLED);
+            }
+            Optional<IdentityProvider> latestProvider = providers.findUsable(transaction.getProviderId());
+            Optional<TenantIdentityPolicy> latestPolicy = policies.enabledPolicy(
+                    transaction.getTenantId(), transaction.getProviderId());
+            if (latestProvider.isEmpty() || latestPolicy.isEmpty() || !tenantActive(transaction.getTenantId())
+                    || !descriptor.sameAuthority(providers.descriptorOf(latestProvider.get()))
+                    || !(transaction.getPurpose() == ExternalLoginPurpose.LOGIN
+                    ? Boolean.TRUE.equals(latestPolicy.get().getLoginEnabled())
+                    : Boolean.TRUE.equals(latestPolicy.get().getBindingEnabled()))) {
+                return Outcome.denied(ExternalLoginFailure.POLICY_DISABLED);
+            }
+            try (TenantContext.Scope ignored = TenantContext.use(transaction.getTenantId())) {
+                boolean lockedBinding = admissionLocks.identity(transaction.getTenantId(), descriptor.identityNamespace(), identity);
+                Optional<ExternalIdentity> existing = lockedBinding ? identities.findByExternalIdentity(descriptor.identityNamespace(),
+                        identity.externalEnterpriseId(), identity.externalUserId()) : Optional.empty();
+                if (transaction.getPurpose() == ExternalLoginPurpose.BIND) {
+                    var initiator = admissionLocks.initiator(transaction.getTenantId(), transaction.getInitiatorUserId(),
+                            transaction.getInitiatorSessionId());
+                    if (!initiator.account()) return Outcome.denied(ExternalLoginFailure.ACCOUNT_UNAVAILABLE);
+                    if (!initiator.session()) return Outcome.denied(ExternalLoginFailure.SESSION_ENDED);
+                    return resolveBind(transaction, descriptor, identity, existing);
+                }
+                Outcome outcome = resolveLogin(existing);
+                if (outcome.status() != ExternalLoginStatus.SUCCEEDED) return outcome;
+                LoginResult login = signIn(transaction, outcome, ip, userAgent, clock.instant());
+                return login == null ? Outcome.denied(ExternalLoginFailure.ACCOUNT_UNAVAILABLE)
+                        : new Outcome(outcome.status(), outcome.failure(), outcome.userId(), outcome.identityId(), login);
+            }
+        });
     }
 
     private Outcome resolveLogin(Optional<ExternalIdentity> existing) {
@@ -347,19 +373,18 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
     private Outcome resolveBind(ExternalLoginTransaction transaction, IdentityProviderDescriptor provider,
                                 VerifiedExternalIdentity identity, Optional<ExternalIdentity> existing) {
         String userId = transaction.getInitiatorUserId();
+        UserAccount user = userAccountService.select(userId);
+        if (user == null || !Boolean.TRUE.equals(user.getEnabled())) {
+            return Outcome.denied(ExternalLoginFailure.ACCOUNT_UNAVAILABLE);
+        }
+        // The initiating session must remain live until the binding is persisted.
+        if (!userSessionService.sessionActiveFor(userId, transaction.getInitiatorSessionId())) {
+            return Outcome.denied(ExternalLoginFailure.SESSION_ENDED);
+        }
         if (existing.isPresent()) {
             return existing.get().getUserId().equals(userId)
                     ? new Outcome(ExternalLoginStatus.SUCCEEDED, null, userId, existing.get().getId())
                     : Outcome.denied(ExternalLoginFailure.IDENTITY_CONFLICT);
-        }
-        // The recent sign-in was checked when the bind started; the session that proved it must still be live,
-        // so signing out, a password change or an administrator revoking it also abandons the pending bind.
-        if (!userSessionService.sessionActiveFor(userId, transaction.getInitiatorSessionId())) {
-            return Outcome.denied(ExternalLoginFailure.SESSION_ENDED);
-        }
-        UserAccount user = userAccountService.select(userId);
-        if (user == null || !Boolean.TRUE.equals(user.getEnabled())) {
-            return Outcome.denied(ExternalLoginFailure.ACCOUNT_UNAVAILABLE);
         }
         if (identities.bindingsOfUser(userId).stream().anyMatch(binding -> provider.id().equals(binding.getProviderId()))) {
             return Outcome.denied(ExternalLoginFailure.ALREADY_BOUND);
@@ -398,9 +423,6 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         }
         try (TenantContext.Scope ignored = TenantContext.use(transaction.getTenantId())) {
             identities.recordAuthentication(outcome.identityId(), at);
-        } catch (RuntimeException exception) {
-            // The session is already issued; a failed usage stamp must not undo the sign-in.
-            log.warn("Failed to record external identity usage for binding {}", outcome.identityId());
         }
         return login;
     }
@@ -493,7 +515,11 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
-    private record Outcome(ExternalLoginStatus status, ExternalLoginFailure failure, String userId, String identityId) {
+    private record Outcome(ExternalLoginStatus status, ExternalLoginFailure failure, String userId, String identityId,
+                           LoginResult login) {
+        Outcome(ExternalLoginStatus status, ExternalLoginFailure failure, String userId, String identityId) {
+            this(status, failure, userId, identityId, null);
+        }
         static Outcome of(ExternalLoginStatus status, ExternalLoginFailure failure) {
             return new Outcome(status, failure, null, null);
         }

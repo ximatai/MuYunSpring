@@ -182,6 +182,7 @@ function updateChildren(
     :ui-descriptor="uiDescriptor"
     :relations="relations"
     :parent-record="(mode === 'view' ? selectedRecord : record) ?? record"
+    :parent-mode="mode"
     :mutation-enabled="mode !== 'view'"
     :reload-key="relationReloadKey"
     :validation-request-key="validationRequestKey"

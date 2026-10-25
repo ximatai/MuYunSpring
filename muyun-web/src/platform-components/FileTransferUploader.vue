@@ -40,7 +40,7 @@ const props = withDefaults(
     requestUploadAccess?: (file: File) => Promise<FileTransferUploadAccess>;
     /** Storage-specific transport; ordinary FileServer fields continue to use upload access tickets. */
     uploadFile?: (file: File) => Promise<FileTransferUploadReceipt>;
-    /** Optional business callback after upload. Standard file-reference fields leave this undefined. */
+    /** Optional platform or business confirmation before completing the upload and binding its result. */
     confirmUpload?: (receipt: FileTransferUploadReceipt) => Promise<unknown>;
     accept?: string;
     allowedMediaTypes?: string[];

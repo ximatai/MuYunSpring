@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.iam.role;
 
+import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
@@ -44,7 +45,6 @@ import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -486,7 +486,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
             roleAction.setActionCode(validActionCode);
         }
         roleAction.setDataScopePolicy(validDataScopePolicy);
-        roleAction.setTenantScopePolicy(normalizeTenantScopePolicy(tenantScopePolicy));
+        roleAction.setTenantScopePolicy(normalizeTenantScopePolicy(role, tenantScopePolicy));
         roleAction.setScopeCondition(normalizeBlank(scopeCondition));
         roleAction.setReferenceFieldId(validDataScopePolicy == DataScopePolicy.REFERENCE_DEPENDENCY
                 ? normalizeBlank(referenceFieldId) : null);
@@ -952,6 +952,12 @@ public class RoleService extends TenantActiveScopedService<Role> implements
                             .eq("sharePolicy", RoleSharePolicy.PLATFORM)),
                     new PageRequest(0, 1)).stream().findFirst().orElse(null);
         }
+    }
+
+    boolean isPlatformRole(String roleId) {
+        Role role = selectGrantedRole(roleId);
+        return role != null && role.getOwnerScopeType() == RoleOwnerScopeType.PLATFORM
+                && role.getTenantId() == null;
     }
 
     private Role selectGrantedRole(String roleId) {
@@ -1770,7 +1776,14 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         return adapted;
     }
 
-    private TenantScopePolicy normalizeTenantScopePolicy(TenantScopePolicy tenantScopePolicy) {
+    private TenantScopePolicy normalizeTenantScopePolicy(Role role, TenantScopePolicy tenantScopePolicy) {
+        if (tenantScopePolicy == TenantScopePolicy.ALL_TENANTS) {
+            if (role.getOwnerScopeType() != RoleOwnerScopeType.PLATFORM
+                    || !TenantContext.isSystem()
+                    || !CurrentUserContext.isSystem()) {
+                throw new PlatformAccessDeniedException("only platform grantors may grant cross-tenant scope to platform roles");
+            }
+        }
         return tenantScopePolicy == null ? TenantScopePolicy.CURRENT_TENANT : tenantScopePolicy;
     }
 

@@ -73,6 +73,56 @@ describe('managed detail relation surface', () => {
     wrapper.unmount();
   });
 
+  it('keeps new child draft keys and create semantics when uploads preallocate parent and child IDs', async () => {
+    const aggregate = relation('properties');
+    aggregate.embeddedField = 'properties';
+    aggregate.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT', recycleBinEnabled: true };
+    const request = vi.fn();
+    const wrapper = mount(ManagedDetailRelationInlineSurface, {
+      props: {
+        sourceContext: context(request),
+        uiDescriptor: descriptor(),
+        relation: aggregate,
+        parentRecord: { properties: [] },
+        parentMode: 'create',
+        mutationEnabled: true,
+        addRequestKey: 0,
+        removeRequestKey: 0,
+      },
+    });
+    try {
+      await flushPromises();
+      await wrapper.setProps({ addRequestKey: 1 });
+      const fields = wrapper.findComponent({ name: 'RecordFormFields' });
+      const sessionKey = fields.props('formSessionKey');
+      fields.vm.$emit('update:field', 'attributeAlias', 'uploaded child');
+      fields.vm.$emit('update:field', 'id', 'preallocated-child');
+      await flushPromises();
+      const rows = wrapper.emitted('records-change')?.at(-1)?.[0] as QueryListRecord[];
+      await wrapper.setProps({ parentRecord: { id: 'preallocated-parent', properties: rows } });
+      await flushPromises();
+      const currentFields = wrapper.findComponent({ name: 'RecordFormFields' });
+      expect(currentFields.props('formSessionKey')).toBe(sessionKey);
+      expect(currentFields.props('mode')).toBe('create');
+      expect(currentFields.props('record')).toMatchObject({
+        id: 'preallocated-child',
+        attributeAlias: 'uploaded child',
+      });
+      expect(currentFields.props('disabled')).toBe(false);
+      expect(request).not.toHaveBeenCalled();
+      const checkbox = wrapper.findAllComponents({ name: 'RecordSelectionCheckbox' })[1]!;
+      checkbox.vm.$emit('update:checked', true);
+      await flushPromises();
+      await wrapper.setProps({ removeRequestKey: 1 });
+      await flushPromises();
+      expect(wrapper.emitted('records-change')?.at(-1)?.[0]).toEqual([]);
+      expect(wrapper.emitted('removed-count-change')?.at(-1)).toEqual([0]);
+      expect(request).not.toHaveBeenCalled();
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('uses the display list projection for independent child columns without mutating the query contract', async () => {
     const configured = relation('properties');
     configured.queryContract!.listProjection = { fields: [{ fieldName: 'attributeAlias', title: '属性' }] };
@@ -1470,7 +1520,7 @@ describe('managed detail relation surface', () => {
     expect(wrapper.emitted('recycle-bin-availability-change')?.at(-1)).toEqual([false]);
   });
 
-  it('uses the fixed gateway and blocks an invalid editor before HTTP', async () => {
+  it('keeps a create draft with a preallocated upload ID on the insert gateway and blocks invalid input', async () => {
     const request = vi.fn(async (options: { path: string; method?: string; body?: unknown }) => {
       if (options.path.endsWith('/query')) return page([]);
       return { id: 'property-1', version: 1, ...(options.body as object) };
@@ -1491,7 +1541,11 @@ describe('managed detail relation surface', () => {
             template:
               '<section><slot name="toolbarActions" /><slot name="rowActions" :record="{ id: \'row-1\', version: 1 }" /></section>',
           },
-          UiModal: { name: 'UiModal', props: ['open'], template: '<section><slot v-if="open" /></section>' },
+          UiModal: {
+            name: 'UiModal',
+            props: ['open', 'title'],
+            template: '<section><slot v-if="open" /></section>',
+          },
         },
       },
     });
@@ -1514,8 +1568,11 @@ describe('managed detail relation surface', () => {
     expect(fields.exists()).toBe(true);
     expect(fields.props('optionEntityAlias')).toBe('field_ui_control_property');
     fields.vm.$emit('update:field', 'attributeAlias', 'placeholder');
+    fields.vm.$emit('update:field', 'id', 'preallocated-child');
     fields.vm.$emit('validity-change', { valid: false });
     await flushPromises();
+    expect(wrapper.findComponent({ name: 'UiModal' }).props('title')).toBe('新增控件属性');
+    expect(fields.props('mode')).toBe('create');
     wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
     await flushPromises();
     expect(request.mock.calls.filter(([value]) => value.path.endsWith('/insert'))).toHaveLength(0);
@@ -1527,7 +1584,7 @@ describe('managed detail relation surface', () => {
       expect.objectContaining({
         method: 'POST',
         path: '/platform.field_ui_control/view/select/relations/properties/insert',
-        body: { attributeAlias: 'placeholder' },
+        body: { id: 'preallocated-child', attributeAlias: 'placeholder' },
       }),
     );
   });
@@ -1560,7 +1617,8 @@ describe('managed detail relation surface', () => {
         sourceContext: context(noParentRequest),
         uiDescriptor: descriptor(),
         relations: [managed],
-        parentRecord: {},
+        parentRecord: { id: 'preallocated-parent' },
+        parentMode: 'create',
       },
     });
     expect(noParent.findComponent({ name: 'ManagedDetailRelationSurface' }).exists()).toBe(false);

@@ -1039,6 +1039,7 @@ export function useModulePageSession(
             formValues: () => ({ ...(navigatorManagementDetail.draft.value ?? {}) }),
             reloadRecord: () => navigatorManagementDetail.draft.value,
             source: () =>
+              navigatorManagementDetail.mode.value === 'create' ||
               navigatorManagementDetail.draft.value?.id == null
                 ? undefined
                 : { recordId: String(navigatorManagementDetail.draft.value.id) },
@@ -2214,7 +2215,9 @@ export function useModulePageSession(
             formValues: () => ({ ...(editingRecord.value ?? {}) }),
             reloadRecord: () => editingRecord.value,
             source: () =>
-              editingRecord.value?.id == null ? undefined : { recordId: String(editingRecord.value.id) },
+              editorMode.value === 'create' || editingRecord.value?.id == null
+                ? undefined
+                : { recordId: String(editingRecord.value.id) },
           }),
         );
       }

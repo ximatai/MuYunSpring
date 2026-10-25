@@ -157,7 +157,7 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
         return service;
     }
 
-    private Map<String, FileReferenceDefinition> definitions(EntityContract entity) {
+    static Map<String, FileReferenceDefinition> definitions(EntityContract entity) {
         if (entity instanceof DynamicRecord record) return record.getEntity().fileReferences();
         Map<String, FileReferenceDefinition> values = new LinkedHashMap<>();
         for (Class<?> type = entity.getClass(); type != null; type = type.getSuperclass()) {
@@ -271,7 +271,7 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
         throw new PlatformException("database inline file reference requires a tenant owner");
     }
 
-    private Object rawValue(EntityContract entity, String fieldName) {
+    private static Object rawValue(EntityContract entity, String fieldName) {
         if (entity == null) return null;
         if (entity instanceof DynamicRecord record) return record.getValue(fieldName);
         for (Class<?> type = entity.getClass(); type != null; type = type.getSuperclass()) {
@@ -288,7 +288,7 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
         throw new PlatformException("cannot find file reference field: " + fieldName);
     }
 
-    private java.util.List<String> values(EntityContract entity, String fieldName, FileReferenceDefinition definition) {
+    static java.util.List<String> values(EntityContract entity, String fieldName, FileReferenceDefinition definition) {
         Object value = rawValue(entity, fieldName);
         if (value == null) return java.util.List.of();
         if (definition.maxFiles() == 1) {

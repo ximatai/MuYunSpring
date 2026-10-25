@@ -7,7 +7,7 @@ MuYunSpring 的 Starter 以 `muyun.file-transfer.muyun-fileserver` 配置启用�
 ## 存储中立引用与小文件资产
 
 `@FileReference` 是业务模型持有的稳定文件资产 ID 契约，而不是某个 provider 的裸 ID。默认
-`storagePolicy = MUYUN_FILE_SERVER`，完全保持既有上传 ticket、临时转正、元数据确认和提交后删除链路。
+`storagePolicy = MUYUN_FILE_SERVER`，复用临时转正、元数据确认和提交后删除链路。
 需要数据库内联存储的小型、受限资产（例如租户 Logo）显式声明
 `storagePolicy = DATABASE_INLINE`；内容、MIME、大小、SHA-256 和未来的 `providerFileId` 存在
 `platform_managed_file_asset`，业务表只保存资产 ID。动态 `FileReferenceDefinition` 使用同一策略。
@@ -42,8 +42,9 @@ PNG、JPEG、GIF 和 WebP 的上传处理统一提取编码画布的像素宽高
 
 ```text
 业务动作授权
-  -> 临时上传 access
-  -> 浏览器 multipart 上传到 MuYunFileServer
+  -> 临时上传 access（字段上传同时登记归属与目标）
+  -> 浏览器 multipart 直传 MuYunFileServer
+  -> 平台确认临时文件并绑定上传登记
   -> 标准保存动作确认 fileId 与 FileServer 元数据
   -> 文件转正
   -> 业务记录绑定
@@ -59,9 +60,17 @@ MuYunSpring 与 FileServer 没有跨服务事务。文件引用保存优先保�
 
 当前 `FileTransferAccessService` 和 `FileTransferClient` 是 MuYunFileServer 的平台门面，Starter 自动装配官方 transport adapter。标准 CRUD 的统一保存生命周期会在静态模型和动态记录的文件引用字段发生变化时，先确认并转正文件；若业务持久化随后失败，平台输出包含模块、记录和 fileId 的结构化 JVM 日志。
 
-文件引用字段不配置 `uiType("fileTransfer")`。静态声明和动态元数据会编译为同一份 `fileReferences` descriptor（含 `storagePolicy`），由标准表单运行器自动选择同一个上传控件；上传完成一律只回填稳定 `fileId`，再随一次普通 CRUD 保存绑定。`MUYUN_FILE_SERVER` 字段以当前 `moduleAlias` 请求 `POST /{moduleAlias}/file-transfer/upload-ticket` 并直传 FileServer；`DATABASE_INLINE` 字段以同一份字段、草稿、所选文件事实和明确意图请求 `POST /{moduleAlias}/file-transfer/inline-upload`，平台直接创建内联受管资产并返回资产 ID。空引用为 `CREATE`，已绑定多文件字段新增一项为 `APPEND`，单文件字段覆盖旧值为 `REPLACE`。平台先确认 module、relation 和 field 已由当前静态或动态页面运行时声明为 `FileReference`，再只在匹配的 `FileReferenceFieldPolicy` 明确授权后执行对应 transport；缺少声明、Policy 或所需存储配置都会返回可识别错误，不生成无条件上传授权。业务模块不能在浏览器上传完成时自行创建业务记录或绕过标准保存生命周期。
+文件引用字段不配置 `uiType("fileTransfer")`。静态声明和动态元数据会编译为同一份 `fileReferences` descriptor（含 `storagePolicy`），由标准表单运行器自动选择同一个上传控件；上传完成一律只回填稳定 `fileId`，再随一次普通 CRUD 保存绑定。`MUYUN_FILE_SERVER` 标准字段以当前 `moduleAlias` 请求 `POST /{moduleAlias}/file-transfer/upload-ticket`，平台登记当前上传者、租户、模块、relation、字段、稳定草稿记录 ID、票据指纹与过期时间，并返回直传 URL 和 `registrationId`；浏览器继续直接上传到 FileServer，完成后以 `{ticketId, fileId}` 调用 `POST /{moduleAlias}/file-transfer/upload-registration`，登记成功才回填 fileId。平台不接收或转发文件内容；`DATABASE_INLINE` 字段以同一份字段、草稿、所选文件事实和明确意图请求 `POST /{moduleAlias}/file-transfer/inline-upload`，平台直接创建内联受管资产并返回资产 ID。空引用为 `CREATE`，已绑定多文件字段新增一项为 `APPEND`，单文件字段覆盖旧值为 `REPLACE`。平台先确认 module、relation 和 field 已由当前静态或动态页面运行时声明为 `FileReference`，再只在匹配的 `FileReferenceFieldPolicy` 明确授权后执行对应 transport；缺少声明、Policy 或所需存储配置都会返回可识别错误，不生成无条件上传授权。业务模块不能在浏览器上传完成时自行创建业务记录或绕过标准保存生命周期。
 
 业务应用迁移到该标准入口时，应为每个可上传字段注册 `FileReferenceFieldPolicy`：`supportsField` 是 descriptor 与 endpoint 共用的唯一字段覆盖声明，`authorizeUpload` 再基于草稿、文件事实和 `CREATE`/`APPEND`/`REPLACE` 意图执行目录、项目、状态及动作授权；内联资产还通过 `inlineAssetOwnerTenantId` 明确其所属租户。预览和下载必须由独立的 `readAvailable` / `authorizeRead` 决策保护，不能由上传资格隐式推出。一个字段只能匹配一个 Policy，避免依赖 Bean 顺序。Policy 只承担上传与已有资产读取 admission，不替代应用 CRUD service 对目录、项目、状态和其他业务不变量的正常校验；标准保存不会再次强制调用该业务 Policy，只执行物理存储、租户、类型、大小和既有生命周期的不变量校验。应用原有同路径上传 Controller 在 Policy 已注册并通过契约测试后应删除，避免与平台标准映射产生冲突或使实际请求绕开 Policy。
+
+新的文件引用在标准保存准备阶段先校验来源：普通用户必须持有本人、当前租户及模块、relation、字段、草稿记录完全匹配的有效登记，FileServer 文件还必须仍为临时状态；内联资产保留可信创建者的接入。子表通过标准聚合生命周期中的声明关系匹配上传目标。保留原引用不重复要求上传，系统及受信内部写入沿用内部写入边界。浏览器在上传前为新草稿预分配稳定 ID，经普通表单 patch 链保存；不能用无记录 ID 的登记匹配任意新增记录。
+
+预览和下载在 Policy admission 之外统一核对文件引用归属。已保存文件必须是权威业务记录该字段的当前值，客户端草稿中的文件值不能作为依据；记录读取后再以权威字段事实检查 Policy。尚未保存的 FileServer 文件可签发平台票据，但每次必须核对本人有效登记、完整目标和 FileServer 实时临时状态；已经转正的文件不能再靠上传登记读取。内联资产保留平台实际上传形成的归属事实。保存绑定在业务事务内标记登记已使用，旧登记不能继续授权读取。
+
+FileServer 的 [元数据响应](https://github.com/ximatai/MuYunFileserver/blob/main/src/main/java/net/ximatai/muyun/fileserver/api/dto/FileMetadataResponse.java) 提供 `temporary`、`uploadedBy` 和 `tenantId`，没有上传 token 的 `jti`。因此采用上传完成确认方案：平台以有效票据登记为目标，以 FileServer 的临时状态和上传者、租户事实为依据绑定文件，不信任浏览器自报身份。官方适配器对临时状态缺失或类型错误、上传身份缺失或无效均拒绝。该协议不能证明文件使用了哪张票据上传，不能将登记解释为 FileServer 对具体票据的证明。
+
+`platform_file_reference_upload_claim` 以 fileId 为全局主键保留一次性认领事实；认领和登记更新在同一事务内完成，票据版本校验同时防止一张票据被绑定到多个文件。同一票据及文件的确认可重试。该最小事实与详细登记分离，保证登记清理后同一 fileId 仍不能重新认领；它不保存文件内容，也不是调度任务。已使用或过期的详细登记由已有平台后台作业机制每小时有界清理，每批最多 200 条、每轮最多 10 批；FileServer 继续负责临时文件内容回收，认领事实长期保留。记录附件的独立绑定链路不由字段上传登记替代。
 
 文件引用字段 v1 的实体事实为：`maxFiles = 1` 时绑定物理 `STRING` 类型的 `fileId`；`maxFiles > 1` 时绑定物理 `JSON_SET` 的 `Collection<String>`。两种形态都可声明 MIME 类型、单文件大小和字段文件数量约束。静态模型通过 `@FileReference` 声明，动态运行态通过 `EntityDefinition.fileReferences` 表达；标准控件对选择和拖拽都执行 MIME、大小和数量的前端预检，并继续由后端保存生命周期作最终校验。`enabledWhen`、`disabledHint` 与普通字段一致地控制上传控件；禁用时不得打开文件选择器。
 
@@ -95,4 +104,4 @@ private Long sourceFileSize;
 
 所有权记录保存最初的模块、记录和字段位置，解除引用后也保留，防止文件被重新分配后受到旧引用删除的影响；它不是当前引用计数，也不是待删除任务。内联资产的可共享当前引用仍由 `platform_managed_file_asset_reference` 维护。两个模型不互相替代。
 
-该独占约束覆盖当前 Spring 数据库管理的文件字段与附件，不是跨独立业务数据库的全局锁。文件服务凭据属于可信后端边界，直接调用 FileServer 的其他应用不受本地所有权表约束。现有引用不会自动回填所有权；上线前已有数据如需保留，须先审计重复绑定并导入所有权事实。
+该独占约束覆盖当前 Spring 数据库管理的文件字段与附件，不是跨独立业务数据库的全局锁。文件服务凭据属于可信后端边界，直接调用 FileServer 的其他应用不受本地所有权表约束。项目尚未上线，不提供旧数据迁移或兼容分支。

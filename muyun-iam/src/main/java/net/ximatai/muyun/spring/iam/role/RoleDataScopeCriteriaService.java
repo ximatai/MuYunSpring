@@ -587,7 +587,8 @@ public class RoleDataScopeCriteriaService implements DataScopeCriteriaService {
     }
 
     private boolean allowsCrossTenant(RoleAction grant) {
-        return grant != null && grant.getTenantScopePolicy() == TenantScopePolicy.ALL_TENANTS;
+        return grant != null && grant.getTenantScopePolicy() == TenantScopePolicy.ALL_TENANTS
+                && roleService.isPlatformRole(grant.getRoleId());
     }
 
     private SqlRawCondition csvContains(String columnName, String paramName, String value) {

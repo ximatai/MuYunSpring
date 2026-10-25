@@ -13,6 +13,11 @@ import java.io.InputStream;
 public interface FileTransferClient {
     FileTransferFileMetadata readMetadata(String fileId);
 
+    /** Authoritative temporary-upload identity; providers unable to attest it must fail closed. */
+    default FileTransferUploadFacts readUploadFacts(String fileId) {
+        throw new UnsupportedOperationException("file transfer upload provenance is not configured");
+    }
+
     FileTransferFileMetadata promote(String fileId);
 
     /**

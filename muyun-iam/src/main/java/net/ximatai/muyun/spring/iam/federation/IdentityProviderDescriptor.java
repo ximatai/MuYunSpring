@@ -60,6 +60,14 @@ public final class IdentityProviderDescriptor {
         return configuration;
     }
 
+    /** The verified authority must still be the same when final admission obtains its lock. */
+    boolean sameAuthority(IdentityProviderDescriptor other) {
+        return other != null && id.equals(other.id) && providerType.equals(other.providerType)
+                && Objects.equals(externalEnterpriseId, other.externalEnterpriseId)
+                && identityNamespace.equals(other.identityNamespace) && Objects.equals(clientId, other.clientId)
+                && Objects.equals(clientSecret, other.clientSecret) && configuration.equals(other.configuration);
+    }
+
     @Override
     public String toString() {
         return "IdentityProviderDescriptor[id=" + id + ", providerType=" + providerType
