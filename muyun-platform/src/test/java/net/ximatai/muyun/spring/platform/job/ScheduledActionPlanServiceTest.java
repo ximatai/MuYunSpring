@@ -18,11 +18,12 @@ class ScheduledActionPlanServiceTest {
     private final ModuleActionInvoker actions = mock(ModuleActionInvoker.class);
     private final TrustedExecutionIdentityResolver identities = mock(TrustedExecutionIdentityResolver.class);
     private final JobSystemActionPolicy whitelist = mock(JobSystemActionPolicy.class);
+    private final net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier tenants = mock(net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier.class);
     private ScheduledActionPlanService service;
     @BeforeEach void setup() {
         var beans = new DefaultListableBeanFactory(); beans.registerSingleton("identities", identities);
         service = new ScheduledActionPlanService(rows, jobs, actions, beans.getBeanProvider(TrustedExecutionIdentityResolver.class),
-                whitelist, tenant -> { }, new ObjectMapper().findAndRegisterModules());
+                whitelist, tenant -> { }, new ObjectMapper().findAndRegisterModules(), tenants);
         when(jobs.registerManaged(anyString(), any(), anyMap())).thenAnswer(call -> { JobPlan plan = new JobPlan(); plan.setId("job-plan"); return plan; });
         when(identities.capture("test.target", "execute")).thenAnswer(call -> Optional.of(new TrustedExecutionIdentityResolver.Reference(
                 CurrentUserContext.currentUser().orElseThrow().userId(), "tenant-a", Instant.EPOCH, null)));
@@ -50,8 +51,8 @@ class ScheduledActionPlanServiceTest {
             verify(jobs).registerManaged(eq(ScheduledActionPlanService.MODULE_ALIAS), captured.capture(), anyMap());
             assertThat(captured.getValue().getId()).isEqualTo("persisted-plan");
             assertThat(incoming.getExecutionUserId()).isEqualTo("editor");
-            var forged = row(); forged.setTenantId("tenant-b");
-            assertThatThrownBy(() -> service.beforeUpdate(forged)).hasMessageContaining("tenant cannot change");
+            var forged = row(); forged.setExecutionTenantId("tenant-b");
+            assertThatThrownBy(() -> service.beforeUpdate(forged)).hasMessageContaining("account tenant");
         }
     }
     @Test void platformAccountAlwaysUsesWhitelistedSystemMode() {
@@ -73,11 +74,41 @@ class ScheduledActionPlanServiceTest {
     }
     @Test void rejectsCrossTenantSystemRequestsAndUnresolvableInitiators() {
         try (var user = CurrentUserContext.use(CurrentUser.tenantUser("user", "user", "tenant-a")); var tenant = TenantContext.use("tenant-a")) {
-            var cross = row(); cross.setTenantId("tenant-b"); assertThatThrownBy(() -> service.beforeInsert(cross)).hasMessageContaining("tenant");
+            var cross = row(); cross.setExecutionTenantId("tenant-b"); assertThatThrownBy(() -> service.beforeInsert(cross)).hasMessageContaining("tenant");
             var system = row(); system.setIdentityMode("SYSTEM"); assertThatThrownBy(() -> service.beforeInsert(system)).hasMessageContaining("administrator");
             when(identities.capture(anyString(), anyString())).thenReturn(Optional.empty()); assertThatThrownBy(() -> service.beforeInsert(row())).hasMessageContaining("Initiator");
         }
         verifyNoInteractions(jobs);
+    }
+    @Test void rejectsMissingOrInactiveExecutionTenantsBeforeRegisteringAJob() {
+        doThrow(new IllegalArgumentException("Inactive tenant")).when(tenants).verifyActiveTenant("missing");
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("admin", "admin")); var tenant = TenantContext.system("test")) {
+            var row = row(); row.setExecutionTenantId("missing");
+            assertThatThrownBy(() -> service.beforeInsert(row)).hasMessageContaining("Inactive tenant");
+        }
+        verifyNoInteractions(jobs);
+    }
+    @Test void initiatorWithoutSubmittedScopeIsFixedToAccountTenant() {
+        try (var user = CurrentUserContext.use(CurrentUser.tenantUser("user", "user", "tenant-a")); var tenant = TenantContext.use("tenant-a")) {
+            var row = row(); row.setExecutionTenantId(null); row.setTenantId(null);
+            service.beforeInsert(row);
+            assertThat(row.getExecutionTenantId()).isEqualTo("tenant-a");
+            assertThat(row.getTenantId()).isEqualTo("tenant-a");
+        }
+    }
+    @Test void systemOwnershipFieldIsNotAnExecutionScopeInputAndWhitelistDenialHasATextSource() {
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("admin", "admin")); var tenant = TenantContext.system("test")) {
+            var row = row(); row.setExecutionTenantId(null); // tenantId still carries an untrusted submitted value.
+            assertThatThrownBy(() -> service.beforeInsert(row)).isInstanceOfSatisfying(
+                    net.ximatai.muyun.spring.common.exception.PlatformException.class, failure -> {
+                        assertThat(failure.code()).isEqualTo("ACCESS_DENIED");
+                        assertThat(failure.textSource().sourceId()).contains("system-action-not-whitelisted");
+                    });
+            when(whitelist.allows("test.target", "execute")).thenReturn(true);
+            service.beforeInsert(row);
+            assertThat(row.getTenantId()).isNull();
+            verify(tenants, never()).verifyActiveTenant(anyString());
+        }
     }
     @Test void updatesRequireTheExpectedRecordVersion() throws Exception {
         var omitted = new ObjectMapper().readValue("{}", ScheduledActionPlan.class);
@@ -102,5 +133,5 @@ class ScheduledActionPlanServiceTest {
         assertThatThrownBy(() -> ScheduledActionPlanService.arguments("{\"providerApiKey\":\"secret\"}")).hasMessageContaining("Credentials");
         assertThatThrownBy(() -> ScheduledActionPlanService.arguments("{\"authorizationHeader\":\"secret\"}")).hasMessageContaining("Credentials");
     }
-    private ScheduledActionPlan row() { var row = new ScheduledActionPlan(); row.setId("topic-plan"); row.setTenantId("tenant-a"); row.setModuleAlias("test.target"); row.setActionCode("execute"); return row; }
+    private ScheduledActionPlan row() { var row = new ScheduledActionPlan(); row.setId("topic-plan"); row.setTenantId("tenant-a"); row.setExecutionTenantId("tenant-a"); row.setModuleAlias("test.target"); row.setActionCode("execute"); return row; }
 }

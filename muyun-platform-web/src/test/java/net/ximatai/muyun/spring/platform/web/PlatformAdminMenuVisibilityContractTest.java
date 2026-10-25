@@ -207,8 +207,8 @@ class PlatformAdminMenuVisibilityContractTest {
         new StaticModuleDefinitionRegistrar(
                 moduleService,
                 moduleActionService,
-                List.of(),
-                List.of(new StaticModuleDefinitionScanner(context))
+                new StaticModuleDefinitionScanner(context).scan(),
+                List.of()
         ).registerAll();
     }
 

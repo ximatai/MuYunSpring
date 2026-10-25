@@ -6,7 +6,6 @@ import net.ximatai.muyun.spring.platform.application.PlatformStaticApplication;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
-import net.ximatai.muyun.spring.platform.module.StaticModuleRegistrationSource;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceCompiler;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceDefinition;
 import net.ximatai.muyun.spring.platform.module.StaticServiceAbilityCompiler;
@@ -55,7 +54,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSource {
+/** Scans declarations only when the immutable catalog is constructed; never a runtime source. */
+public class StaticModuleDefinitionScanner {
     private final ApplicationContext applicationContext;
     private final StaticCapabilityRegistry staticCapabilityRegistry;
 
@@ -164,11 +164,6 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticActionScope.class)));
         beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticWebProjection.class)));
         return beanNames;
-    }
-
-    @Override
-    public List<StaticModuleDefinition> definitions() {
-        return scan();
     }
 
     private StaticModuleDefinition definition(Object bean, Class<?> beanClass, PlatformStaticModule module) {

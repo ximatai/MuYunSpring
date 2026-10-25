@@ -4,6 +4,8 @@ import net.ximatai.muyun.database.core.orm.*;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.query.*;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
+import net.ximatai.muyun.spring.common.exception.ErrorScope;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.JobSystemActionPolicy;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
@@ -19,8 +21,12 @@ public class SystemActionWhitelistService extends AbstractAbilityService<SystemA
     private final SystemActionWhitelistDao rows;
     public SystemActionWhitelistService(SystemActionWhitelistDao rows) { super(MODULE_ALIAS, SystemActionWhitelist.class, rows); this.rows = rows; }
     public static void requirePlatformAdministrator() {
-        var user = CurrentUserContext.currentUser().orElseThrow(() -> new PlatformAccessDeniedException("Platform administrator required"));
-        if (!user.system() || user.passwordChangeRequired()) throw new PlatformAccessDeniedException("Platform administrator required");
+        var user = CurrentUserContext.currentUser().orElseThrow(() -> new PlatformAccessDeniedException(TextReference.code(
+                "platform.rejection.scheduled-action.platform-administrator-required", "Platform administrator required"),
+                ErrorScope.module(MODULE_ALIAS)));
+        if (!user.system() || user.passwordChangeRequired()) throw new PlatformAccessDeniedException(TextReference.code(
+                "platform.rejection.scheduled-action.platform-administrator-required", "Platform administrator required"),
+                ErrorScope.module(MODULE_ALIAS));
     }
     @Override public Criteria activeCriteria(Criteria criteria) { requirePlatformAdministrator(); return criteria; }
     @Override public void beforeInsert(SystemActionWhitelist row) { validate(row); }

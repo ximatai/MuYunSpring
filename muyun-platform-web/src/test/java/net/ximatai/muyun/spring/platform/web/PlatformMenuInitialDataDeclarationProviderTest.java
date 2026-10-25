@@ -634,8 +634,8 @@ class PlatformMenuInitialDataDeclarationProviderTest {
         new StaticModuleDefinitionRegistrar(
                 moduleService,
                 mock(PlatformModuleActionService.class),
-                List.of(),
-                List.of(new StaticModuleDefinitionScanner(context))
+                new StaticModuleDefinitionScanner(context).scan(),
+                List.of()
         ).registerAll();
     }
 
