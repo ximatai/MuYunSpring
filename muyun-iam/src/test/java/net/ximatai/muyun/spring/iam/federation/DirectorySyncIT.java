@@ -699,6 +699,34 @@ class DirectorySyncIT {
     }
 
     @Test
+    void retentionUsesCompletionOrderWhenAnOlderRoundFinishesAfterANewerRound() {
+        String expired = enqueue(true);
+        execute();
+        String resumed = enqueue(false);
+        execute();
+        String newer = enqueue(false);
+        execute();
+        global(
+                () -> {
+                    // A manually resumed older round can complete after a newer full round.
+                    db.execute(
+                            "update iam_directory_sync_run set updated_at=clock_timestamp()-interval '40 days' where job_run_id=?",
+                            expired);
+                    db.execute(
+                            "update iam_directory_sync_run set updated_at=clock_timestamp()-interval '32 days' where job_run_id=?",
+                            newer);
+                    db.execute(
+                            "update iam_directory_sync_run set updated_at=clock_timestamp()-interval '31 days' where job_run_id=?",
+                            resumed);
+                    return null;
+                });
+        cleanTopic();
+        assertThat(syncRuns.query(Criteria.of(), new PageRequest(0, 100)))
+                .extracting(DirectorySyncRun::getJobRunId)
+                .containsExactlyInAnyOrder(resumed, newer);
+    }
+
+    @Test
     void topicRetentionIsBoundedAndProtectsActiveAndQueuedContinuation() {
         String original = enqueue(false);
         peopleHook =
@@ -955,6 +983,8 @@ class DirectorySyncIT {
                 assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
                 assertThat(jobs.runOne(DirectorySyncJob.CHANNEL, "tenant-b-node")).isTrue();
                 assertThat(jobRuns.findById(first).getStatus()).isEqualTo("RUNNING");
+                assertThat(enqueue(false)).isEqualTo(first);
+                assertThat(enqueue(true)).isEqualTo(waiting);
                 assertThat(jobRuns.findById(waiting).getStatus()).isEqualTo("PENDING");
                 assertThat(jobRuns.findById(independent).getStatus()).isEqualTo("SUCCEEDED");
             } finally {

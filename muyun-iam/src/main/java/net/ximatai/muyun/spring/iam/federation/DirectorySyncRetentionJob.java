@@ -40,12 +40,12 @@ public class DirectorySyncRetentionJob implements JobHandler {
                 join iam_directory_sync_scope cs on cs.id = c.scope_id and cs.tenant_id = c.tenant_id
                 where c.tenant_id = r.tenant_id and cs.provider_id = s.provider_id
                   and c.mode = 'SYNC' and c.completed = true and c.status = 'SUCCEEDED')
-                or exists (
-                select 1 from iam_directory_sync_run c
+                or (r.created_at, r.id) < (
+                select c.created_at, c.id from iam_directory_sync_run c
                 join iam_directory_sync_scope cs on cs.id = c.scope_id and cs.tenant_id = c.tenant_id
                 where c.tenant_id = r.tenant_id and cs.provider_id = s.provider_id
                   and c.mode = 'SYNC' and c.completed = true and c.status = 'SUCCEEDED'
-                  and (c.created_at, c.id) > (r.created_at, r.id)))
+                order by c.updated_at desc, c.created_at desc, c.id desc limit 1))
             """;
 
     public DirectorySyncRetentionJob(IDatabaseOperations<?> database, DirectorySyncStore store) {
