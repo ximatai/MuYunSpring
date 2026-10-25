@@ -32,6 +32,25 @@ class WorkflowNodeOvertimeScanServiceTest {
             nodeDao, instanceDao, new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)), eventFactory);
 
     @Test
+    void backgroundScanPreservesTheOriginalEditorWhileKeepingSystemWorkflowEvents() {
+        WorkflowNodeInstance node = node();
+        node.setUpdatedBy("original-editor");
+        node.setActivatedAt(Instant.parse("2026-06-05T01:00:00Z"));
+        node.setOvertimeDurationMinutes(20);
+        when(nodeDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(node));
+        when(nodeDao.updateByIdAndVersion(node, 2)).thenReturn(1);
+        when(instanceDao.findById("instance-1")).thenReturn(instance());
+        try (var ignored = net.ximatai.muyun.spring.common.tenant.TenantContext.backgroundJob("platform.workflow-overtime")) {
+            assertThat(service.scan(Instant.parse("2026-06-05T01:21:00Z")).overdueCount()).isEqualTo(1);
+        }
+        assertThat(node.getUpdatedBy()).isEqualTo("original-editor");
+        ArgumentCaptor<WorkflowEvent> eventCaptor = ArgumentCaptor.forClass(WorkflowEvent.class);
+        verify(eventDao).insert(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getOperatorId())
+                .isEqualTo(net.ximatai.muyun.spring.common.platform.ActionAuthorizationResult.OPERATOR_SYSTEM);
+    }
+
+    @Test
     void shouldIgnoreActiveApprovalNodeBeforeThreshold() {
         WorkflowNodeInstance node = node();
         node.setActivatedAt(Instant.parse("2026-06-05T01:00:00Z"));

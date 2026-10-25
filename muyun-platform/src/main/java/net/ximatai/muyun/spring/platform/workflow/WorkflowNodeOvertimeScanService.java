@@ -128,7 +128,12 @@ public class WorkflowNodeOvertimeScanService {
 
     private boolean updateNodeIfCurrent(WorkflowNodeInstance node, Instant now) {
         Integer expectedVersion = node.getVersion();
+        String updatedBy = node.getUpdatedBy();
         EntityLifecycle.prepareUpdate(node, now, EntityLifecycle.nextVersion(expectedVersion));
+        // The former scheduler preserved the last business editor; job provenance belongs to the run.
+        if (net.ximatai.muyun.spring.common.tenant.TenantContext.backgroundJobType().isPresent()) {
+            node.setUpdatedBy(updatedBy);
+        }
         return nodeDao.updateByIdAndVersion(node, expectedVersion) > 0;
     }
 

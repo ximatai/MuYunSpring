@@ -11,6 +11,8 @@ import net.ximatai.muyun.spring.iam.user.BusinessLogLoginAuditLogger;
 import net.ximatai.muyun.spring.iam.user.LoginAuditLogger;
 import net.ximatai.muyun.spring.platform.logging.BusinessLogGovernanceService;
 import net.ximatai.muyun.spring.platform.logging.BusinessLogRetentionService;
+import net.ximatai.muyun.spring.platform.logging.BusinessLogRetentionJob;
+import net.ximatai.muyun.spring.platform.job.JobSchedule;
 import net.ximatai.muyun.spring.platform.logging.BusinessLogRetentionExecutionLimits;
 import net.ximatai.muyun.spring.platform.logging.PostgresBusinessLogStore;
 import net.ximatai.muyun.spring.platform.logging.RuntimeActionBusinessLogEventListener;
@@ -114,18 +116,21 @@ public class MuYunSpringBusinessLoggingConfiguration {
     @ConditionalOnMissingBean(BusinessLogRetentionExecutionLimits.class)
     BusinessLogRetentionExecutionLimits businessLogRetentionExecutionLimits(
             MuYunSpringBusinessLogRetentionProperties properties) {
+        properties.validateSchedule();
         return properties.executionLimits();
     }
 
     @Bean
     @ConditionalOnBean(BusinessLogRetentionService.class)
-    @ConditionalOnMissingBean(BusinessLogRetentionScheduler.class)
+    @ConditionalOnMissingBean(BusinessLogRetentionJob.class)
     @ConditionalOnProperty(prefix = "muyun.platform.business-log.retention", name = "scheduled-enabled",
             havingValue = "true", matchIfMissing = true)
-    BusinessLogRetentionScheduler businessLogRetentionScheduler(BusinessLogRetentionService service,
+    BusinessLogRetentionJob businessLogRetentionJob(BusinessLogRetentionService service,
                                                                  BusinessLogRetentionExecutionLimits executionLimits,
                                                                  MuYunSpringBusinessLogRetentionProperties properties) {
-        return new BusinessLogRetentionScheduler(service, executionLimits, properties);
+        properties.validateSchedule();
+        return new BusinessLogRetentionJob(service, executionLimits,
+                JobSchedule.fixedDelay(properties.getScanDelay(), properties.getInitialDelay()));
     }
 
 }
