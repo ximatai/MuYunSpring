@@ -31,7 +31,16 @@
 | `POST` | `/iam.auth/external/identities/{identityId}/delete`          | 要求登录且会话在 5 分钟内建立；解除本人绑定，不允许解除无本地密码账号的最后一个登录方式。                                                    |
 | `GET`  | `/iam.auth/external/mock/authorize`                          | 匿名，仅开发模式且开启模拟身份源时存在。模拟身份源的授权页，只接受回到配置的工作台地址的 `redirect_uri`。                                    |
 
-管理模块：`/iam.identity_provider`（平台超级管理员维护身份源，标准 CRUD 与启停）、`/iam.tenant_identity_policy`（租户维护外部登录方式，开户策略当前只接受 `disabled`）、`/iam.external_identity`（绑定只读查询，可通过标准删除动作解除）。
+管理模块：`/iam.identity_provider`（平台超级管理员维护身份源，标准 CRUD 与启停）、`/iam.tenant_identity_policy`（租户维护外部登录方式，开户策略当前只接受 `disabled`）、`/iam.external_identity`（绑定查询与标准删除；解绑同时撤销本租户账号会话，并阻止来源自动重绑）。
+
+通讯录动作沿用当前租户、模块动作权限与数据范围；预览和正式同步返回平台作业运行 ID：
+
+| 方法 | URL | 功能 |
+| --- | --- | --- |
+| `POST` | `/iam.tenant_identity_policy/{id}/preview` | 后台预览；有待确认范围时生成范围变更影响报告，不写 IAM 业务数据。 |
+| `POST` | `/iam.tenant_identity_policy/{id}/synchronize` | 按生效范围立即同步，待确认方案不替换生效范围。 |
+| `POST` | `/iam.tenant_identity_policy/{id}/scopeImpact` | 查看待确认报告，返回 `scopeId/baseScopeId/runId/counts`；计数含部门、人员、将回收任岗及派生授权。 |
+| `POST` | `/iam.tenant_identity_policy/{id}/confirmScope` | 请求 `{scopeId, runId}`，确认所审成功报告并原子切换范围及计划，立即入队正式同步，返回作业运行 ID。 |
 
 ## 通用管理接口
 
