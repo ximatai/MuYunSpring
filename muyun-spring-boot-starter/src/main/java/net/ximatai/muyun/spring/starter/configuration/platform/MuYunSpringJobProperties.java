@@ -42,6 +42,7 @@ public class MuYunSpringJobProperties {
                 throw new IllegalArgumentException("Invalid job channel");
             if (channel.threads < 1 || channel.threads > 64)
                 throw new IllegalArgumentException("Job channel threads must be between 1 and 64");
+            duration("initialDelay", channel.initialDelay, Duration.ZERO, Duration.ofMinutes(5));
             duration("claimInterval", channel.claimInterval, Duration.ofMillis(100), Duration.ofMinutes(1));
         });
         if (channels.values().stream().mapToInt(Channel::getThreads).sum() > 256)
@@ -55,6 +56,12 @@ public class MuYunSpringJobProperties {
 
     public static class Channel {
         private int threads = 2;
+        private Duration initialDelay = Duration.ZERO;
+        private boolean delayAfterExecution;
+        public Duration getInitialDelay() { return initialDelay; }
+        public void setInitialDelay(Duration value) { initialDelay = value; }
+        public boolean isDelayAfterExecution() { return delayAfterExecution; }
+        public void setDelayAfterExecution(boolean value) { delayAfterExecution = value; }
         private Duration claimInterval = Duration.ofSeconds(1);
 
         public int getThreads() { return threads; }

@@ -7,13 +7,11 @@ import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import java.time.Instant;
 
-/** Durable translation work only. The request contains identities and scope references, never source text or credentials. */
+/** Translation topic state and immutable request references. The request contains identities and scope references, never source text or credentials. */
 @Getter @Setter
 @Table(name = "platform_business_content_generation", comment = "Business content translation generation")
 @CompositeIndex(columns = {"request_key"}, unique = true)
 @CompositeIndex(columns = {"slot_key", "sequence"}, unique = true)
-@CompositeIndex(columns = {"status", "available_at"})
-@CompositeIndex(columns = {"status", "lease_until"})
 @CompositeIndex(columns = {"finished_at"})
 @CompositeIndex(columns = {"tenant_id", "module_alias", "entity_key", "record_id"})
 public class BusinessContentGeneration extends StandardEntity {
@@ -37,14 +35,8 @@ public class BusinessContentGeneration extends StandardEntity {
     private String requestJson;
     @Column(name = "status", type = ColumnType.VARCHAR, length = 32, nullable = false)
     private String status;
-    @Column(name = "attempts", type = ColumnType.INT, nullable = false)
-    private Integer attempts;
-    @Column(name = "available_at", type = ColumnType.TIMESTAMP, nullable = false)
-    private Instant availableAt;
-    @Column(name = "lease_token", type = ColumnType.VARCHAR, length = 64)
-    private String leaseToken;
-    @Column(name = "lease_until", type = ColumnType.TIMESTAMP)
-    private Instant leaseUntil;
+    @Column(name = "run_id", type = ColumnType.VARCHAR, length = 32)
+    private String runId;
     @Column(name = "finished_at", type = ColumnType.TIMESTAMP)
     private Instant finishedAt;
     @Column(name = "problem_code", type = ColumnType.VARCHAR, length = 64)

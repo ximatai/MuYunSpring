@@ -115,6 +115,9 @@ public final class JobNodeExecutor implements SmartLifecycle {
         private final String name;
         private final int threads;
         private final Duration claimInterval;
+        private final Duration initialDelay;
+        private final boolean delayAfterExecution;
+        private long readyAt;
         private final Object signal = new Object();
         private ExecutorService pool;
         private final List<Worker> workers = new ArrayList<>();
@@ -122,9 +125,11 @@ public final class JobNodeExecutor implements SmartLifecycle {
 
         private Channel(String name, MuYunSpringJobProperties.Channel config) {
             this.name = name; threads = config.getThreads(); claimInterval = config.getClaimInterval();
+            initialDelay = config.getInitialDelay(); delayAfterExecution = config.isDelayAfterExecution();
         }
 
         private void start() {
+            readyAt = System.nanoTime() + initialDelay.toNanos();
             pool = Executors.newFixedThreadPool(threads, runnable -> thread(runnable, "job-" + name));
             workers.clear();
             for (int index = 0; index < threads; index++) {
@@ -144,9 +149,30 @@ public final class JobNodeExecutor implements SmartLifecycle {
             private void claim() {
                 try {
                     while (running && !Thread.currentThread().isInterrupted()) {
+                        synchronized (signal) {
+                            long remaining = readyAt - System.nanoTime();
+                            if (remaining > 0) {
+                                try { TimeUnit.NANOSECONDS.timedWait(signal, remaining); }
+                                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
+                                continue;
+                            }
+                        }
                         long observed;
                         synchronized (signal) { observed = generation; }
-                        try { if (jobs.runOne(name, ownerId, () -> running)) continue; }
+                        try {
+                            if (jobs.runOne(name, ownerId, () -> running)) {
+                                if (delayAfterExecution) {
+                                    long next = System.nanoTime() + claimInterval.toNanos();
+                                    synchronized (signal) {
+                                        while (running && next > System.nanoTime()) {
+                                            try { TimeUnit.NANOSECONDS.timedWait(signal, next - System.nanoTime()); }
+                                            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
+                                        }
+                                    }
+                                }
+                                continue;
+                            }
+                        }
                         catch (RuntimeException failure) { safely(() -> { throw failure; }); }
                         synchronized (signal) {
                             if (!running || generation != observed) continue;
