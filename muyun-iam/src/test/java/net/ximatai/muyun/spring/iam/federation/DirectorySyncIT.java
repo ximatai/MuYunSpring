@@ -1188,6 +1188,39 @@ class DirectorySyncIT {
     }
 
     @Test
+    void scopeNarrowingCountsReparentedDepartmentsWithinTheSameOrganization() {
+        enqueue(false);
+        execute();
+        String organization = DirectorySyncConfiguration.roots(policy.getSyncRoots()).getFirst().organizationId();
+        tenant("tenant-a", () -> {
+            policy.setSyncRoots(DirectorySyncStore.encode(List.of(
+                    new DirectorySyncConfiguration.Root("a1", organization),
+                    new DirectorySyncConfiguration.Root("b", organization))));
+            policies.update(policy);
+            return null;
+        });
+        enqueue(true);
+        execute();
+        tenant("tenant-a", () -> {
+            var report = policies.scopeImpact(policy.getId());
+            var counts = (Map<?, ?>) report.get("counts");
+            // A leaves the range; A1 becomes a root and is detached from A in the local tree.
+            assertThat(counts.get("departments")).isEqualTo(2);
+            assertThat(counts.get("people")).isEqualTo(1);
+            assertThat(counts.get("positions")).isEqualTo(0);
+            policies.confirmScope(policy.getId(), (String) report.get("scopeId"), (String) report.get("runId"));
+            return null;
+        });
+        execute();
+        tenant("tenant-a", () -> {
+            var mapping = mappings.query(Criteria.of().eq("externalDepartmentId", "a1"), new PageRequest(0, 1)).getFirst();
+            assertThat(mapping.getRootId()).isEqualTo("a1");
+            assertThat(departmentRows.findById(mapping.getDepartmentId()).getParentId()).isEqualTo(TreeAbility.ROOT_ID);
+            return null;
+        });
+    }
+
+    @Test
     void scopeRemappingReportsOnlyOwnedEmploymentAndRequiresExplicitConfirmation() {
         enqueue(false);
         execute();

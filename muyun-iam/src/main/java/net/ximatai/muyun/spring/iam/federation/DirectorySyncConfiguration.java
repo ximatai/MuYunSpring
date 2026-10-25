@@ -265,15 +265,20 @@ public class DirectorySyncConfiguration {
         // Only this tenant/provider's source facts participate; manual employment/grants are excluded.
         var result = store.database.query("""
                 with observed as (
-                    select external_department_id, organization_id from iam_directory_sync_department
+                    select external_department_id, organization_id, root_id from iam_directory_sync_department
                     where tenant_id = ? and run_id = ? and deleted = false
                 ), managed as (
-                    select m.external_department_id, m.organization_id from iam_directory_department_mapping m
+                    select m.external_department_id, m.organization_id, m.root_id from iam_directory_department_mapping m
                     join iam_directory_sync_scope s on s.id = ? and s.tenant_id = m.tenant_id
                     cross join lateral jsonb_to_recordset(s.roots::jsonb)
                       as root("externalDepartmentId" text, "organizationId" text)
                     where m.tenant_id = ? and m.provider_id = ? and m.deleted = false
                       and m.root_id = root."externalDepartmentId" and m.organization_id = root."organizationId"
+                ), changed_departments as (
+                    select coalesce(m.external_department_id, n.external_department_id) as external_department_id
+                    from managed m full join observed n using (external_department_id)
+                    where m.organization_id is distinct from n.organization_id
+                       or m.root_id is distinct from n.root_id
                 ), placements as (
                     select seen.external_user_id, a.employee_id, d.external_department_id, d.organization_id,
                       first_value(d.external_department_id) over (partition by seen.external_user_id
@@ -307,14 +312,16 @@ public class DirectorySyncConfiguration {
                     select 'employee:' || employee_id from retiring_grants
                     union
                     select coalesce('employee:' || n.employee_id, 'external:' || n.external_user_id)
+                    from placements n join changed_departments d using (external_department_id)
+                    union
+                    select coalesce('employee:' || n.employee_id, 'external:' || n.external_user_id)
                     from placements n where not exists (
                         select 1 from owned p where p.employee_id = n.employee_id
                           and p.external_department_id = n.external_department_id
                           and p.organization_id = n.organization_id and p.position_id = ?)
                 )
                 select
-                    (select count(*) from managed m full join observed n using (external_department_id)
-                      where m.organization_id is distinct from n.organization_id) as departments,
+                    (select count(*) from changed_departments) as departments,
                     (select count(*) from changed_people) as people,
                     (select count(*) from retiring) as positions,
                     (select count(*) from retiring_grants) as grants
