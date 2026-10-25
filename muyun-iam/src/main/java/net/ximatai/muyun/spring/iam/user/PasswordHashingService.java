@@ -19,6 +19,7 @@ public class PasswordHashingService {
     private static final int SALT_BYTES = 16;
 
     private final SecureRandom secureRandom = new SecureRandom();
+    private volatile String decoyHash;
 
     public String hash(String password) {
         String validPassword = requirePassword(password);
@@ -50,6 +51,19 @@ public class PasswordHashingService {
         } catch (RuntimeException e) {
             return false;
         }
+    }
+
+    /**
+     * Spends the cost of one verification against a random credential, so a rejection that never checks a
+     * stored password takes as long as a mismatch and does not reveal the account state.
+     */
+    public void spendVerification(String password) {
+        String decoy = decoyHash;
+        if (decoy == null) {
+            decoy = hash(Long.toHexString(secureRandom.nextLong()));
+            decoyHash = decoy;
+        }
+        matches(password == null || password.isEmpty() ? "-" : password, decoy);
     }
 
     private String requirePassword(String password) {

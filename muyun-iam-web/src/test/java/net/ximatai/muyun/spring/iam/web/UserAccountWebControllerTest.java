@@ -208,7 +208,7 @@ class UserAccountWebControllerTest {
         UserSessionView session = new UserSessionView("session-1", "user-1", "alice", "tenant-a",
                 "org-1", Instant.parse("2026-07-15T00:00:00Z"),
                 Instant.parse("2026-07-15T12:00:00Z"), Instant.parse("2026-07-22T00:00:00Z"),
-                Instant.parse("2026-07-15T01:00:00Z"), false, "127.0.0.1", "Chrome",
+                Instant.parse("2026-07-15T01:00:00Z"), false, "password", "127.0.0.1", "Chrome",
                 "desktopWeb", "Web 桌面端", "macos", "macOS", false,
                 false, "offline", "离线", 0, null, null);
         when(userSessionService.activeSessionsOfUser("user-1", "token-1")).thenReturn(List.of(session));
@@ -300,7 +300,7 @@ class UserAccountWebControllerTest {
                 new UserSessionView("session-1", "user-1", "alice", "tenant-a",
                         "org-1", Instant.parse("2026-07-15T00:00:00Z"),
                         Instant.parse("2026-07-15T12:00:00Z"), Instant.parse("2026-07-22T00:00:00Z"),
-                        Instant.parse("2026-07-15T01:00:00Z"), false, "127.0.0.1", "Chrome",
+                        Instant.parse("2026-07-15T01:00:00Z"), false, "password", "127.0.0.1", "Chrome",
                         "desktopWeb", "Web 桌面端", "macos", "macOS", false,
                         false, "offline", "离线", 0, null, null)
         ));

@@ -119,6 +119,45 @@ class UserAccountServiceContractTest {
     }
 
     @Test
+    void shouldCreatePasswordlessAccountWithoutHashOrPasswordPolicy() {
+        UserAccountDao dao = mock(UserAccountDao.class);
+        when(dao.insert(any())).thenAnswer(invocation -> invocation.<UserAccount>getArgument(0).getId());
+        UserAccountService service = userAccountService(dao, tenantId -> {
+        }, passwordHashingService);
+        UserAccount user = new UserAccount();
+        user.setUsername("alice");
+
+        user.setPasswordStatus(PasswordStatus.NONE);
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            service.insert(user);
+        }
+
+        assertThat(user.getPasswordStatus()).isEqualTo(PasswordStatus.NONE);
+        assertThat(user.getPasswordHash()).isNull();
+        assertThat(user.getPasswordChangedAt()).isNull();
+        assertThat(service.hasLocalPassword(user)).isFalse();
+        assertThat(service.passwordChangeRequired(user, java.time.Instant.now())).isFalse();
+    }
+
+    @Test
+    void shouldRejectPasswordlessAccountCarryingPassword() {
+        UserAccountDao dao = mock(UserAccountDao.class);
+        UserAccountService service = userAccountService(dao, tenantId -> {
+        }, passwordHashingService);
+        UserAccount user = new UserAccount();
+        user.setUsername("alice");
+        user.setPasswordStatus(PasswordStatus.NONE);
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThatThrownBy(() -> service.createUser(user, "secret1"))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class);
+        }
+
+        verify(dao, never()).insert(any());
+    }
+
+    @Test
     void shouldDefaultUserTitleFromUsernameWhenMissing() {
         UserAccountDao dao = mock(UserAccountDao.class);
         when(dao.insert(any())).thenAnswer(invocation -> invocation.<UserAccount>getArgument(0).getId());
@@ -348,6 +387,69 @@ class UserAccountServiceContractTest {
                 org.mockito.ArgumentMatchers.<Optional<CurrentUser>>any(),
                 any(DataScopeFieldMapping.class)
         );
+    }
+
+    @Test
+    void shouldClearLoginLockWhenAdministratorSetsPassword() {
+        UserAccountDao dao = mock(UserAccountDao.class);
+        UserAccount user = activeUser();
+        user.setFailedLoginCount(3);
+        user.setLockedUntil(java.time.Instant.now().plusSeconds(600));
+        when(dao.count(any(Criteria.class))).thenReturn(1L);
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        when(dao.updateByIdAndVersion(any(UserAccount.class), any())).thenAnswer(call -> {
+            org.springframework.beans.BeanUtils.copyProperties(call.<UserAccount>getArgument(0), user);
+            return 1;
+        });
+        UserAccountService service = userAccountServiceFixture(dao, tenantId -> {
+        }, passwordHashingService).build();
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThat(service.changePassword("user-1", "secret2")).isEqualTo(1);
+        }
+
+        assertThat(user.getLockedUntil()).isNull();
+        assertThat(user.getFailedLoginCount()).isZero();
+    }
+
+    @Test
+    void shouldRejectOwnPasswordChangeWhileLockedWithoutVerifyingPassword() {
+        UserAccountDao dao = mock(UserAccountDao.class);
+        UserAccount user = activeUser();
+        user.setLockedUntil(java.time.Instant.now().plusSeconds(600));
+        when(dao.count(any(Criteria.class))).thenReturn(1L);
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        UserAccountService service = userAccountServiceFixture(dao, tenantId -> {
+        }, passwordHashingService).build();
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThatThrownBy(() -> service.changeOwnPassword("user-1", "secret1", "secret2"))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.AuthenticationFailedException.class);
+        }
+
+        verify(dao, never()).updateByIdAndVersion(any(UserAccount.class), any());
+    }
+
+    @Test
+    void shouldCountWrongCurrentPasswordAsLoginFailure() {
+        UserAccountDao dao = mock(UserAccountDao.class);
+        UserAccount user = activeUser();
+        when(dao.count(any(Criteria.class))).thenReturn(1L);
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        when(dao.updateByIdAndVersion(any(UserAccount.class), any())).thenAnswer(call -> {
+            org.springframework.beans.BeanUtils.copyProperties(call.<UserAccount>getArgument(0), user);
+            return 1;
+        });
+        UserAccountService service = userAccountServiceFixture(dao, tenantId -> {
+        }, passwordHashingService).build();
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThatThrownBy(() -> service.changeOwnPassword("user-1", "wrong-password", "secret2"))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.AuthenticationFailedException.class);
+        }
+
+        assertThat(user.getFailedLoginCount()).isEqualTo(1);
+        assertThat(passwordHashingService.matches("secret1", user.getPasswordHash())).isTrue();
     }
 
     @Test

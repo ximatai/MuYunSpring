@@ -55,6 +55,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 
 @Service
 public class UserAccountService extends TenantActiveScopedService<UserAccount> implements
@@ -78,6 +79,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     private final UserSessionPresenceService userSessionPresenceService;
     private final SecureRandom secureRandom = new SecureRandom();
     private PlatformInitialAdminSettings initialAdminSettings = PlatformInitialAdminSettings.defaults();
+    private LoginLockoutPolicy loginLockoutPolicy = LoginLockoutPolicy.defaults();
     private static final ActionExecutionPolicy CHANGE_PASSWORD_POLICY = new ActionExecutionPolicy(
             "changePassword",
             PlatformActionLevel.RECORD,
@@ -106,6 +108,11 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     @Autowired
     public void setInitialAdminSettings(Optional<PlatformInitialAdminSettings> settings) {
         this.initialAdminSettings = settings.orElseGet(PlatformInitialAdminSettings::defaults);
+    }
+
+    @Autowired
+    public void setLoginLockoutPolicy(Optional<LoginLockoutPolicy> policy) {
+        this.loginLockoutPolicy = policy.orElseGet(LoginLockoutPolicy::defaults);
     }
 
     @Override
@@ -253,10 +260,21 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     @Override
     public void beforeInsert(UserAccount user) {
         syncSelfAuthUser(user);
-        validatePasswordPolicy(user.getPassword());
-        user.setPasswordHash(passwordHashingService.hash(user.getPassword()));
-        user.setPasswordStatus(user.getPasswordStatus() == null ? PasswordStatus.INITIAL : user.getPasswordStatus());
-        user.setPasswordChangedAt(user.getPasswordChangedAt() == null ? Instant.now() : user.getPasswordChangedAt());
+        if (user.getPasswordStatus() == PasswordStatus.NONE) {
+            if (user.getPassword() != null) {
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "iam.rejection.user-account.passwordless-account-must-not-carry-password",
+                        "account without local password must not carry a password"), Map.of());
+            }
+            user.setPasswordHash(null);
+            user.setPasswordChangedAt(null);
+            user.setPasswordExpiresAt(null);
+        } else {
+            validatePasswordPolicy(user.getPassword());
+            user.setPasswordHash(passwordHashingService.hash(user.getPassword()));
+            user.setPasswordStatus(user.getPasswordStatus() == null ? PasswordStatus.INITIAL : user.getPasswordStatus());
+            user.setPasswordChangedAt(user.getPasswordChangedAt() == null ? Instant.now() : user.getPasswordChangedAt());
+        }
         user.setFailedLoginCount(user.getFailedLoginCount() == null ? 0 : user.getFailedLoginCount());
         rejectDuplicateUsername(user);
     }
@@ -353,7 +371,9 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
             user.setPasswordStatus(PasswordStatus.NORMAL);
             user.setPasswordChangedAt(Instant.now());
             user.setPasswordExpiresAt(null);
-        }, "passwordHash", "passwordStatus", "passwordChangedAt", "passwordExpiresAt");
+            user.setFailedLoginCount(0);
+            user.setLockedUntil(null);
+        }, "passwordHash", "passwordStatus", "passwordChangedAt", "passwordExpiresAt", "failedLoginCount", "lockedUntil");
         if (count > 0) {
             revokeUserSessions(validUserId, "password changed");
             userSecurityEventPublisher.publish(UserSecurityEvent.passwordChanged(validUserId));
@@ -396,27 +416,52 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         return revoked;
     }
 
-    @Transactional
+    /**
+     * Verifying the current password is a credential attempt: it obeys the login lock and counts failures,
+     * which must commit even though the password change itself is rejected. The check runs before the
+     * field mutation opens its transaction scope, because a rejection thrown from inside that scope would
+     * mark the surrounding transaction rollback-only and discard the counted failure.
+     */
+    @Transactional(noRollbackFor = AuthenticationFailedException.class)
     public int changeOwnPassword(String userId, String currentPassword, String newPassword) {
         String validUserId = Preconditions.requireText(userId, "userId");
+        Instant attemptedAt = Instant.now();
+        requireRecordScope(ownPasswordPolicy(), List.of(validUserId));
+        UserAccount verified = selectActiveRaw(validUserId);
+        if (verified == null) {
+            return 0;
+        }
+        requireCommandUserEnabled(verified);
+        if (loginLocked(verified, attemptedAt)) {
+            throw new AuthenticationFailedException("invalid username or password");
+        }
+        if (!passwordMatches(verified, currentPassword)) {
+            recordLoginFailure(verified, attemptedAt);
+            throw new AuthenticationFailedException("invalid username or password");
+        }
         int count = mutateFields(ownPasswordPolicy(), validUserId, user -> {
             requireCommandUserEnabled(user);
-            if (!passwordMatches(user, currentPassword)) {
+            // The verified password must still be the stored one; a concurrent change or lock makes it stale.
+            if (loginLocked(user, attemptedAt) || !Objects.equals(user.getPasswordHash(), verified.getPasswordHash())) {
                 throw new AuthenticationFailedException("invalid username or password");
             }
-            validatePasswordPolicy(newPassword);
-            user.setPasswordHash(passwordHashingService.hash(newPassword));
-            user.setPasswordStatus(PasswordStatus.NORMAL);
-            user.setPasswordChangedAt(Instant.now());
-            user.setPasswordExpiresAt(null);
-            user.setFailedLoginCount(0);
-            user.setLockedUntil(null);
+            applyOwnPassword(user, newPassword);
         }, "passwordHash", "passwordStatus", "passwordChangedAt", "passwordExpiresAt", "failedLoginCount", "lockedUntil");
         if (count > 0) {
             revokeUserSessions(validUserId, "own password changed");
             userSecurityEventPublisher.publish(UserSecurityEvent.passwordChanged(validUserId));
         }
         return count;
+    }
+
+    private void applyOwnPassword(UserAccount user, String newPassword) {
+        validatePasswordPolicy(newPassword);
+        user.setPasswordHash(passwordHashingService.hash(newPassword));
+        user.setPasswordStatus(PasswordStatus.NORMAL);
+        user.setPasswordChangedAt(Instant.now());
+        user.setPasswordExpiresAt(null);
+        user.setFailedLoginCount(0);
+        user.setLockedUntil(null);
     }
 
     private void requireCommandUserEnabled(UserAccount user) {
@@ -453,23 +498,79 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         return user == null || user.getPasswordStatus() == null ? PasswordStatus.NORMAL : user.getPasswordStatus();
     }
 
-    public void recordLoginSuccess(String userId, Instant loginAt, String ip, String userAgent) {
-        VersionedRecordMutation.update(getDao(), () -> selectActiveRaw(userId), user -> {
-            user.setLastLoginAt(loginAt);
-            user.setLastLoginIp(normalizeLength(ip, 64));
-            user.setLastLoginUserAgent(normalizeLength(userAgent, 512));
-            user.setFailedLoginCount(0);
+    /**
+     * Admits a verified credential against the latest stored account and opens the session in the same
+     * transaction. Admission requires the account to still be enabled and unlocked and, for a password
+     * credential, to still store the exact password that was verified. The login-state update keeps the
+     * account row write-locked until the session is persisted, so a concurrent password change, reset or
+     * disablement either makes this admission fail or waits for it and then revokes the new session.
+     *
+     * @param openSession receives the admitted latest account; it must only persist the session
+     * @return the session result, or empty when the account no longer admits this login
+     */
+    public <R> Optional<R> admitLogin(UserAccount verified, boolean passwordCredential, Instant loginAt,
+                                      String ip, String userAgent, Function<UserAccount, R> openSession) {
+        Objects.requireNonNull(verified, "verified");
+        Objects.requireNonNull(openSession, "openSession");
+        return inMutationTransaction(() -> {
+            UserAccount admitted = VersionedRecordMutation.update(getDao(),
+                    () -> admissible(selectActiveRaw(verified.getId()), verified, passwordCredential, loginAt), user -> {
+                        user.setLastLoginAt(loginAt);
+                        user.setLastLoginIp(normalizeLength(ip, 64));
+                        user.setLastLoginUserAgent(normalizeLength(userAgent, 512));
+                        user.setFailedLoginCount(0);
+                        user.setLockedUntil(null);
+                    });
+            return admitted == null ? Optional.<R>empty() : Optional.of(openSession.apply(admitted));
         });
     }
 
+    private UserAccount admissible(UserAccount latest, UserAccount verified, boolean passwordCredential, Instant at) {
+        UserAccount eligible = loginEligible(latest, at);
+        if (eligible == null || passwordCredential
+                && !Objects.equals(eligible.getPasswordHash(), verified.getPasswordHash())) {
+            return null;
+        }
+        return eligible;
+    }
+
+    /**
+     * Counts a failed credential attempt. Reaching the lockout threshold locks the account and restarts
+     * the count, so an expired lock grants a fresh attempt budget instead of relocking on the next miss.
+     */
     public void recordLoginFailure(UserAccount user, Instant failedAt) {
         if (user == null || user.getId() == null || user.getId().isBlank()) {
             return;
         }
-        VersionedRecordMutation.update(getDao(), () -> selectActiveRaw(user.getId()), latest -> {
+        LoginLockoutPolicy policy = loginLockoutPolicy;
+        // Failures that race past an already applied lock neither extend it nor restart the attempt budget.
+        VersionedRecordMutation.update(getDao(), () -> unlocked(selectActiveRaw(user.getId()), failedAt), latest -> {
             latest.setLastFailedLoginAt(failedAt);
-            latest.setFailedLoginCount((latest.getFailedLoginCount() == null ? 0 : latest.getFailedLoginCount()) + 1);
+            int failures = (latest.getFailedLoginCount() == null ? 0 : latest.getFailedLoginCount()) + 1;
+            if (policy.enabled() && failures >= policy.maxFailedAttempts()) {
+                latest.setLockedUntil(failedAt.plus(policy.lockDuration()));
+                latest.setFailedLoginCount(0);
+            } else {
+                latest.setFailedLoginCount(failures);
+            }
         });
+    }
+
+    boolean loginLocked(UserAccount user, Instant now) {
+        return user != null && user.getLockedUntil() != null && now.isBefore(user.getLockedUntil());
+    }
+
+    private UserAccount loginEligible(UserAccount user, Instant at) {
+        return user != null && Boolean.TRUE.equals(user.getEnabled()) ? unlocked(user, at) : null;
+    }
+
+    private UserAccount unlocked(UserAccount user, Instant at) {
+        return loginLocked(user, at) ? null : user;
+    }
+
+    boolean hasLocalPassword(UserAccount user) {
+        return user != null && effectivePasswordStatus(user) != PasswordStatus.NONE
+                && user.getPasswordHash() != null && !user.getPasswordHash().isBlank();
     }
 
     public UserAccount requireActiveUser(String username) {
@@ -490,6 +591,11 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         return findOne(Criteria.of()
                 .eq("username", validUsername)
                 .eqNullable("tenantId", normalizeBlank(tenantId)));
+    }
+
+    /** Spends one password verification without consulting a stored credential; see {@link PasswordHashingService#spendVerification}. */
+    public void spendPasswordVerification(String password) {
+        passwordHashingService.spendVerification(password);
     }
 
     public boolean passwordMatches(UserAccount user, String password) {

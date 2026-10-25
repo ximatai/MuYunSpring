@@ -33,8 +33,8 @@ public class UserAccount extends StandardDataScopedEnabledSortableEntity {
     @NormalizeText
     private String username;
 
-    @Column(name = "password_hash", type = ColumnType.VARCHAR, length = 256, nullable = false,
-            comment = "Password hash")
+    @Column(name = "password_hash", type = ColumnType.VARCHAR, length = 256,
+            comment = "Password hash; empty when the account has no local password")
     @JsonIgnore
     private String passwordHash;
 

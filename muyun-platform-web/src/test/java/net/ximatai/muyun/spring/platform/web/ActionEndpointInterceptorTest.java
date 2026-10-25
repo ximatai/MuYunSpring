@@ -8,6 +8,8 @@ import net.ximatai.muyun.spring.common.identity.ActingContext;
 import net.ximatai.muyun.spring.common.identity.ActingContextHolder;
 import net.ximatai.muyun.spring.common.identity.BusinessPrincipal;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.platform.AnonymousEndpoint;
+import net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.ApplicationNotOpenedException;
@@ -73,6 +75,76 @@ class ActionEndpointInterceptorTest {
         ActionExecutionContextHolder.clear();
         RequestContextHolder.resetRequestAttributes();
         MDC.clear();
+    }
+
+    @Test
+    void shouldRequireLoginForEndpointWithoutAccessDeclaration() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/undeclared/data");
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new UndeclaredAccessController(), UndeclaredAccessController.class.getMethod("data"))))
+                .isInstanceOf(AuthenticationRequiredException.class);
+        assertThat(policyService.context).isNull();
+    }
+
+    @Test
+    void shouldAllowLoggedInUserOnEndpointWithoutAccessDeclaration() throws Exception {
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.tenantUser("u1", "User", "t1"))) {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/undeclared/data");
+
+            assertThat(interceptor.preHandle(request, new MockHttpServletResponse(),
+                    handler(new UndeclaredAccessController(), UndeclaredAccessController.class.getMethod("data"))))
+                    .isTrue();
+        }
+        assertThat(policyService.context).isNull();
+    }
+
+    @Test
+    void shouldAllowAnonymousCallerOnlyOnExplicitlyAnonymousEndpoint() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/public");
+
+        assertThat(interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new UndeclaredAccessController(), UndeclaredAccessController.class.getMethod("publicCatalog"))))
+                .isTrue();
+    }
+
+    @Test
+    void shouldRequireLoginWhenErrorDispatchTargetsOrdinaryController() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/undeclared/data");
+        request.setDispatcherType(jakarta.servlet.DispatcherType.ERROR);
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new UndeclaredAccessController(), UndeclaredAccessController.class.getMethod("data"))))
+                .isInstanceOf(AuthenticationRequiredException.class);
+    }
+
+    @Test
+    void shouldNotRequireLoginForContainerErrorController() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/error");
+        request.setDispatcherType(jakarta.servlet.DispatcherType.ERROR);
+
+        assertThat(interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new ContainerErrorController(), ContainerErrorController.class.getMethod("error"))))
+                .isTrue();
+    }
+
+    @Test
+    void shouldRequireLoginForDirectRequestsToErrorControllerMethods() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/error/diagnostics");
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new ContainerErrorController(), ContainerErrorController.class.getMethod("diagnostics"))))
+                .isInstanceOf(AuthenticationRequiredException.class);
+    }
+
+    @Test
+    void shouldRejectAnonymousMarkerCombinedWithActionDeclaration() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/conflict");
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new ConflictingAnonymousController(), ConflictingAnonymousController.class.getMethod("query"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("anonymous endpoint cannot also declare a platform action");
     }
 
     @Test
@@ -802,11 +874,13 @@ class ActionEndpointInterceptorTest {
 
 
     @Test
-    void shouldIgnoreEndpointWithoutActionAnnotation() throws Exception {
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/iam.organization/actions");
+    void shouldSkipActionAuthorizationForLoggedInEndpointWithoutActionAnnotation() throws Exception {
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.tenantUser("u1", "User", "t1"))) {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/iam.organization/actions");
 
-        interceptor.preHandle(request, new MockHttpServletResponse(),
-                handler(new StaticScopedWeb(), ActionWeb.class.getMethod("actions")));
+            interceptor.preHandle(request, new MockHttpServletResponse(),
+                    handler(new StaticScopedWeb(), ActionWeb.class.getMethod("actions")));
+        }
 
         assertThat(policyService.context).isNull();
     }
@@ -914,6 +988,35 @@ class ActionEndpointInterceptorTest {
 
         @ActionEndpoint(PlatformAction.QUERY)
         public void standardQuery(WebQueryRequest request) {
+        }
+    }
+
+    private static final class UndeclaredAccessController {
+        public String data() {
+            return "data";
+        }
+
+        @AnonymousEndpoint
+        public String publicCatalog() {
+            return "catalog";
+        }
+    }
+
+    private static final class ContainerErrorController implements org.springframework.boot.webmvc.error.ErrorController {
+        public String error() {
+            return "error";
+        }
+
+        public String diagnostics() {
+            return "diagnostics";
+        }
+    }
+
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class, alias = "platform.workflow_admin", title = "Workflow Admin")
+    private static final class ConflictingAnonymousController {
+        @AnonymousEndpoint
+        @net.ximatai.muyun.spring.common.platform.CustomActionEndpoint("workflowAdminQuery")
+        public void query() {
         }
     }
 

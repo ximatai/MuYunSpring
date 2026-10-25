@@ -2,12 +2,16 @@ package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.web.*;
 
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.ActingContext;
 import net.ximatai.muyun.spring.common.identity.ActingContextHolder;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
+import net.ximatai.muyun.spring.common.platform.AnonymousEndpoint;
 import net.ximatai.muyun.spring.common.platform.ActionAuthorizationResult;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
@@ -15,6 +19,7 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpoint;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog;
+import org.springframework.boot.webmvc.error.ErrorController;
 import org.springframework.lang.NonNull;
 import org.slf4j.MDC;
 import org.springframework.web.method.HandlerMethod;
@@ -95,12 +100,19 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
             throw new IllegalStateException("method cannot declare both standard and custom action endpoint: "
                     + handlerMethod.getBeanType().getName() + "#" + handlerMethod.getMethod().getName());
         }
+        boolean anonymous = WebAnnotationSupport.findMergedMethodAnnotation(handlerMethod.getMethod(),
+                handlerMethod.getBeanType(), AnonymousEndpoint.class) != null;
+        if (anonymous && (registered.isPresent() || endpoint != null || customEndpoint != null)) {
+            throw new IllegalStateException("anonymous endpoint cannot also declare a platform action: "
+                    + handlerMethod.getBeanType().getName() + "#" + handlerMethod.getMethod().getName());
+        }
         if (registered.isPresent() && (endpoint != null || customEndpoint != null)) {
             // The compiled catalog is authoritative for generated and compatibility mappings alike.
             endpoint = null;
             customEndpoint = null;
         }
         if (registered.isEmpty() && endpoint == null && customEndpoint == null) {
+            requireLoginForUndeclaredEndpoint(request, handlerMethod, anonymous);
             return true;
         }
         ActingContextHolder.Scope actingScope = null;
@@ -148,6 +160,23 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
                 actingScope.close();
             }
             throw ex;
+        }
+    }
+
+    /**
+     * Endpoints outside the module action model are login-only unless they explicitly opt into anonymous
+     * access, so an omitted declaration fails closed instead of exposing the handler to anonymous callers.
+     */
+    private static void requireLoginForUndeclaredEndpoint(HttpServletRequest request, HandlerMethod handlerMethod,
+                                                          boolean anonymous) {
+        // Error rendering runs without a bound user, so the error controller is exempt only for the container's
+        // error dispatch; a direct request to any of its methods still requires login.
+        if (anonymous || request.getDispatcherType() == DispatcherType.ERROR
+                && ErrorController.class.isAssignableFrom(handlerMethod.getBeanType())) {
+            return;
+        }
+        if (CurrentUserContext.currentUser().isEmpty()) {
+            throw new AuthenticationRequiredException("current user context is not available");
         }
     }
 

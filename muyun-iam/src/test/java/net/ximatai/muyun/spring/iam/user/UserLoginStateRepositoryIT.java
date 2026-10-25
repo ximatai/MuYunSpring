@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.iam.employee.EmployeeDelegationService;
 import net.ximatai.muyun.spring.common.schema.PlatformEntityManagers;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -28,6 +29,7 @@ import javax.sql.DataSource;
 import java.time.Instant;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -54,6 +56,8 @@ class UserLoginStateRepositoryIT {
     @Test
     void concurrentFailuresKeepEveryIncrementAndConcurrentCredentialChanges() throws Exception {
         UserAccount user = insertUser("tenant-login-concurrent");
+        // Lockout restarts the count; disable it so every increment stays observable.
+        service.setLoginLockoutPolicy(Optional.of(LoginLockoutPolicy.of(0, null)));
         int workers = 6;
         int writes = 12;
         CountDownLatch start = new CountDownLatch(1);
@@ -79,6 +83,7 @@ class UserLoginStateRepositoryIT {
         }
         UserAccount stored = dao.findById(user.getId());
         assertThat(stored.getFailedLoginCount()).isEqualTo(workers * writes);
+        assertThat(stored.getLockedUntil()).isNull();
         assertThat(stored.getVersion()).isEqualTo(workers * writes + 1);
         assertThat(stored.getPasswordHash()).isEqualTo("changed-password-hash");
         assertThat(stored.getPasswordStatus()).isEqualTo(PasswordStatus.RESET_REQUIRED);
@@ -90,13 +95,13 @@ class UserLoginStateRepositoryIT {
         Instant time = Instant.parse("2026-09-24T12:00:00Z");
         try (var ignored = TenantContext.use("tenant-login-other")) {
             service.recordLoginFailure(user, time);
-            service.recordLoginSuccess(user.getId(), time, "other", "other");
+            assertThat(service.admitLogin(user, true, time, "other", "other", admitted -> admitted)).isEmpty();
         }
         assertThat(dao.findById(user.getId()).getVersion()).isZero();
         try (var ignored = TenantContext.use(user.getTenantId())) {
             service.recordLoginFailure(user, time);
             service.recordLoginFailure(user, time);
-            service.recordLoginSuccess(user.getId(), time, "127.0.0.1", "test-browser");
+            assertThat(service.admitLogin(user, true, time, "127.0.0.1", "test-browser", admitted -> admitted)).isPresent();
         }
         UserAccount stored = dao.findById(user.getId());
         assertThat(stored.getFailedLoginCount()).isZero();
@@ -104,6 +109,45 @@ class UserLoginStateRepositoryIT {
         assertThat(stored.getLastLoginAt()).isEqualTo(time);
         assertThat(stored.getLastLoginIp()).isEqualTo("127.0.0.1");
         assertThat(stored.getPasswordHash()).isEqualTo("original-hash");
+    }
+
+    @AfterEach
+    void restoreLockoutPolicy() {
+        service.setLoginLockoutPolicy(Optional.empty());
+    }
+
+    @Test
+    void passwordlessAccountPersistsWithoutPasswordHash() {
+        UserAccount user = new UserAccount();
+        user.setUsername(UUID.randomUUID().toString());
+        user.setPasswordStatus(PasswordStatus.NONE);
+        try (var ignored = TenantContext.use("tenant-login-passwordless")) {
+            service.insert(user);
+        }
+        UserAccount stored = dao.findById(user.getId());
+        assertThat(stored.getPasswordStatus()).isEqualTo(PasswordStatus.NONE);
+        assertThat(stored.getPasswordHash()).isNull();
+    }
+
+    @Test
+    void reachingFailureThresholdLocksAccountUntilSuccessfulLoginClearsIt() {
+        UserAccount user = insertUser("tenant-login-lockout");
+        Instant time = Instant.parse("2026-09-24T12:00:00Z");
+        try (var ignored = TenantContext.use(user.getTenantId())) {
+            for (int i = 0; i < LoginLockoutPolicy.DEFAULT_MAX_FAILED_ATTEMPTS; i++) {
+                service.recordLoginFailure(user, time);
+            }
+        }
+        UserAccount locked = dao.findById(user.getId());
+        assertThat(locked.getLockedUntil()).isEqualTo(time.plus(LoginLockoutPolicy.DEFAULT_LOCK_DURATION));
+        assertThat(locked.getFailedLoginCount()).isZero();
+        assertThat(service.loginLocked(locked, time.plusSeconds(1))).isTrue();
+        assertThat(service.loginLocked(locked, locked.getLockedUntil())).isFalse();
+
+        try (var ignored = TenantContext.use(user.getTenantId())) {
+            assertThat(service.admitLogin(user, true, locked.getLockedUntil(), "127.0.0.1", "test-browser", admitted -> admitted)).isPresent();
+        }
+        assertThat(dao.findById(user.getId()).getLockedUntil()).isNull();
     }
 
     @Test
@@ -145,6 +189,7 @@ class UserLoginStateRepositoryIT {
         user.setTitle(user.getUsername());
         user.setPasswordHash("original-hash");
         user.setFailedLoginCount(0);
+        user.setEnabled(Boolean.TRUE);
         user.setTenantId(tenant);
         EntityLifecycle.prepareInsert(user, Instant.now());
         dao.insert(user);

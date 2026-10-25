@@ -330,6 +330,24 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void requiresLoginForUndeclaredEndpointsAndKeepsTheAnonymousSurfaceExplicit() {
+        var denied = restTemplate.getForEntity("/platform.menu/mine", JsonNode.class);
+        assertThat(denied.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(denied.getBody().path("code").asText()).isEqualTo("AUTH_REQUIRED");
+
+        var mappings = applicationContext.getBean("requestMappingHandlerMapping",
+                org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping.class);
+        var anonymousPaths = mappings.getHandlerMethods().entrySet().stream()
+                .filter(entry -> entry.getValue().hasMethodAnnotation(
+                        net.ximatai.muyun.spring.common.platform.AnonymousEndpoint.class))
+                .flatMap(entry -> entry.getKey().getPatternValues().stream())
+                .collect(java.util.stream.Collectors.toSet());
+        // Adding an anonymous endpoint is a security decision; extend this list deliberately.
+        assertThat(anonymousPaths).containsExactlyInAnyOrder(
+                "/iam.auth/login", "/iam.auth/logout", "/platform.localization/catalog");
+    }
+
+    @Test
     void exposesDeploymentLanguagesBeforeLoginAndBindsTheEffectiveRequestLanguage() {
         var headers = new org.springframework.http.HttpHeaders();
         headers.set("Accept-Language", "en-US");
@@ -1271,6 +1289,141 @@ class MuYunSpringApplicationContextIT {
             assertThat(userAccountService.update(changed)).isEqualTo(1);
             assertThat(new PasswordHashingService().matches("ChangedPassword123!",
                     userAccountService.select(id).getPasswordHash())).isTrue();
+        }
+    }
+
+    @Test
+    void ownPasswordChangeFailuresCommitAndLockTheAccountThroughRealHttp() {
+        String username = "own-password-lockout";
+        String id = createPlatformUser(username, "OwnPassword123!");
+        LoginResult login = userSessionService.login(null, username, "OwnPassword123!");
+        int threshold = net.ximatai.muyun.spring.iam.user.LoginLockoutPolicy.DEFAULT_MAX_FAILED_ATTEMPTS;
+        for (int attempt = 1; attempt < threshold; attempt++) {
+            assertThat(changeOwnPassword(login.token(), "wrong-" + attempt).getStatusCode())
+                    .isEqualTo(HttpStatus.UNAUTHORIZED);
+            assertThat(jdbcTemplate.queryForObject("select failed_login_count from iam_user where id = ?",
+                    Integer.class, id)).isEqualTo(attempt);
+        }
+        assertThat(changeOwnPassword(login.token(), "wrong-last").getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(jdbcTemplate.queryForObject("select locked_until from iam_user where id = ?",
+                java.sql.Timestamp.class, id)).isNotNull();
+        // While locked, even the correct current password is refused and the password stays unchanged.
+        assertThat(changeOwnPassword(login.token(), "OwnPassword123!").getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(new PasswordHashingService().matches("OwnPassword123!", jdbcTemplate.queryForObject(
+                "select password_hash from iam_user where id = ?", String.class, id))).isTrue();
+    }
+
+    @Test
+    void loginAdmissionRejectsAPasswordVerifiedBeforeItWasChanged() {
+        String username = "stale-credential-login";
+        String id = createPlatformUser(username, "OriginalPassword123!");
+        UserAccount verified;
+        try (var tenant = TenantContext.system("load login candidate")) {
+            verified = userAccountService.findUserForLogin(null, username);
+        }
+        try (var tenant = TenantContext.system("change password");
+             var actor = CurrentUserContext.use(CurrentUser.systemUser(UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID, "Admin"))) {
+            assertThat(userAccountService.changePassword(id, "ChangedPassword123!")).isEqualTo(1);
+        }
+        try (var tenant = TenantContext.system("admit login")) {
+            assertThat(userAccountService.admitLogin(verified, true, Instant.now(), null, null, user -> "opened"))
+                    .isEmpty();
+            // Credentials that are not the local password are unaffected by a password change.
+            assertThat(userAccountService.admitLogin(verified, false, Instant.now(), null, null, user -> "opened"))
+                    .contains("opened");
+        }
+    }
+
+    @Test
+    void passwordChangeRacingAnAdmittedLoginNeverLeavesASessionForTheOldPassword() throws Exception {
+        String username = "admitted-login-race";
+        String id = createPlatformUser(username, "OriginalPassword123!");
+        UserAccount verified;
+        try (var tenant = TenantContext.system("load login candidate")) {
+            verified = userAccountService.findUserForLogin(null, username);
+        }
+        var admitted = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var sessionRecords = applicationContext.getBean(net.ximatai.muyun.spring.iam.user.UserSessionRecordService.class);
+        try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var login = executor.submit(() -> {
+                try (var tenant = TenantContext.system("admit login")) {
+                    return userAccountService.admitLogin(verified, true, Instant.now(), null, null, user -> {
+                        admitted.countDown();
+                        awaitLatch(release);
+                        return sessionRecords.issue(sessionFor(user));
+                    }).orElseThrow();
+                }
+            });
+            assertThat(admitted.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var change = executor.submit(() -> {
+                try (var tenant = TenantContext.system("change password");
+                     var actor = CurrentUserContext.use(CurrentUser.systemUser(UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID, "Admin"))) {
+                    return userAccountService.changePassword(id, "ChangedPassword123!");
+                }
+            });
+            Thread.sleep(500);
+            // The admitted login holds the account row until its session is persisted.
+            assertThat(change.isDone()).isFalse();
+            release.countDown();
+            String sessionId = login.get(30, java.util.concurrent.TimeUnit.SECONDS);
+            boolean changed;
+            try {
+                changed = change.get(30, java.util.concurrent.TimeUnit.SECONDS) == 1;
+            } catch (java.util.concurrent.ExecutionException failure) {
+                assertThat(failure.getCause()).isInstanceOf(OptimisticLockException.class);
+                changed = false;
+            }
+            UserSession session = userSessionDao.query(Criteria.of().eq("id", sessionId), new PageRequest(0, 1)).getFirst();
+            boolean storedOriginal = new PasswordHashingService().matches("OriginalPassword123!", jdbcTemplate.queryForObject(
+                    "select password_hash from iam_user where id = ?", String.class, id));
+            assertThat(storedOriginal).isEqualTo(!changed);
+            if (changed) {
+                assertThat(session.getRevokedAt()).isNotNull();
+            } else {
+                assertThat(session.getRevokedAt()).isNull();
+            }
+        }
+    }
+
+    private String createPlatformUser(String username, String password) {
+        try (var tenant = TenantContext.system("create login test user");
+             var actor = CurrentUserContext.use(CurrentUser.systemUser(UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID, "Admin"))) {
+            UserAccount user = new UserAccount();
+            user.setUsername(username);
+            user.setEnabled(true);
+            return userAccountService.createUser(user, password);
+        }
+    }
+
+    private ResponseEntity<JsonNode> changeOwnPassword(String token, String currentPassword) {
+        return restTemplate.exchange("/iam.auth/changeOwnPassword", HttpMethod.POST,
+                new HttpEntity<>(Map.of("currentPassword", currentPassword, "newPassword", "NewPassword123!"),
+                        bearerHeaders(token)), JsonNode.class);
+    }
+
+    private static UserSession sessionFor(UserAccount user) {
+        Instant now = Instant.now();
+        UserSession session = new UserSession();
+        session.setUserId(user.getId());
+        session.setUsername(user.getUsername());
+        session.setTokenHash(java.util.UUID.randomUUID().toString().replace("-", "") + "0".repeat(32));
+        session.setIssuedAt(now);
+        session.setExpiresAt(now.plusSeconds(600));
+        session.setMaxExpiresAt(now.plusSeconds(3600));
+        session.setLastSeenAt(now);
+        session.setPasswordChangeRequired(false);
+        session.setAuthenticationMethod("password");
+        return session;
+    }
+
+    private static void awaitLatch(java.util.concurrent.CountDownLatch latch) {
+        try {
+            if (!latch.await(10, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("barrier timed out");
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(failure);
         }
     }
 
