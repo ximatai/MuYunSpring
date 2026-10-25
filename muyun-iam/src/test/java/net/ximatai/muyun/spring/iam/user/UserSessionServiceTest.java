@@ -367,6 +367,57 @@ class UserSessionServiceTest {
     }
 
     @Test
+    void shouldIssueVerifiedIdentitySessionWithoutTouchingThePasswordLock() {
+        UserAccount user = activeUser();
+        user.setLockedUntil(clock.instant().plusSeconds(600));
+        user.setFailedLoginCount(3);
+        UserAccountDao dao = userDao();
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        AtomicReference<UserSession> persistedSession = captureInsertedSession(sessionDao);
+        RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
+        UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock);
+
+        LoginResult login = sessionService.loginWithVerifiedIdentity("tenant-a", "user-1",
+                new AuthenticationMethod("external:corp_idp"), "corp_idp:binding-1", "127.0.0.1", "Browser");
+
+        assertThat(login.currentUser().userId()).isEqualTo("user-1");
+        assertThat(login.passwordChangeRequired()).isFalse();
+        assertThat(persistedSession.get().getAuthenticationMethod()).isEqualTo("external:corp_idp");
+        UserAccount written = writtenUser(dao);
+        assertThat(written.getLockedUntil()).isEqualTo(user.getLockedUntil());
+        assertThat(written.getFailedLoginCount()).isEqualTo(3);
+        assertThat(written.getLastLoginAt()).isEqualTo(clock.instant());
+        assertThat(auditLogger.events).singleElement()
+                .satisfies(event -> assertThat(event.details().authenticationMethod()).isEqualTo("external:corp_idp"));
+    }
+
+    @Test
+    void shouldRefuseVerifiedIdentitySessionsForPasswordMethodSystemAccountsAndDisabledAccounts() {
+        UserAccount disabled = activeUser();
+        disabled.setEnabled(Boolean.FALSE);
+        UserAccountDao dao = userDao();
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(disabled));
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
+        UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock);
+        AuthenticationMethod external = new AuthenticationMethod("external:corp_idp");
+
+        assertThatThrownBy(() -> sessionService.loginWithVerifiedIdentity("tenant-a", "user-1",
+                AuthenticationMethod.PASSWORD, "alice", null, null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> sessionService.loginWithVerifiedIdentity(null, "user-1", external, "x", null, null))
+                .isInstanceOf(AuthenticationFailedException.class);
+        assertThatThrownBy(() -> sessionService.loginWithVerifiedIdentity("tenant-a", "user-1", external, "x", null, null))
+                .isInstanceOf(AuthenticationFailedException.class);
+
+        assertThat(auditLogger.events).extracting(event -> event.details().reasonCode())
+                .containsExactly("SYSTEM_ACCOUNT_NOT_ALLOWED", "ACCOUNT_UNAVAILABLE");
+        verify(sessionDao, never()).insert(any());
+    }
+
+    @Test
     void shouldRejectPasswordLoginForAccountWithoutLocalPassword() {
         UserAccount user = activeUser();
         user.setPasswordStatus(PasswordStatus.NONE);

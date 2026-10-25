@@ -307,6 +307,71 @@ export interface TenantBranding {
 export interface TenantLoginContext {
   tenantId: string;
   branding?: TenantBranding;
+  /** External identity providers the tenant offers on its sign-in entry; empty when federation is off. */
+  externalLoginMethods?: ExternalLoginMethod[];
+}
+
+export interface ExternalLoginMethod {
+  providerId: string;
+  title: string;
+  providerType: string;
+}
+
+/**
+ * A started external sign-in or bind transaction. `state` and `browserProof` must stay in the initiating
+ * browser; only that browser can complete the transaction, and the proof is never put into a URL.
+ */
+export interface ExternalLoginStart {
+  transactionId: string;
+  state: string;
+  authorizationUrl: string;
+  browserProof: string;
+  expiresAt: string;
+}
+
+export type ExternalLoginStatus = 'succeeded' | 'denied' | 'expired';
+export type ExternalLoginFailure =
+  | 'identityNotBound'
+  | 'identityConflict'
+  | 'alreadyBound'
+  | 'enterpriseMismatch'
+  | 'policyDisabled'
+  | 'accountUnavailable'
+  | 'sessionEnded'
+  | 'providerRejected'
+  | 'providerUnavailable'
+  | 'internalError';
+export type ExternalLoginPurpose = 'login' | 'bind';
+
+export interface ExternalIdentityView {
+  id: string;
+  providerId: string;
+  providerTitle: string;
+  externalUserId: string;
+  displayName?: string;
+  boundAt: string;
+  lastAuthenticatedAt?: string;
+}
+
+/** What the initiating browser submits after the provider returned it to the workbench. */
+export interface ExternalLoginCompleteRequest {
+  state: string;
+  browserProof: string;
+  /** Every provider parameter on the return address, verified on the server. */
+  parameters: Record<string, string>;
+}
+
+export interface ExternalLoginCompletion {
+  status: ExternalLoginStatus;
+  purpose: ExternalLoginPurpose;
+  failure?: ExternalLoginFailure;
+  login?: LoginResult;
+  binding?: ExternalIdentityView;
+}
+
+export interface OwnExternalIdentities {
+  bindings: ExternalIdentityView[];
+  bindableProviders: ExternalLoginMethod[];
 }
 
 export interface LoginRequest {

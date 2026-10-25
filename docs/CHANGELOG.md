@@ -11,6 +11,7 @@
 - 账号支持无本地密码状态（`passwordStatus=none`），此类账号不能使用密码登录；会话与登录审计记录登录方式。
 - 机构新增可选的字典字段“机构类型”（`iam.organization_type`），平台预置公司、分支机构、事业部，租户可在本租户字典中扩展。
 - 新增 `@AnonymousEndpoint`，用于显式声明不属于平台动作、允许匿名访问的单个 HTTP 方法。
+- 新增可选开启的外部身份登录与绑定（`muyun.iam.federation.*`，默认关闭）：平台超级管理员维护外部身份源（含协议配置），租户配置外部登录方式；锁定租户的登录页提供扫码登录入口，用户可在个人信息中绑定和解绑外部账号。身份源回调到工作台，只有发起登录的浏览器能凭本地保存的 state 与一次性凭证完成登录或绑定；每个事务附带只存于服务端的 PKCE 校验串，泄露的授权码不能移植到他人的事务。身份源协议以 `ExternalLoginProtocol` 插件接入，插件只收到只读的 `IdentityProviderDescriptor`，可声明决定身份范围的协议配置项，身份源已有绑定时这些配置与协议类型、Client ID 一并锁定；开发模式提供模拟身份源用于联调。外部登录会话的登录方式记为 `external:<身份源编码>`，不受密码登录锁定影响。
 
 ### Changed
 
@@ -26,6 +27,7 @@
 - 未声明平台动作且未标注 `@AnonymousEndpoint` 的 HTTP 入口改为默认要求登录，不再对匿名请求静默放行。二开应用中确需匿名访问的接口（如外部回调）须在对应方法上标注 `@AnonymousEndpoint`；属于平台动作的入口继续使用 `ActionAccessMode.ANONYMOUS_ALLOWED`，两者不能同时声明。Spring 错误控制器只在容器错误派发时免登录，直接请求其方法同样要求登录。
 - `iam_user.password_hash` 改为可空，`iam_user_session` 新增 `authentication_method`，`iam_organization` 新增 `organization_type`。开发态 schema 自动迁移；严格迁移模式不会自动放宽非空约束，升级已有库需先执行 `ALTER TABLE iam_user ALTER COLUMN password_hash DROP NOT NULL`。
 - `UserSessionView` 在 `passwordChangeRequired` 之后新增 `authenticationMethod` 组件，直接调用其构造器的代码需要补充参数；`PasswordStatus` 新增 `NONE`，按状态穷举处理的代码需要覆盖该值。
+- `TenantLoginContext` 新增 `externalLoginMethods` 组件（元素为 `TenantLoginMethod`），`/iam.auth/login-context` 响应相应新增该字段；直接调用其三参构造器的代码需要补充参数，原两参构造器保留。前端 `@muyun/web-core` 新增 `createExternalLoginClient` 与相关类型，`LoginView` 新增可选的 `externalLoginClient` 属性；自建工作台外壳如需支持外部登录，应在身份源回到工作台根地址时调用该客户端完成事务。
 
 ## 0.26.23 - 2026-10-23
 

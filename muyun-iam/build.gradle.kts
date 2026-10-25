@@ -5,6 +5,7 @@ plugins {
 dependencies {
     api(project(":muyun-ability"))
     api(project(":muyun-platform"))
+    implementation(libs.jackson.databind)
     compileOnly(libs.muyun.database.spring.boot.starter)
     compileOnly(libs.spring.context)
     compileOnly(libs.spring.tx)

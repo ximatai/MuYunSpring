@@ -500,13 +500,16 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
 
     /**
      * Admits a verified credential against the latest stored account and opens the session in the same
-     * transaction. Admission requires the account to still be enabled and unlocked and, for a password
-     * credential, to still store the exact password that was verified. The login-state update keeps the
-     * account row write-locked until the session is persisted, so a concurrent password change, reset or
-     * disablement either makes this admission fail or waits for it and then revokes the new session.
+     * transaction. Admission requires the account to still be enabled; a password credential additionally
+     * requires the account to be unlocked and to still store the exact password that was verified, and its
+     * success clears the failure count. The password lock belongs to the local password, so other methods
+     * neither check nor clear it. The login-state update keeps the account row write-locked until the session
+     * is persisted, so a concurrent password change, reset or disablement either makes this admission fail or
+     * waits for it and then revokes the new session.
      *
      * @param openSession receives the admitted latest account; it must only persist the session
      * @return the session result, or empty when the account no longer admits this login
+     * @hidden Internal IAM collaborator of the session entry.
      */
     public <R> Optional<R> admitLogin(UserAccount verified, boolean passwordCredential, Instant loginAt,
                                       String ip, String userAgent, Function<UserAccount, R> openSession) {
@@ -518,20 +521,22 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                         user.setLastLoginAt(loginAt);
                         user.setLastLoginIp(normalizeLength(ip, 64));
                         user.setLastLoginUserAgent(normalizeLength(userAgent, 512));
-                        user.setFailedLoginCount(0);
-                        user.setLockedUntil(null);
+                        if (passwordCredential) {
+                            user.setFailedLoginCount(0);
+                            user.setLockedUntil(null);
+                        }
                     });
             return admitted == null ? Optional.<R>empty() : Optional.of(openSession.apply(admitted));
         });
     }
 
     private UserAccount admissible(UserAccount latest, UserAccount verified, boolean passwordCredential, Instant at) {
-        UserAccount eligible = loginEligible(latest, at);
-        if (eligible == null || passwordCredential
-                && !Objects.equals(eligible.getPasswordHash(), verified.getPasswordHash())) {
-            return null;
+        if (!passwordCredential) {
+            return latest != null && Boolean.TRUE.equals(latest.getEnabled()) ? latest : null;
         }
-        return eligible;
+        UserAccount eligible = loginEligible(latest, at);
+        return eligible != null && Objects.equals(eligible.getPasswordHash(), verified.getPasswordHash())
+                ? eligible : null;
     }
 
     /**

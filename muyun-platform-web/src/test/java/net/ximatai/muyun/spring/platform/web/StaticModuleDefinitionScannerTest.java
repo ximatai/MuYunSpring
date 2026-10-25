@@ -299,7 +299,8 @@ class StaticModuleDefinitionScannerTest {
                 return controller;
             });
             context.registerBean(LoginWebController.class, () -> new LoginWebController(
-                    mock(UserSessionService.class), mock(TenantService.class), mock(CurrentUserProfileService.class)));
+                    mock(UserSessionService.class), mock(TenantService.class), mock(CurrentUserProfileService.class),
+                    java.util.List.of()));
             context.registerBean(PasswordPolicyRuleWebController.class,
                     () -> withService(new PasswordPolicyRuleWebController(), mock(PasswordPolicyRuleService.class)));
             context.refresh();

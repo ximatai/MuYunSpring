@@ -31,6 +31,15 @@ IAM 业务失败统一通过 `BusinessExceptions.warning(...)` 返回：
 | 用户与会话 | 管理当前登录账号密码、强制当前用户下线、临时密码、撤销当前会话 | `iam.user.password-admin-current-user`、`iam.user.force-logout-current-user`、`iam.user.temporary-password-unavailable`、`iam.user-session.revoke-current-denied`                                                                                                                                                                                                                                                                          |
 | 角色       | 授权主体、角色形态、归属与共享、角色组成员、动作与数据范围     | `iam.role.*`（见下表）                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
+### 外部身份联邦
+
+| 场景           | 稳定错误码                                                                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 发起与完成事务 | `iam.federation.provider-unavailable`（身份源或租户登录方式不可用）、`iam.federation.state-invalid`（事务未知、凭证不符或已经完成）                      |
+| 绑定与解绑     | `iam.federation.already-bound`、`iam.federation.binding-not-found`、`iam.federation.last-sign-in-method`、`iam.federation.reauthentication-required`、`iam.federation.tenant-user-required` |
+
+事务完成后的拒绝原因不走错误码，而是作为完成结果的 `failure` 字段返回：`identityNotBound`、`identityConflict`、`alreadyBound`、`enterpriseMismatch`、`policyDisabled`、`accountUnavailable`、`sessionEnded`、`providerRejected`、`providerUnavailable`、`internalError`，取值由 `ExternalLoginFailure` 定义。
+
 ### 角色授权
 
 角色是 IAM 中规则密度最高的聚合，保留完整目录，避免前端把多种授权失败折叠成一条笼统提示。

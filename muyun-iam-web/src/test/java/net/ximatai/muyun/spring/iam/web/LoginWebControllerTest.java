@@ -121,6 +121,23 @@ class LoginWebControllerTest {
     }
 
     @Test
+    void shouldOfferContributedSignInMethodsOnTheLockedTenantEntry() throws Exception {
+        TenantService tenantService = mock(TenantService.class);
+        when(tenantService.requireActiveTenant("tenant-a")).thenReturn(mock(Tenant.class));
+        when(tenantService.branding("tenant-a")).thenReturn(TenantBranding.empty());
+        net.ximatai.muyun.spring.iam.tenant.TenantLoginMethodContributor contributor = tenantId -> java.util.List.of(
+                new net.ximatai.muyun.spring.iam.tenant.TenantLoginMethod("welink", "WeLink", "welink"));
+        LoginWebController controller = new LoginWebController(mock(UserSessionService.class), tenantService,
+                mock(CurrentUserProfileService.class), java.util.List.of(contributor));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mvc.perform(get("/iam.auth/login-context").param("tenantId", "tenant-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.externalLoginMethods[0].providerId").value("welink"))
+                .andExpect(jsonPath("$.externalLoginMethods[0].title").value("WeLink"));
+    }
+
+    @Test
     void shouldAuthorizePublicLoginContextThroughThePlatformActionChain() throws Exception {
         TenantService tenantService = mock(TenantService.class);
         when(tenantService.requireActiveTenant("tenant-a")).thenReturn(mock(Tenant.class));
@@ -262,7 +279,7 @@ class LoginWebControllerTest {
         when(profileService.currentProfile(org.mockito.ArgumentMatchers.any(CurrentUser.class))).thenReturn(
                 new CurrentUserProfile("alice", "Asia/Shanghai", null));
         LoginWebController controller = new LoginWebController(mock(UserSessionService.class), mock(TenantService.class),
-                profileService);
+                profileService, java.util.List.of());
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
                 .addFilters(new CurrentUserWebFilter(() -> Optional.of(
                         CurrentUser.tenantUser("user-1", "alice", "tenant-a"))))

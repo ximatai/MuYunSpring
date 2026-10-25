@@ -9,7 +9,7 @@
 | 方法   | URL                                           | 功能                                                                                                                                                                                                        |
 | ------ | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST` | `/iam.auth/login`                             | 用户登录。请求包含 `tenantId`、`username`、`password`；返回 Bearer token、当前登录 `sessionId`、签发时间和当前用户信息。                                                                                    |
-| `GET`  | `/iam.auth/login-context?tenantId={tenantId}` | 匿名读取 URL 锁定租户的公开登录上下文。该端点以平台 `ANONYMOUS_ALLOWED` 动作登记并经统一策略链路执行；仅返回锁定租户标识及工作台品牌投影，供标准登录页展示 Logo、主标题和副标题；目标租户必须处于启用状态。 |
+| `GET`  | `/iam.auth/login-context?tenantId={tenantId}` | 匿名读取 URL 锁定租户的公开登录上下文。该端点以平台 `ANONYMOUS_ALLOWED` 动作登记并经统一策略链路执行；返回锁定租户标识、工作台品牌投影，以及该租户提供的外部登录方式 `externalLoginMethods`（未启用外部身份联邦时为空），供标准登录页展示 Logo、主标题和副标题；目标租户必须处于启用状态。 |
 | `POST` | `/iam.auth/logout`                            | 当前 Bearer token 登出。token 从 `Authorization: Bearer ...` 读取。                                                                                                                                         |
 | `GET`  | `/iam.auth/context`                           | 返回当前请求解析出的用户上下文，用于前端会话恢复和启动态确认。                                                                                                                                              |
 | `GET`  | `/iam.auth/tenant-branding`                   | 返回当前租户的工作台品牌投影（`lightLogo`、可选的 `darkLogo`）；Logo 以受限 Base64 图片 data URL 保存。                                                                                                     |
@@ -17,6 +17,21 @@
 后续请求通过 `Authorization: Bearer <token>` 解析当前用户。服务端在 `iam_user_session` 中保存 token hash，不保存明文 token；session 使用滑动过期并受绝对过期时间约束；同一用户允许多端登录。解析成功后，Web Filter 会写入 `CurrentUserContext`；租户用户同步写入 `TenantContext`，系统用户进入系统态。登出和修改密码会撤销对应 session。
 
 `/iam.auth/login` 和 `/iam.auth/logout` 以 `@AnonymousEndpoint` 声明匿名访问，`/iam.auth/login-context` 以匿名平台动作声明；`/iam.auth/context`、`/iam.auth/changeOwnPassword` 等其余入口要求登录。连续登录失败达到阈值后账号锁定，锁定期内的登录请求与密码错误返回同样的认证失败，`changeOwnPassword` 的当前密码校验同样受锁定约束；未设置本地密码的账号不能使用密码登录。
+
+## 外部身份登录与绑定
+
+仅在 `muyun.iam.federation.enabled=true` 时装配，设计见 [外部身份联邦设计](EXTERNAL_IDENTITY_FEDERATION.md)。
+
+| 方法   | URL                                                          | 功能                                                                                                                                         |
+| ------ | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/iam.auth/external/{providerId}/login`                      | 匿名。请求体 `tenantId`；为锁定租户建立登录事务，返回事务标识、`state`、授权地址、仅供本浏览器保存的 `browserProof` 和过期时间。授权地址的回调目标是工作台地址。 |
+| `POST` | `/iam.auth/external/{providerId}/bind`                       | 要求登录且当前会话在 5 分钟内建立；为当前账号建立绑定事务，返回同上。                                                                        |
+| `POST` | `/iam.auth/external/{providerId}/complete`                   | 匿名。身份源把浏览器送回工作台后，由发起浏览器提交 `state`、`browserProof` 与全部回传参数 `parameters`；核对通过后一次完成，返回 `status`、`failure`，登录成功时附 `login`（与密码登录结果相同），绑定成功时附 `binding`。 |
+| `GET`  | `/iam.auth/external/identities`                              | 要求登录。返回当前账号的绑定和仍可绑定的身份源。                                                                                             |
+| `POST` | `/iam.auth/external/identities/{identityId}/delete`          | 要求登录且会话在 5 分钟内建立；解除本人绑定，不允许解除无本地密码账号的最后一个登录方式。                                                    |
+| `GET`  | `/iam.auth/external/mock/authorize`                          | 匿名，仅开发模式且开启模拟身份源时存在。模拟身份源的授权页，只接受回到配置的工作台地址的 `redirect_uri`。                                    |
+
+管理模块：`/iam.identity_provider`（平台超级管理员维护身份源，标准 CRUD 与启停）、`/iam.tenant_identity_policy`（租户维护外部登录方式，开户策略当前只接受 `disabled`）、`/iam.external_identity`（绑定只读查询，可通过标准删除动作解除）。
 
 ## 通用管理接口
 

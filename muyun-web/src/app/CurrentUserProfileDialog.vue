@@ -3,7 +3,8 @@ import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import { UiInput, UiModal } from '@muyun/vue-ui-antdv';
 import { SingleImageFileReferenceField } from '@muyun/platform-components';
-import { createModuleContext } from '@muyun/web-core';
+import { createModuleContext, type ExternalLoginClient } from '@muyun/web-core';
+import ExternalIdentityBindings from './ExternalIdentityBindings.vue';
 import type { CurrentUserProfile, ResolvedFileReferenceFieldDescriptor } from '@muyun/web-contracts';
 
 const language = useLanguageContext();
@@ -17,8 +18,19 @@ const props = withDefaults(
     loading?: boolean;
     saving?: boolean;
     error?: string;
+    /** Shows the user's external account bindings when the deployment enables federation. */
+    externalLoginClient?: ExternalLoginClient;
+    authToken?: string;
   }>(),
-  { open: false, loading: false, saving: false, error: undefined, profile: undefined },
+  {
+    open: false,
+    loading: false,
+    saving: false,
+    error: undefined,
+    profile: undefined,
+    externalLoginClient: undefined,
+    authToken: undefined,
+  },
 );
 
 const emit = defineEmits<{
@@ -231,6 +243,11 @@ const avatarDraft = computed(() => ({ id: employee.value?.id, avatarAssetId: ava
           }}
         </p>
       </section>
+      <ExternalIdentityBindings
+        v-if="externalLoginClient && authToken && open"
+        :client="externalLoginClient"
+        :token="authToken"
+      />
     </template>
     <p v-if="error" class="profile-error">{{ error }}</p>
   </UiModal>
