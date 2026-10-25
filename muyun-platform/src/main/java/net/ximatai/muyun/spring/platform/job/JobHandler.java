@@ -14,5 +14,9 @@ public interface JobHandler {
     default void requirePlanChange(JobPlan plan) { }
     /** Frozen initiators to include in final-failure reminders; no permission snapshots. */
     default java.util.List<String> failureUserIds(JobRun run) { return java.util.List.of(); }
+    /** Failure retry policy, separate from the attempt budget used when recovering abandoned leases. */
+    default boolean retryAutomatically(JobRun run) { return true; }
+    /** Topic continuation references for an operator retry; retain immutable original input and identity. */
+    default java.util.Map<String, Object> retryParameters(java.util.Map<String, Object> original, String originalRunId) { return original; }
     JobResult execute(JobContext context) throws Exception;
 }

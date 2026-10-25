@@ -411,6 +411,11 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         return grantEmploymentRoleResult(roleId, employeePositionId).grantId();
     }
 
+    /** Ensures a source-derived grant exists without reversing a local administrative disablement. */
+    public RoleGrantMutationResult ensureEmploymentRole(String roleId, String employeePositionId) {
+        return grantEmploymentRoleIfAbsent(roleId, employeePositionId, false);
+    }
+
     public RoleGrantMutationResult grantEmploymentRoleResult(String roleId, String employeePositionId) {
         return grantEmploymentRoleIfAbsent(roleId, employeePositionId);
     }
@@ -1350,6 +1355,10 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     }
 
     private RoleGrantMutationResult grantEmploymentRoleIfAbsent(String roleId, String employeePositionId) {
+        return grantEmploymentRoleIfAbsent(roleId, employeePositionId, true);
+    }
+
+    private RoleGrantMutationResult grantEmploymentRoleIfAbsent(String roleId, String employeePositionId, boolean reactivate) {
         Role role = requireBindableRole(roleId);
         requireEmploymentAssignableRole(role);
         requireSystemManagedMutationAllowed(role, "grant employment role");
@@ -1364,7 +1373,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         ensureInheritedDataGrantCoverage(validEmployeePositionId, role);
         EmploymentRoleGrant existing = findEmploymentRoleGrant(role.getId(), validEmployeePositionId);
         if (existing != null) {
-            if (!Boolean.TRUE.equals(existing.getEnabled())) {
+            if (reactivate && !Boolean.TRUE.equals(existing.getEnabled())) {
                 existing.setEnabled(true);
                 prepareChildUpdate(existing);
                 employmentRoleGrantDao.updateById(existing);

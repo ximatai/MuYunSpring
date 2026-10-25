@@ -22,7 +22,26 @@ import static org.mockito.Mockito.when;
 class IdentityProviderServiceTest {
     private final ExternalIdentityDao identityDao = mock(ExternalIdentityDao.class);
     private final IdentityProviderService service = new IdentityProviderService(mock(IdentityProviderDao.class),
-            List.of(new StrictProtocol()), identityDao, name -> "SECRET_VAR".equals(name) ? "s3cr3t" : null, mock(ExternalIdentityAdmissionLocks.class));
+            List.of(new StrictProtocol()), List.of(), identityDao, name -> "SECRET_VAR".equals(name) ? "s3cr3t" : null, mock(ExternalIdentityAdmissionLocks.class));
+
+    @Test
+    void directoryOnlyProtocolsAlsoLockTheirAuthorityConfigurationOnceBound() {
+        ExternalDirectoryProtocol directory = new ExternalDirectoryProtocol() {
+            public String providerType() { return "directory-only"; }
+            public java.util.Set<String> identityScopeConfigurationKeys() { return java.util.Set.of("issuer"); }
+            public Department department(IdentityProviderDescriptor p,String id) { throw new UnsupportedOperationException(); }
+            public Page<Department> departments(IdentityProviderDescriptor p,String id,String cursor,int limit) { throw new UnsupportedOperationException(); }
+            public Page<String> departmentPeople(IdentityProviderDescriptor p,String id,String cursor,int limit) { throw new UnsupportedOperationException(); }
+            public Person person(IdentityProviderDescriptor p,String id) { throw new UnsupportedOperationException(); }
+        };
+        var service = new IdentityProviderService(mock(IdentityProviderDao.class),List.of(),List.of(directory), identityDao, mock(ExternalIdentityAdmissionLocks.class));
+        when(identityDao.query(any(Criteria.class),any(PageRequest.class))).thenReturn(List.of(new ExternalIdentity()));
+        var old = provider("directory"); old.setProviderType("directory-only"); old.setConfiguration("{\"issuer\":\"old\"}");
+        var changed = provider("directory"); changed.setProviderType("directory-only"); changed.setConfiguration("{\"issuer\":\"new\"}");
+        try (var ignored = systemUser()) {
+            assertThatThrownBy(() -> service.beforeUpdate(changed,old)).isInstanceOf(PlatformException.class);
+        }
+    }
 
     @AfterEach
     void tearDown() {

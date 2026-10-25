@@ -48,4 +48,23 @@ public class TenantIdentityPolicy extends StandardEnabledSortableEntity {
 
     @OptionLoad(source = "provisioningMode")
     private transient String provisioningModeTitle;
+
+    @Column(name = "sync_roots", type = ColumnType.TEXT, comment = "JSON root to organization mappings")
+    private String syncRoots;
+    @Column(name = "sync_scope_confirmed", type = ColumnType.BOOLEAN, comment = "Explicit whole enterprise or empty scope confirmation")
+    private Boolean syncScopeConfirmed = false;
+    @Column(name = "sync_position_id", type = ColumnType.VARCHAR, length = 32, comment = "Default directory position")
+    @ReferenceTo(target = net.ximatai.muyun.spring.iam.position.PositionService.class)
+    private String syncPositionId;
+    @Column(name = "sync_role_id", type = ColumnType.VARCHAR, length = 32, comment = "Default employment role")
+    @ReferenceTo(target = net.ximatai.muyun.spring.iam.role.RoleService.class)
+    private String syncRoleId;
+    @Column(name = "sync_expression", type = ColumnType.VARCHAR, length = 128, comment = "Minute precision cron")
+    private String syncExpression;
+    @Column(name = "sync_enabled", type = ColumnType.BOOLEAN, comment = "Directory schedule enabled")
+    private Boolean syncEnabled = false;
+    @Column(name = "sync_scope_id", type = ColumnType.VARCHAR, length = 32, comment = "Immutable directory configuration version")
+    private String syncScopeId;
+    @Column(name = "sync_plan_id", type = ColumnType.VARCHAR, length = 32, comment = "Managed job plan")
+    private String syncPlanId;
 }

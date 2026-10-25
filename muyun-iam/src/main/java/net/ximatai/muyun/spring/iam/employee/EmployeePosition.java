@@ -29,7 +29,7 @@ import net.ximatai.muyun.spring.iam.position.PositionService;
 @Setter
 @Table(name = "iam_employee_position", comment = "Employee position")
 @SortPartitionBy(fields = "employeeId", message = "Employee position sort can only move records within the same employee")
-@CompositeIndex(columns = {"tenant_id", "employee_id", "organization_id", "department_id", "position_id"},
+@CompositeIndex(columns = {"tenant_id", "employee_id", "organization_id", "department_id", "position_id", "source", "source_provider_id"},
         unique = true)
 public class EmployeePosition extends StandardEntity implements EnabledCapable, SortCapable {
     @Column(name = "employee_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Employee id")
@@ -82,4 +82,19 @@ public class EmployeePosition extends StandardEntity implements EnabledCapable, 
 
     @Column(name = PlatformAbilityFields.SORT_COLUMN, type = ColumnType.INT, comment = "Sort order")
     private Integer sortOrder;
+
+    /** Manual and provider-owned positions may coexist at the same local placement. */
+    @Column(name = "source", type = ColumnType.VARCHAR, length = 16, nullable = false,
+            comment = "manual or directory", defaultVal = @Default(varchar = "manual"))
+    @net.ximatai.muyun.spring.common.option.OptionField(type = net.ximatai.muyun.spring.common.option.OptionSourceType.ENUM, enumType = EmploymentSource.class)
+    private String source = EmploymentSource.MANUAL.getCode();
+    @Column(name = "source_provider_id", type = ColumnType.VARCHAR, length = 64, nullable = false,
+            comment = "Owning directory provider; dash for manual", defaultVal = @Default(varchar = "-"))
+    private String sourceProviderId = "-";
+    @Column(name = "external_department_id", type = ColumnType.VARCHAR, length = 128, comment = "Source membership key")
+    private String externalDepartmentId;
+    @Column(name = "source_status", type = ColumnType.VARCHAR, length = 32, comment = "External employment status")
+    private String sourceStatus;
+    @Column(name = "last_sync_run_id", type = ColumnType.VARCHAR, length = 32, comment = "Last observed run")
+    private String lastSyncRunId;
 }

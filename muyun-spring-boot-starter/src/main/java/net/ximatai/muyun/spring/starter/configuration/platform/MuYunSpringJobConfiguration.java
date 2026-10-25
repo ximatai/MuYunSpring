@@ -67,6 +67,8 @@ public class MuYunSpringJobConfiguration {
     JobNodeExecutor jobNodeExecutor(JobService jobs, JobRegistry registry, MuYunSpringJobProperties properties,
                                     MuYunSpringContentGenerationProperties content, org.springframework.core.env.Environment environment) {
         content.configure(properties, environment);
+        if (registry.definitions().stream().anyMatch(type -> "directory-sync".equals(type.channel())))
+            properties.getChannels().computeIfAbsent("directory-sync", ignored -> new MuYunSpringJobProperties.Channel());
         return new JobNodeExecutor(jobs, registry, properties);
     }
 }

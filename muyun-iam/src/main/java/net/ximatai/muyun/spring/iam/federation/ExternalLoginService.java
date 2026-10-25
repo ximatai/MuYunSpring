@@ -125,6 +125,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                 .filter(policy -> Boolean.TRUE.equals(policy.getLoginEnabled()))
                 .map(policy -> providers.findUsable(policy.getProviderId()).orElse(null))
                 .filter(Objects::nonNull)
+                .filter(provider -> providers.protocolOf(provider) != null)
                 .map(ExternalLoginService::loginMethod)
                 .toList();
     }
@@ -136,7 +137,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         }
         IdentityProvider provider = providers.findUsable(providerId).orElseThrow(ExternalLoginService::unavailable);
         TenantIdentityPolicy policy = policies.enabledPolicy(tenant, provider.getId()).orElseThrow(ExternalLoginService::unavailable);
-        if (!Boolean.TRUE.equals(policy.getLoginEnabled())) {
+        if (providers.protocolOf(provider) == null || !Boolean.TRUE.equals(policy.getLoginEnabled())) {
             throw unavailable();
         }
         return start(ExternalLoginPurpose.LOGIN, tenant, provider, null, null);
@@ -148,7 +149,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         String sessionId = userSessionService.currentSessionId(sessionToken).orElseThrow(ExternalLoginService::reauthenticationRequired);
         IdentityProvider provider = providers.findUsable(providerId).orElseThrow(ExternalLoginService::unavailable);
         TenantIdentityPolicy policy = policies.enabledPolicy(tenant, provider.getId()).orElseThrow(ExternalLoginService::unavailable);
-        if (!Boolean.TRUE.equals(policy.getBindingEnabled())) {
+        if (providers.protocolOf(provider) == null || !Boolean.TRUE.equals(policy.getBindingEnabled())) {
             throw unavailable();
         }
         try (TenantContext.Scope ignored = TenantContext.use(tenant)) {
@@ -230,6 +231,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                 .filter(policy -> bindings.stream().noneMatch(binding -> binding.getProviderId().equals(policy.getProviderId())))
                 .map(policy -> providers.findUsable(policy.getProviderId()).orElse(null))
                 .filter(Objects::nonNull)
+                .filter(provider -> providers.protocolOf(provider) != null)
                 .map(ExternalLoginService::loginMethod)
                 .toList();
         return new ExternalLoginResults.OwnIdentities(views, bindable);
@@ -267,7 +269,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
     }
 
     private boolean canSignIn(String tenant, String providerId) {
-        return providers.findUsable(providerId).isPresent() && policies.enabledPolicy(tenant, providerId)
+        return providers.findUsable(providerId).filter(provider -> providers.protocolOf(provider) != null).isPresent() && policies.enabledPolicy(tenant, providerId)
                 .map(policy -> Boolean.TRUE.equals(policy.getLoginEnabled()))
                 .orElse(false);
     }

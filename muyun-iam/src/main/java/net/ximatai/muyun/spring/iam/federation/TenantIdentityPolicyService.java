@@ -30,12 +30,17 @@ public class TenantIdentityPolicyService extends TenantActiveScopedService<Tenan
     public static final String MODULE_ALIAS = "iam.tenant_identity_policy";
 
     private final IdentityProviderService identityProviderService;
+    private final DirectorySyncConfiguration directory;
+    private final net.ximatai.muyun.spring.platform.job.JobService jobs;
 
     public TenantIdentityPolicyService(TenantIdentityPolicyDao dao, ActiveTenantVerifier activeTenantVerifier,
-                                       IdentityProviderService identityProviderService) {
+                                       IdentityProviderService identityProviderService, DirectorySyncConfiguration directory,
+                                       net.ximatai.muyun.spring.platform.job.JobService jobs) {
         super(MODULE_ALIAS, TenantIdentityPolicy.class, dao, activeTenantVerifier);
         this.identityProviderService = java.util.Objects.requireNonNull(identityProviderService,
                 "identityProviderService");
+        this.directory = java.util.Objects.requireNonNull(directory);
+        this.jobs = java.util.Objects.requireNonNull(jobs);
     }
 
     @Override
@@ -57,11 +62,37 @@ public class TenantIdentityPolicyService extends TenantActiveScopedService<Tenan
     @Override
     public void beforeInsert(TenantIdentityPolicy policy) {
         requireSupportedProvisioning(policy);
+        directory.maintain(policy, null);
     }
 
     @Override
     public void beforeUpdate(TenantIdentityPolicy policy, TenantIdentityPolicy existing) {
         requireSupportedProvisioning(policy);
+        directory.maintain(policy, existing);
+    }
+
+    @Override public String insert(TenantIdentityPolicy policy) {
+        directory.prepare(policy);
+        return super.insert(policy);
+    }
+    @Override public int update(TenantIdentityPolicy policy) {
+        var retained = selectActiveRaw(policy.getId());
+        if (retained == null || !java.util.Objects.equals(retained.getSyncRoots(), policy.getSyncRoots())
+                || !java.util.Objects.equals(retained.getProviderId(), policy.getProviderId())
+                || !java.util.Objects.equals(retained.getSyncScopeConfirmed(), policy.getSyncScopeConfirmed())) directory.prepare(policy);
+        return super.update(policy);
+    }
+    @Override public void beforeDelete(String id) {
+        var policy = selectActiveRaw(id);
+        if (policy != null) directory.deletePlan(policy);
+    }
+    /** Shared trusted entry for both operator actions; jobs always run as tenant SYSTEM. */
+    public String synchronize(String id, boolean preview) {
+        return inMutationTransaction(() -> {
+            var policy = selectActiveRaw(id);
+            if (policy == null || !Boolean.TRUE.equals(policy.getEnabled())) throw new IllegalArgumentException("Directory policy unavailable");
+            return jobs.enqueue(DirectorySyncJob.TYPE, policy.getTenantId(), DirectorySyncConfiguration.input(policy, preview ? "PREVIEW" : "SYNC"), null).getId();
+        });
     }
 
     /** Enabled policies of a tenant, read in that tenant's scope for the public sign-in entry. */

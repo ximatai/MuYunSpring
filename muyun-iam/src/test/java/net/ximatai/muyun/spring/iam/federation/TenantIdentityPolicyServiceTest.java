@@ -9,7 +9,8 @@ import static org.mockito.Mockito.mock;
 class TenantIdentityPolicyServiceTest {
     private final TenantIdentityPolicyService service = new TenantIdentityPolicyService(
             mock(TenantIdentityPolicyDao.class), tenantId -> {
-            }, mock(IdentityProviderService.class));
+            }, mock(IdentityProviderService.class), mock(DirectorySyncConfiguration.class),
+            mock(net.ximatai.muyun.spring.platform.job.JobService.class));
 
     @Test
     void rejectsProvisioningModesThatAreNotImplementedYet() {
