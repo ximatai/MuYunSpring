@@ -1,5 +1,27 @@
 package net.ximatai.muyun.spring.demo.school.test;
 
+import net.ximatai.muyun.spring.iam.role.RoleService;
+import net.ximatai.muyun.spring.iam.role.Role;
+import net.ximatai.muyun.spring.iam.role.RoleAssignmentType;
+import net.ximatai.muyun.spring.iam.role.DataScopePolicy;
+import net.ximatai.muyun.spring.iam.role.TenantScopePolicy;
+import net.ximatai.muyun.spring.iam.user.UserAccountService;
+import net.ximatai.muyun.spring.iam.user.UserAccount;
+import net.ximatai.muyun.spring.iam.employee.EmployeeService;
+import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
+import net.ximatai.muyun.spring.iam.employee.EmployeeAccount;
+import net.ximatai.muyun.spring.iam.employee.EmployeePosition;
+import net.ximatai.muyun.spring.iam.employee.Employee;
+import net.ximatai.muyun.spring.iam.position.PositionCategoryService;
+import net.ximatai.muyun.spring.iam.position.PositionService;
+import net.ximatai.muyun.spring.iam.position.PositionCategory;
+import net.ximatai.muyun.spring.iam.position.Position;
+import net.ximatai.muyun.spring.platform.module.ModuleActionInvoker;
+import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.platform.code.*;
 import net.ximatai.muyun.spring.platform.workflow.*;
@@ -203,7 +225,7 @@ public class TeachingDemoIT {
     @Autowired
     private net.ximatai.muyun.spring.iam.department.DepartmentService departments;
     @Autowired
-    private net.ximatai.muyun.spring.iam.employee.EmployeeService employees;
+    private EmployeeService employees;
 
     @Test
     void apiOnlyStaticBusinessCreatesAndConfirmsThroughAuthorizedHttpWithoutPageOrMetadata() throws Exception {
@@ -1183,7 +1205,8 @@ public class TeachingDemoIT {
             });
         }
 
-        try (TenantContext.Scope ignored = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("reference-fixture", "Reference fixture"));
+             TenantContext.Scope ignored = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
             DynamicRecord examRecord = dynamicRecords.listSystem(ExamDemoBootstrapTask.MODULE_ALIAS, "exam",
                     Criteria.of().eq("title", "2026 春季期中数学测评"), PageRequest.of(1, 1)).getFirst();
             assertThat(examRecord.getValue("classroomId")).isEqualTo("demo_classroom_g1a");
@@ -1611,7 +1634,8 @@ public class TeachingDemoIT {
 
     @Test
     void shouldResolveHomeroomTeacherAndPopulateClassMembers() {
-        try (TenantContext.Scope ignored = TenantContext.system("school demo aggregate")) {
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("aggregate-fixture", "Aggregate fixture"));
+             TenantContext.Scope ignored = TenantContext.system("school demo aggregate")) {
             String assistantId = students.insert(student("S-" + serial(), "李同学", "二年级"));
             String subjectId = subjects.insert(subject("mathematics-" + serial(), "数学", TreeAbility.ROOT_ID));
             Teacher homeroomTeacher = teacher("T-" + serial(), "王老师", subjectId);
@@ -1700,6 +1724,138 @@ public class TeachingDemoIT {
             assertThat(members.select(replacement.getId())).isNotNull();
             assertThat(members.select(removed.getId())).isNull();
             assertThat(members.selectIgnoreSoftDelete(removed.getId()).getDeleted()).isTrue();
+        }
+    }
+
+    @Autowired
+    private ModuleActionInvoker scheduledActions;
+
+    @Test
+    void scheduledGraduationDisablesOnlyDueStudentsAndIsIdempotent() {
+        String tenantId = "graduation-" + serial();
+        String otherTenant = "graduation-" + serial();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        String otherId;
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("fixture", "Fixture"));
+             var tenant = TenantContext.use(otherTenant)) {
+            var other = student("OTHER", "其他租户", "六年级");
+            other.setGraduationDate(today.minusDays(1));
+            otherId = students.insert(other);
+        }
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("fixture", "Fixture"));
+             var tenant = TenantContext.use(tenantId)) {
+            var past = student("PAST", "昨日毕业", "六年级");
+            past.setGraduationDate(today.minusDays(1));
+            var due = student("DUE", "今日毕业", "六年级");
+            due.setGraduationDate(today);
+            var future = student("FUTURE", "尚未毕业", "六年级");
+            future.setGraduationDate(today.plusDays(1));
+            var unknown = student("UNKNOWN", "未填日期", "六年级");
+            for (var row : List.of(past, due, future, unknown)) students.insert(row);
+            assertThat(scheduledActions.validateTarget(StudentService.MODULE_ALIAS, "disableGraduated")
+                    .getActionLevel()).isEqualTo(EntityActionLevel.LIST);
+            assertThat(scheduledActions.invoke(StudentService.MODULE_ALIAS, "disableGraduated", Map.of()))
+                    .isEqualTo(Map.of("disabledStudents", 2));
+            assertThat(students.select(past.getId()).getEnabled()).isFalse();
+            assertThat(students.select(due.getId()).getEnabled()).isFalse();
+            assertThat(students.select(future.getId()).getEnabled()).isTrue();
+            assertThat(students.select(unknown.getId()).getEnabled()).isTrue();
+            int version = students.select(due.getId()).getVersion();
+            assertThat(scheduledActions.invoke(StudentService.MODULE_ALIAS, "disableGraduated", Map.of()))
+                    .isEqualTo(Map.of("disabledStudents", 0));
+            assertThat(students.select(due.getId()).getVersion()).isEqualTo(version);
+        }
+        try (var tenant = TenantContext.use(otherTenant)) {
+            assertThat(students.select(otherId).getEnabled()).isTrue();
+        }
+    }
+
+    @Autowired
+    private RoleService roles;
+
+    @Autowired
+    private UserAccountService accounts;
+
+    @Autowired
+    private EmployeeAccountService employeeAccounts;
+
+    @Autowired
+    private PositionCategoryService positionCategories;
+
+    @Autowired
+    private PositionService positions;
+
+    @Test
+    void scheduledGraduationHonorsRealOwnerDataScope() {
+        String userId;
+        String ownId;
+        String hiddenId;
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("scope-fixture", "Scope fixture"));
+             var tenant = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            var account = new UserAccount();
+            account.setUsername("graduation-owner-" + serial());
+            account.setPassword("Graduation2026!Fixture");
+            userId = accounts.insert(account);
+            var role = new Role();
+            role.setTitle("毕业处理负责人-" + serial());
+            role.setAssignmentType(RoleAssignmentType.EMPLOYMENT);
+            role.setOwnerScopeId(DemoBootstrapTask.TENANT_ALIAS);
+            String roleId = roles.insert(role);
+            roles.grantAction(roleId, StudentService.MODULE_ALIAS, "disableGraduated",
+                    DataScopePolicy.OWNER,
+                    TenantScopePolicy.CURRENT_TENANT);
+            var category = new PositionCategory();
+            category.setCode("graduation-" + serial());
+            category.setTitle("毕业处理");
+            positionCategories.insert(category);
+            var position = new Position();
+            position.setCategoryId(category.getId());
+            position.setCode("graduation-" + serial());
+            position.setTitle("毕业处理负责人");
+            positions.insert(position);
+            var employment = new EmployeePosition();
+            employment.setOrganizationId(DemoBootstrapTask.ORGANIZATION_ID);
+            employment.setDepartmentId(DemoBootstrapTask.DEPARTMENT_ID);
+            employment.setPositionId(position.getId());
+            var employee = new Employee();
+            employee.setEmployeeNo("graduation-" + serial());
+            employee.setTitle("毕业处理负责人");
+            employee.setOrganizationId(DemoBootstrapTask.ORGANIZATION_ID);
+            employee.setDepartmentId(DemoBootstrapTask.DEPARTMENT_ID);
+            employee.setPositions(List.of(employment));
+            employees.insert(employee);
+            var binding = new EmployeeAccount();
+            binding.setUserId(userId);
+            employeeAccounts.bindAccount(employee.getId(), binding);
+            roles.grantEmploymentRole(roleId, employment.getId());
+            var own = student("OWN-" + serial(), "本人负责学生", "高三");
+            own.setAuthUserId(userId);
+            own.setGraduationDate(LocalDate.now(ZoneOffset.UTC));
+            ownId = students.insert(own);
+            var hidden = student("HIDDEN-" + serial(), "其他负责人学生", "高三");
+            hidden.setAuthUserId("another-owner");
+            hidden.setGraduationDate(own.getGraduationDate());
+            hiddenId = students.insert(hidden);
+        }
+        try (var user = CurrentUserContext.use(CurrentUser.tenantUser(userId, "毕业处理负责人",
+                DemoBootstrapTask.TENANT_ALIAS, DemoBootstrapTask.ORGANIZATION_ID));
+             var tenant = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            assertThat(scheduledActions.invoke(StudentService.MODULE_ALIAS, "disableGraduated", Map.of()))
+                    .isEqualTo(Map.of("disabledStudents", 1));
+        }
+        try (var tenant = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            assertThat(students.select(ownId).getEnabled()).isFalse();
+            assertThat(students.select(hiddenId).getEnabled()).isTrue();
+        }
+    }
+
+    @Test
+    void scheduledGraduationRejectsUnauthorizedInitiator() {
+        try (var user = CurrentUserContext.use(CurrentUser.tenantUser("no-graduation-grant-" + serial(),
+                "未授权发起人", DemoBootstrapTask.TENANT_ALIAS));
+             var tenant = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            assertThatThrownBy(() -> scheduledActions.invoke(StudentService.MODULE_ALIAS, "disableGraduated", Map.of()))
+                    .isInstanceOf(PlatformAccessDeniedException.class);
         }
     }
 
