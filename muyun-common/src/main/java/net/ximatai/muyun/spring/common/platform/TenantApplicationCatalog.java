@@ -7,6 +7,9 @@ package net.ximatai.muyun.spring.common.platform;
  * depending on the platform configuration implementation.</p>
  */
 public interface TenantApplicationCatalog {
+    /** Explicit code-owned tenant entry points do not require an application entitlement. */
+    default boolean isModuleAvailableWithoutOpening(String moduleAlias) { return false; }
+
     boolean isEnabledForTenant(String applicationAlias);
 
     void requireEnabledForTenant(String applicationAlias);

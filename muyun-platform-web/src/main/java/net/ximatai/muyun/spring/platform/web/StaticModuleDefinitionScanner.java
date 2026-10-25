@@ -185,6 +185,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 .parentModuleAlias(module.parent().isBlank() ? null : module.parent())
                 .entry(entryType(module), module.route(), module.externalUrl())
                 .capabilities(capabilities)
+                .tenantAccessible(module.tenantAccessible())
                 .actions(actions(bean, beanClass, capabilities))
                 .entities(entities)
                 .uiDefinition(uiDefinition(bean, module))

@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Objects;
 
 @RestController
-@PlatformStaticModule(application = PlatformApplication.class,
+@PlatformStaticModule(application = PlatformApplication.class, tenantAccessible = true,
         alias = JobRunManagementService.MODULE_ALIAS, title = "作业运行")
 @StaticModuleTenantScopePolicy(requireActiveTenant = false)
 @PlatformMenu(parent = PlatformMenuGroups.OPS, title = "作业运行", order = 50)

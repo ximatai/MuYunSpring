@@ -142,6 +142,33 @@ class JobServiceContractTest {
         assertThat(plan.getNextFireAt()).isEqualTo(now.get().plusSeconds(3600));
         assertThatThrownBy(() -> service.configure(plan)).isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
     }
+    @Test void standardFormMayOmitOwnershipButMustCarryCurrentConfigurationRevision() throws Exception {
+        var plan = new JobPlan(); plan.setId("editable"); plan.setJobType("test.contract");
+        plan.setTenantId("tenant-a"); plan.setObjectKey("source"); plan.setConfigRevision(1);
+        plan.setPlanKey(JobKeys.effective("test.contract", JobScope.TENANT, "tenant-a", "source"));
+        plan.setParametersJson("{}"); plan.setEnabled(true);
+        JobSchedule.fixedDelay(Duration.ofMinutes(5), Duration.ofMinutes(1)).apply(plan);
+        plans.insert(plan);
+        String payload = """
+                {"id":"editable","version":0,"configRevision":1,"scheduleKind":"FIXED_DELAY",
+                 "intervalMillis":"360000","initialDelayMillis":"60000","enabled":true}
+                """;
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var result = service.configure(mapper.readValue(payload, JobPlan.class));
+        assertThat(result.getConfigRevision()).isEqualTo(2);
+        assertThat(result.getIntervalMillis()).isEqualTo(360000L);
+        assertThat(result.getTenantId()).isEqualTo("tenant-a");
+        assertThat(result.getJobType()).isEqualTo("test.contract");
+        assertThat(result.getObjectKey()).isEqualTo("source");
+        assertThatThrownBy(() -> service.configure(mapper.readValue(payload, JobPlan.class)))
+                .isInstanceOf(net.ximatai.muyun.spring.ability.OptimisticLockException.class);
+        for (String field : List.of("tenantId", "jobType", "objectKey")) {
+            var forged = mapper.readTree(payload).deepCopy();
+            ((com.fasterxml.jackson.databind.node.ObjectNode) forged).put(field, "forged");
+            assertThatThrownBy(() -> service.configure(mapper.treeToValue(forged, JobPlan.class)))
+                    .hasMessageContaining("ownership cannot change");
+        }
+    }
     @Test void shutdownAfterClaimReleasesWithoutExecutingOrConsumingAttempt() {
         var row = enqueue("late:1");
         execute = context -> { fail("Shutdown must prevent late handler start"); return null; };

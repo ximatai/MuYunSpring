@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Objects;
 
 @RestController
-@PlatformStaticModule(application = PlatformApplication.class,
+@PlatformStaticModule(application = PlatformApplication.class, tenantAccessible = true,
         alias = JobPlanManagementService.MODULE_ALIAS, title = "作业计划")
 @StaticModuleTenantScopePolicy(requireActiveTenant = false)
 @PlatformMenu(parent = PlatformMenuGroups.OPS, title = "作业计划", order = 40)
@@ -60,14 +60,14 @@ public class JobPlanWebController extends StaticModuleWebControllerAdapter<JobPl
                 .pageAction("resume", PageActionAnchor.DETAIL)
                 .page(PageTemplates.listDetailCard(page -> page
                         .list(list -> list.fields(fields -> fields
-                                .field("tenantId", field -> field.label("所属租户 ID").readOnly())
-                                .field("jobType", field -> field.label("作业类型"))
-                                .field("scope", field -> field.label("作用范围"))
-                                .field("enabled", field -> field.label("启用状态"))
-                                .field("available", field -> field.label("类型可用"))
-                                .field("nextFireAt", field -> field.label("下次触发时间"))
-                                .field("lastStatus", field -> field.label("最近运行状态"))
-                                .field("consecutiveFailures", field -> field.label("连续失败次数"))))
+                                .field("tenantId", field -> field.label("所属租户 ID").width("180px").readOnly())
+                                .field("jobType", field -> field.label("作业类型").width("260px"))
+                                .field("scope", field -> field.label("作用范围").width("140px"))
+                                .field("enabled", field -> field.label("启用状态").width("120px"))
+                                .field("available", field -> field.label("类型可用").width("140px"))
+                                .field("nextFireAt", field -> field.label("下次触发时间").width("200px"))
+                                .field("lastStatus", field -> field.label("最近运行状态").width("170px"))
+                                .field("consecutiveFailures", field -> field.label("连续失败次数").width("180px"))))
                         .detail(detail -> detail.editor(form -> form.title("作业计划")
                                 .field("tenantId", field -> field.label("所属租户 ID").readOnly())
                                 .field("jobType", field -> field.label("作业类型").readOnly())

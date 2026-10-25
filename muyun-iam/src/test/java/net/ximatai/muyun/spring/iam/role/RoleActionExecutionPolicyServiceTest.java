@@ -68,7 +68,7 @@ class RoleActionExecutionPolicyServiceTest {
         ActionAuthorizationResult result = policy.authorize(context(user));
 
         assertThat(result.decision()).isEqualTo(RoleActionExecutionPolicyService.DECISION_TENANT_ADMIN_GRANTED);
-        verify(tenantApplicationService).requireApplicationOpened("tenant_a", "sales");
+        verify(tenantApplicationService).requireModuleAvailable("tenant_a", "sales.contract");
         verify(tenantAdminPolicy).grants(user, "sales.contract", PlatformAction.QUERY.executionPolicy());
         verify(roleService, never()).hasActionPermission("user-1", "sales.contract", "view");
     }
@@ -79,7 +79,7 @@ class RoleActionExecutionPolicyServiceTest {
         TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
         TenantAdminImplicitGrantPolicy tenantAdminPolicy = mock(TenantAdminImplicitGrantPolicy.class);
         org.mockito.Mockito.doThrow(new ApplicationNotOpenedException("tenant_a", "sales"))
-                .when(tenantApplicationService).requireApplicationOpened("tenant_a", "sales");
+                .when(tenantApplicationService).requireModuleAvailable("tenant_a", "sales.contract");
         RoleActionExecutionPolicyService policy = new RoleActionExecutionPolicyService(roleService,
                 tenantApplicationService, tenantAdminPolicy);
 
@@ -97,7 +97,7 @@ class RoleActionExecutionPolicyServiceTest {
         RoleGrantableActionResolver actionResolver = mock(RoleGrantableActionResolver.class);
         CurrentUser user = CurrentUser.tenantUser("user-1", "Alice", "tenant_a");
         when(roleService.hasTenantAdministratorAccess("user-1", "tenant_a")).thenReturn(true);
-        when(tenantApplicationService.isApplicationAvailable("tenant_a", "iam")).thenReturn(true);
+        when(tenantApplicationService.isModuleAvailable("tenant_a", "iam.tenant")).thenReturn(true);
         TenantAdminImplicitGrantPolicy tenantAdminPolicy = new TenantAdminImplicitGrantPolicy(roleService,
                 tenantApplicationService, actionResolver);
         RoleActionExecutionPolicyService policy = new RoleActionExecutionPolicyService(roleService,
@@ -115,7 +115,7 @@ class RoleActionExecutionPolicyServiceTest {
         RoleService roleService = mock(RoleService.class);
         TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
         org.mockito.Mockito.doThrow(new ApplicationNotOpenedException("tenant_a", "sales"))
-                .when(tenantApplicationService).requireApplicationOpened("tenant_a", "sales");
+                .when(tenantApplicationService).requireModuleAvailable("tenant_a", "sales.contract");
         RoleActionExecutionPolicyService policy = new RoleActionExecutionPolicyService(roleService,
                 tenantApplicationService);
 
@@ -142,7 +142,7 @@ class RoleActionExecutionPolicyServiceTest {
                 Optional.of(CurrentUser.tenantUser("user-1", "Alice", "tenant_a"))
         ));
 
-        verify(tenantApplicationService).requireApplicationOpened("tenant_a", "sales");
+        verify(tenantApplicationService).requireModuleAvailable("tenant_a", "sales.contract");
         verify(roleService, never()).hasActionPermission("user-1", "sales.contract", "profile");
     }
 

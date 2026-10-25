@@ -24,7 +24,7 @@ class RoleMenuVisibilityPolicyServiceTest {
         menu.setActionAuth(false);
         menu.setDataAuth(false);
         when(actions.findByModuleAliasAndActionCode("iam.workflow_workbench", "menu")).thenReturn(menu);
-        when(applications.isApplicationAvailable("tenant-a", "iam")).thenReturn(true);
+        when(applications.isModuleAvailable("tenant-a", "iam.workflow_workbench")).thenReturn(true);
         var service = new RoleMenuVisibilityPolicyService(roles, applications, null, actions);
         var user = Optional.of(CurrentUser.tenantUser("ordinary", "User", "tenant-a"));
 
@@ -39,7 +39,7 @@ class RoleMenuVisibilityPolicyServiceTest {
         menu.setAccessModeOverride(net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode.AUTH_REQUIRED);
         assertThat(service.canViewModuleMenu("iam.workflow_workbench", user)).isFalse();
         menu.setAccessModeOverride(null);
-        when(applications.isApplicationAvailable("tenant-a", "iam")).thenReturn(false);
+        when(applications.isModuleAvailable("tenant-a", "iam.workflow_workbench")).thenReturn(false);
         assertThat(service.canViewModuleMenu("iam.workflow_workbench", user)).isFalse();
     }
 
@@ -48,7 +48,7 @@ class RoleMenuVisibilityPolicyServiceTest {
         RoleService roleService = mock(RoleService.class);
         TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
         when(roleService.hasActionPermission("user-1", "crm.customer", "menu")).thenReturn(true);
-        when(tenantApplicationService.isApplicationAvailable("tenant-a", "crm")).thenReturn(true);
+        when(tenantApplicationService.isModuleAvailable("tenant-a", "crm.customer")).thenReturn(true);
         RoleMenuVisibilityPolicyService service = new RoleMenuVisibilityPolicyService(roleService, tenantApplicationService);
 
         assertThat(service.canViewModuleMenu(
@@ -65,7 +65,7 @@ class RoleMenuVisibilityPolicyServiceTest {
         RoleService roleService = mock(RoleService.class);
         TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
         when(roleService.hasActionPermission("user-1", "crm.customer", "view")).thenReturn(true);
-        when(tenantApplicationService.isApplicationAvailable("tenant-a", "crm")).thenReturn(true);
+        when(tenantApplicationService.isModuleAvailable("tenant-a", "crm.customer")).thenReturn(true);
         RoleMenuVisibilityPolicyService service = new RoleMenuVisibilityPolicyService(roleService, tenantApplicationService);
 
         assertThat(service.canViewModuleMenu(
@@ -78,7 +78,7 @@ class RoleMenuVisibilityPolicyServiceTest {
         RoleService roleService = mock(RoleService.class);
         TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
         TenantAdminImplicitGrantPolicy tenantAdminPolicy = mock(TenantAdminImplicitGrantPolicy.class);
-        when(tenantApplicationService.isApplicationAvailable("tenant-a", "mr")).thenReturn(true);
+        when(tenantApplicationService.isModuleAvailable("tenant-a", "mr.expert")).thenReturn(true);
         CurrentUser user = CurrentUser.tenantUser("user-1", "User", "tenant-a");
         when(tenantAdminPolicy.grants(user, "mr.expert", "menu")).thenReturn(true);
         RoleMenuVisibilityPolicyService service = new RoleMenuVisibilityPolicyService(roleService,
@@ -105,7 +105,7 @@ class RoleMenuVisibilityPolicyServiceTest {
     void shouldHideTenantMenuWhenItsApplicationIsNotEnabled() {
         RoleService roleService = mock(RoleService.class);
         TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
-        when(tenantApplicationService.isApplicationAvailable("tenant-a", "crm")).thenReturn(false);
+        when(tenantApplicationService.isModuleAvailable("tenant-a", "crm.customer")).thenReturn(false);
         RoleMenuVisibilityPolicyService service = new RoleMenuVisibilityPolicyService(roleService, tenantApplicationService);
 
         assertThat(service.canViewModuleMenu(

@@ -57,7 +57,7 @@ public class RoleMenuVisibilityPolicyService implements MenuVisibilityPolicyServ
         String applicationAlias = applicationAliasOf(moduleAlias);
         if (applicationAlias == null || user.tenantId() == null || user.tenantId().isBlank()
                 || tenantApplicationService == null
-                || !tenantApplicationService.isApplicationAvailable(user.tenantId(), applicationAlias)) {
+                || !tenantApplicationService.isModuleAvailable(user.tenantId(), moduleAlias)) {
             return false;
         }
         return hasLoginRequiredMenu(moduleAlias) || (tenantAdminImplicitGrantPolicy != null

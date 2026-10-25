@@ -21,7 +21,7 @@ class TenantAdminImplicitGrantPolicyTest {
         RoleGrantableActionResolver actionResolver = mock(RoleGrantableActionResolver.class);
         CurrentUser user = CurrentUser.tenantUser("user-1", "User", "tenant-a");
         when(roleService.hasTenantAdministratorAccess("user-1", "tenant-a")).thenReturn(true);
-        when(tenantApplicationService.isApplicationAvailable("tenant-a", "mr")).thenReturn(true);
+        when(tenantApplicationService.isModuleAvailable("tenant-a", "mr.expert")).thenReturn(true);
         when(actionResolver.resolve(List.of("mr.expert"))).thenReturn(List.of(
                 GrantableAction.ofPlatformDefaults("mr.expert", PlatformAction.QUERY)));
         TenantAdminImplicitGrantPolicy policy = new TenantAdminImplicitGrantPolicy(roleService,
@@ -39,7 +39,7 @@ class TenantAdminImplicitGrantPolicyTest {
         RoleGrantableActionResolver actionResolver = mock(RoleGrantableActionResolver.class);
         CurrentUser user = CurrentUser.tenantUser("user-1", "User", "tenant-a");
         when(roleService.hasTenantAdministratorAccess("user-1", "tenant-a")).thenReturn(true);
-        when(tenantApplicationService.isApplicationAvailable("tenant-a", "iam")).thenReturn(true);
+        when(tenantApplicationService.isModuleAvailable("tenant-a", "iam.tenant")).thenReturn(true);
         TenantAdminImplicitGrantPolicy policy = new TenantAdminImplicitGrantPolicy(roleService,
                 tenantApplicationService, actionResolver);
 

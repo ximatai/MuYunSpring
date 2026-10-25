@@ -20,6 +20,8 @@ defineOptions({ name: 'SingleImageFileReferenceField' });
 
 const props = defineProps<{
   label: string;
+  /** Hides the field title and places the available actions below the image. */
+  hideLabel?: boolean;
   required?: boolean;
   value: unknown;
   record: Record<string, unknown>;
@@ -140,11 +142,17 @@ function browserViewUrl(url: string) {
 </script>
 
 <template>
-  <div class="single-image-file-reference-field">
-    <div class="single-image-file-reference-field__header">
-      <RecordFieldLabel class="single-image-file-reference-field__label" :required="required">{{
-        label
-      }}</RecordFieldLabel>
+  <div
+    class="single-image-file-reference-field"
+    :class="{ 'single-image-file-reference-field--hide-label': hideLabel }"
+  >
+    <div v-if="!hideLabel || fileId" class="single-image-file-reference-field__header">
+      <RecordFieldLabel
+        v-if="!hideLabel"
+        class="single-image-file-reference-field__label"
+        :required="required"
+        >{{ label }}</RecordFieldLabel
+      >
       <div v-if="fileId" class="single-image-file-reference-field__actions">
         <template v-if="definition.readAvailable">
           <UiButton
@@ -272,6 +280,17 @@ function browserViewUrl(url: string) {
   grid-template-rows: 30px var(--single-image-file-reference-area-height);
   align-content: start;
   gap: 10px;
+}
+.single-image-file-reference-field--hide-label {
+  grid-template-rows: var(--single-image-file-reference-area-height) auto;
+}
+.single-image-file-reference-field--hide-label .single-image-file-reference-field__header {
+  order: 1;
+  grid-template-columns: 1fr;
+}
+.single-image-file-reference-field--hide-label .single-image-file-reference-field__actions {
+  justify-self: center;
+  gap: 0;
 }
 .single-image-file-reference-field__header {
   display: grid;

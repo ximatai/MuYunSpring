@@ -90,6 +90,7 @@ const avatarDraft = computed(() => ({ id: employee.value?.id, avatarAssetId: ava
       <section v-if="employee" class="profile-hero">
         <div class="profile-avatar">
           <SingleImageFileReferenceField
+            hide-label
             :label="language.t('platform.screen.CurrentUserProfileDialog.avatar', '头像')"
             :value="avatarAssetId"
             :record="avatarDraft"
@@ -452,10 +453,8 @@ const avatarDraft = computed(() => ({ id: employee.value?.id, avatarAssetId: ava
   border-radius: 14px;
 }
 .profile-avatar :deep(.single-image-file-reference-field) {
-  gap: 0;
-}
-.profile-avatar :deep(.single-image-file-reference-field__header) {
-  display: none;
+  --single-image-file-reference-area-height: 92px;
+  gap: 4px;
 }
 .profile-avatar :deep(.file-transfer-uploader__drop-zone) {
   min-height: 92px;
@@ -523,6 +522,9 @@ const avatarDraft = computed(() => ({ id: employee.value?.id, avatarAssetId: ava
   }
   .profile-avatar {
     width: 76px;
+  }
+  .profile-avatar :deep(.single-image-file-reference-field) {
+    --single-image-file-reference-area-height: 76px;
   }
   .profile-account {
     grid-column: 1 / -1;

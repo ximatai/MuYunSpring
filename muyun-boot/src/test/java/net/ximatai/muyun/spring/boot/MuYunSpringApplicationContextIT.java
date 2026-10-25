@@ -1650,6 +1650,113 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void tenantSchedulingPagesAndSparseUpdatesUseRealHttpWithoutOpeningTheSystemApplication() throws Exception {
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        String tenant = insertActiveTenant("job_http_" + suffix);
+        String otherTenant = insertActiveTenant("job_other_" + suffix);
+        String userId = "job_admin_" + suffix;
+        insertUser(tenant, userId, userId);
+        jdbcTemplate.update("update iam_user set password_status = 'NORMAL' where id = ?", userId);
+        applicationContext.getBean(net.ximatai.muyun.spring.iam.role.DefaultTenantRoleProvisioner.class)
+                .grantTenantAdminRoleToUser(tenant, userId);
+        var jobs = applicationContext.getBean(net.ximatai.muyun.spring.platform.job.JobService.class);
+        var plans = new java.util.ArrayList<net.ximatai.muyun.spring.platform.job.JobPlan>();
+        var runIds = new java.util.ArrayList<String>();
+        var topicIds = new java.util.ArrayList<String>();
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("http-fixture", "HTTP fixture"));
+             var scope = TenantContext.system("create scheduling HTTP fixtures")) {
+            for (String owner : java.util.Arrays.asList(tenant, otherTenant, null)) {
+                var plan = new net.ximatai.muyun.spring.platform.job.JobPlan();
+                plan.setTenantId(owner); plan.setObjectKey("http-" + suffix);
+                plan.setJobType(owner == null ? net.ximatai.muyun.spring.platform.job.ModuleActionJob.PLATFORM_TYPE
+                        : net.ximatai.muyun.spring.platform.job.ModuleActionJob.TENANT_TYPE);
+                plan.setScheduleKind("FIXED_DELAY"); plan.setIntervalMillis(300000L); plan.setInitialDelayMillis(60000L);
+                plan = jobs.registerManaged("http-fixture", plan, Map.of("planKey", "http-" + suffix));
+                jdbcTemplate.update("update platform_job_plan set managed_by = null where id = ?", plan.getId());
+                plans.add(plan); runIds.add(jobs.runNow(plan.getId()).getId());
+                var topic = new net.ximatai.muyun.spring.platform.job.ScheduledActionPlan();
+                topic.setId("http_topic_" + topicIds.size() + "_" + suffix); topic.setTenantId(owner);
+                topic.setModuleAlias("iam.user"); topic.setActionCode("query"); topic.setJobPlanId(plan.getId());
+                applicationContext.getBean(net.ximatai.muyun.spring.platform.job.ScheduledActionPlanDao.class).insert(topic);
+                topicIds.add(topic.getId());
+            }
+        }
+        String token = issueActiveSessionToken(tenant, userId, userId);
+        try {
+            var headers = bearerHeaders(token); headers.set("Accept-Language", "en");
+            for (String module : List.of("platform.job_plan", "platform.job_run", "platform.scheduled_action_plan")) {
+                var context = restTemplate.exchange("/platform.module/" + module + "/context", HttpMethod.GET,
+                        new HttpEntity<>(headers), JsonNode.class);
+                assertThat(context.getStatusCode()).as(module + " page").isEqualTo(HttpStatus.OK);
+                var response = restTemplate.exchange("/" + module + "/query", HttpMethod.POST,
+                        new HttpEntity<>(Map.of("page", Map.of("pageNum", 1, "pageSize", 100)), headers), JsonNode.class);
+                assertThat(response.getStatusCode()).as(module + " query: " + response.getBody()).isEqualTo(HttpStatus.OK);
+                var fixtureIds = module.endsWith("job_plan") ? plans.stream().map(net.ximatai.muyun.spring.platform.job.JobPlan::getId).toList()
+                        : module.endsWith("job_run") ? runIds : topicIds;
+                var visibleIds = java.util.stream.StreamSupport.stream(response.getBody().path("records").spliterator(), false)
+                        .map(row -> row.path("id").asText()).toList();
+                assertThat(visibleIds).as(module + " scoped records: " + response.getBody())
+                        .contains(fixtureIds.getFirst()).doesNotContain(fixtureIds.get(1), fixtureIds.get(2));
+                var forbiddenId = fixtureIds.get(1);
+                var hidden = restTemplate.exchange("/" + module + "/view/" + forbiddenId, HttpMethod.GET,
+                        new HttpEntity<>(headers), JsonNode.class);
+                assertThat(hidden.getStatusCode().is4xxClientError()).as(module + " cross tenant detail").isTrue();
+            }
+            String id = plans.getFirst().getId();
+            var payload = Map.of("id", id, "version", 0, "configRevision", 1, "scheduleKind", "FIXED_DELAY",
+                    "intervalMillis", "360000", "initialDelayMillis", "60000", "enabled", true);
+            var saved = restTemplate.exchange("/platform.job_plan/update/" + id, HttpMethod.POST,
+                    new HttpEntity<>(payload, headers), JsonNode.class);
+            assertThat(saved.getStatusCode()).as(String.valueOf(saved.getBody())).isEqualTo(HttpStatus.OK);
+            var detail = restTemplate.exchange("/platform.job_plan/view/" + id, HttpMethod.GET,
+                    new HttpEntity<>(headers), JsonNode.class);
+            assertThat(detail.getBody().path("configRevision").asInt()).isEqualTo(2);
+            assertThat(detail.getBody().path("intervalMillis").asLong()).isEqualTo(360000L);
+            assertThat(detail.getBody().path("tenantId").asText()).isEqualTo(tenant);
+            var stale = restTemplate.exchange("/platform.job_plan/update/" + id, HttpMethod.POST,
+                    new HttpEntity<>(payload, headers), JsonNode.class);
+            assertThat(stale.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            for (String path : List.of("/platform.system_action_whitelist/query", "/platform.runtime_log/query")) {
+                var denied = restTemplate.exchange(path, HttpMethod.POST, new HttpEntity<>(Map.of(), headers), JsonNode.class);
+                assertThat(denied.getStatusCode()).as(path).isEqualTo(HttpStatus.FORBIDDEN);
+            }
+            var menus = restTemplate.exchange("/platform.menu/mine", HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+            assertThat(menus.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(menus.getBody().toString()).contains("platform.job_plan", "platform.job_run", "platform.scheduled_action_plan")
+                    .doesNotContain("platform.system_action_whitelist");
+        } finally { userSessionService.logout(token); }
+    }
+
+    @Test
+    void everyBootModuleActionAndOfficialMenuHasEnglishPresentationResources() {
+        var resources = applicationContext.getBean(net.ximatai.muyun.spring.common.i18n.TextResolver.class);
+        var declarations = applicationContext.getBean(net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog.class);
+        for (var module : declarations.definitions()) {
+            var source = net.ximatai.muyun.spring.platform.module.ModuleTitleView.declaredSource(module.moduleAlias(), module.title());
+            assertEnglishPresentation(resources, source);
+            for (var action : module.actions()) {
+                var title = action.titleSource(module.moduleAlias());
+                if (title != null) assertEnglishPresentation(resources, title);
+            }
+        }
+        var menus = applicationContext.getBean(net.ximatai.muyun.spring.platform.menu.MenuService.class);
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("english-audit", "English audit"));
+             var scope = TenantContext.system("check all official menu text sources")) {
+            for (var menu : menus.list(Criteria.of().eq("systemManaged", true), ALL)) {
+                if (menu.getTenantId() != null) continue;
+                assertEnglishPresentation(resources, net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.menuTitle(menu.getId(), menu.getTitle()));
+            }
+        }
+    }
+
+    private static void assertEnglishPresentation(net.ximatai.muyun.spring.common.i18n.TextResolver resolver,
+            net.ximatai.muyun.spring.common.i18n.TextReference source) {
+        var english = resolver.resolve(source, Map.of(), "en");
+        assertThat(english.missing()).as(source.sourceId()).isFalse();
+        assertThat(english.text()).as(source.sourceId()).doesNotContainPattern("[\\p{IsHan}]");
+    }
+
+    @Test
     void shouldRestrictRuntimeLogEndpointsToTheSystemApplicationThroughRealHttp() {
         String systemToken = issueSuperAdminSessionToken();
         String tenantToken = null;

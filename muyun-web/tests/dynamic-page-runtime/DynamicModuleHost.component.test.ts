@@ -133,6 +133,108 @@ describe('ModulePageHost', () => {
     }
   });
 
+  it('saves job plans through the standard page while omitting read-only ownership and retaining revision', async () => {
+    const original = {
+      id: 'plan-1',
+      tenantId: 'tenant-a',
+      jobType: 'platform.workflow-overtime',
+      objectKey: 'scan',
+      scope: 'TENANT',
+      configRevision: 1,
+      version: 3,
+      scheduleKind: 'FIXED_DELAY',
+      intervalMillis: 300000,
+      initialDelayMillis: 60000,
+      enabled: true,
+    };
+    let stored = { ...original };
+    const writes: Record<string, unknown>[] = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url.endsWith('/context'))
+        return Response.json({
+          moduleAlias: 'platform.job_plan',
+          abilities: ['crud'],
+          capabilities: [],
+          actions: [{ actionCode: 'update', authorized: true }],
+          uiDescriptor: {
+            moduleAlias: 'platform.job_plan',
+            page: page({
+              detail: {
+                editor: {
+                  viewCode: 'form',
+                  viewKind: 'FORM',
+                  fields: [
+                    ...['tenantId', 'jobType', 'objectKey', 'scope'].map((fieldName) => ({
+                      fieldRef: { fieldName },
+                      readOnly: { constant: true },
+                      valueType: 'STRING',
+                    })),
+                    {
+                      fieldRef: { fieldName: 'configRevision' },
+                      valueType: 'INTEGER',
+                      readOnly: { formula: { expression: 'PRESENT({id})' } },
+                    },
+                    ...['intervalMillis', 'initialDelayMillis'].map((fieldName) => ({
+                      fieldRef: { fieldName },
+                      valueType: 'LONG',
+                    })),
+                    { fieldRef: { fieldName: 'scheduleKind' }, valueType: 'STRING' },
+                  ],
+                },
+              },
+            }),
+          },
+        });
+      if (request.url.endsWith('/actions/plan-1'))
+        return Response.json({ actions: [{ actionCode: 'update', available: true }] });
+      if (request.url.endsWith('/view/plan-1')) return Response.json(stored);
+      if (request.url.endsWith('/update/plan-1')) {
+        const payload = (await request.json()) as Record<string, unknown>;
+        writes.push(payload);
+        stored = { ...stored, intervalMillis: Number(payload.intervalMillis), configRevision: 2 };
+        return Response.json(stored);
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'platform.job_plan', pageMode: 'LIST' },
+        },
+      },
+      global: { stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } } },
+    });
+    try {
+      await flushPromises();
+      const session = wrapper
+        .findComponent({ name: 'ModulePageHostRuntime' })
+        .props('session') as ModulePageSessionView;
+      await session.editRecord(original);
+      session.editingRecord!.intervalMillis = 360000;
+      await session.saveRecord();
+      expect(writes).toHaveLength(1);
+      expect(writes[0]).toMatchObject({
+        id: 'plan-1',
+        version: 3,
+        configRevision: 1,
+        intervalMillis: 360000,
+      });
+      for (const field of ['tenantId', 'jobType', 'objectKey', 'scope'])
+        expect(writes[0]).not.toHaveProperty(field);
+      expect(session.recordSaveError).toBeUndefined();
+      await session.editRecord(stored);
+      expect(session.editingRecord!.configRevision).toBe(2);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('carries asynchronous form readiness to the save bar without submitting or losing the draft', async () => {
     let writes = 0;
     globalThis.fetch = async (input, init) => {

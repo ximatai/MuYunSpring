@@ -110,6 +110,24 @@ public class ApplicationService extends StandardBusinessService<Application> imp
                         "recoveryAvailable", deleted));
     }
 
+    private Supplier<List<? extends net.ximatai.muyun.spring.platform.module.StaticModuleRegistration>> moduleDeclarations = List::of;
+
+    @Autowired
+    void moduleDeclarations(ObjectProvider<net.ximatai.muyun.spring.platform.module.StaticModuleRegistrationSource> sources) {
+        java.util.Objects.requireNonNull(sources, "moduleDeclarations");
+        this.moduleDeclarations = () -> sources.orderedStream().flatMap(source -> source.definitions().stream()).toList();
+    }
+
+    @Override
+    public boolean isModuleAvailableWithoutOpening(String moduleAlias) {
+        return moduleDeclarations.get().stream()
+                .filter(module -> module.moduleAlias().equals(moduleAlias) && module.tenantAccessible())
+                .anyMatch(module -> {
+                    var application = select(module.applicationAlias());
+                    return application != null && Boolean.TRUE.equals(application.getEnabled());
+                });
+    }
+
     @Override
     public boolean isEnabledForTenant(String applicationAlias) {
         String validApplicationAlias = PlatformNameRules.requireApplicationAlias(applicationAlias);

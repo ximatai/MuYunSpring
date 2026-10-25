@@ -43,6 +43,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     private final QueryDescriptor queryDescriptor;
     private final boolean openApiAvailable;
     private final boolean tenantRequired;
+    private final boolean tenantAccessible;
 
     private StaticModuleDefinition(String applicationAlias,
                                    String moduleAlias,
@@ -66,7 +67,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                                    List<RelationProjectionJoinDefinition> projectionJoins,
                                    QueryDescriptor queryDescriptor,
                                    boolean openApiAvailable,
-                                   boolean tenantRequired) {
+                                   boolean tenantRequired, boolean tenantAccessible) {
         applicationAlias = PlatformNameRules.requireApplicationAlias(applicationAlias);
         moduleAlias = PlatformNameRules.requireModuleAliasInApplication(moduleAlias, applicationAlias);
         title = title == null || title.isBlank() ? moduleAlias : title.trim();
@@ -123,8 +124,10 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         this.queryDescriptor = queryDescriptor;
         this.openApiAvailable = openApiAvailable;
         this.tenantRequired = tenantRequired;
+        this.tenantAccessible = tenantAccessible;
     }
 
+    public boolean tenantAccessible() { return tenantAccessible; }
     public String applicationAlias() { return applicationAlias; }
     public String moduleAlias() { return moduleAlias; }
     public String title() { return title; }
@@ -199,6 +202,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 && Objects.equals(entityModelClasses, that.entityModelClasses)
                 && Objects.equals(projectionJoins, that.projectionJoins)
                 && Objects.equals(queryDescriptor, that.queryDescriptor)
+                && tenantAccessible == that.tenantAccessible
                 && tenantRequired == that.tenantRequired
                 && openApiAvailable == that.openApiAvailable;
     }
@@ -207,7 +211,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public int hashCode() {
         return Objects.hash(applicationAlias, moduleAlias, title, description, parentModuleAlias, entryType, entryRoute,
                 entryExternalUrl, capabilities, actions, actionInvocations, entities, uiDefinition, pageContextBindings, references, readProjections,
-                modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable, tenantRequired);
+                modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable, tenantRequired, tenantAccessible);
     }
 
     @Override
@@ -262,7 +266,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 .projectionJoins(projectionJoins)
                 .queryDescriptor(queryDescriptor)
                 .openApiAvailable(openApiAvailable)
-                .tenantRequired(tenantRequired);
+                .tenantRequired(tenantRequired).tenantAccessible(tenantAccessible);
     }
 
     public static final class Builder {
@@ -289,6 +293,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         private QueryDescriptor queryDescriptor;
         private boolean openApiAvailable;
         private boolean tenantRequired;
+        private boolean tenantAccessible;
 
         private Builder(String applicationAlias, String moduleAlias, String title) {
             this.applicationAlias = applicationAlias;
@@ -374,6 +379,11 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
             return this;
         }
 
+        public Builder tenantAccessible(boolean value) {
+            this.tenantAccessible = value;
+            return this;
+        }
+
         public Builder tenantRequired(boolean value) {
             this.tenantRequired = value;
             return this;
@@ -392,7 +402,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         public StaticModuleDefinition build() {
             return new StaticModuleDefinition(applicationAlias, moduleAlias, title, description, parentModuleAlias, entryType,
                     entryRoute, entryExternalUrl, capabilities, actions, actionInvocations, entities, uiDefinition, pageContextBindings, references,
-                    readProjections, modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable, tenantRequired);
+                    readProjections, modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable, tenantRequired, tenantAccessible);
         }
     }
 

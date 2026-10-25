@@ -53,7 +53,7 @@ public class TenantAdminImplicitGrantPolicy {
         }
         boolean currentTenantReference = TenantService.MODULE_ALIAS.equals(moduleAlias)
                 && PlatformAction.REFERENCE.code().equals(actionCode);
-        if (!tenantApplicationService.isApplicationAvailable(user.tenantId(), applicationAlias)
+        if (!tenantApplicationService.isModuleAvailable(user.tenantId(), moduleAlias)
                 || (SYSTEM_TENANT_MODULES.contains(moduleAlias) && !currentTenantReference)) {
             return false;
         }

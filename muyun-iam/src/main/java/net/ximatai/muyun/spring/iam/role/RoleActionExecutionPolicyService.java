@@ -136,7 +136,6 @@ public class RoleActionExecutionPolicyService implements ActionExecutionPolicySe
         if (tenantId == null || tenantId.isBlank()) {
             throw new PlatformAccessDeniedException("tenant user requires tenant context");
         }
-        tenantApplicationService.requireApplicationOpened(tenantId,
-                PlatformNameRules.applicationAliasOfModuleAlias(moduleAlias));
+        tenantApplicationService.requireModuleAvailable(tenantId, moduleAlias);
     }
 }

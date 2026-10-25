@@ -1105,7 +1105,7 @@ class RoleServiceContractTest {
         when(roleDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(role));
         TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
         doThrow(new ApplicationNotOpenedException("tenant_a", "sales"))
-                .when(tenantApplicationService).requireApplicationOpened("tenant_a", "sales");
+                .when(tenantApplicationService).requireModuleAvailable("tenant_a", "sales.contract");
         RoleService service = new RoleService(
                 roleDao,
                 mock(AccountRoleGrantDao.class),
