@@ -12,7 +12,7 @@
 
 | 编号 | 问题 | 风险 | 回收条件 |
 | --- | --- | --- | --- |
-| TD-008 | 租户切换和系统态授权审计尚未最终封口 | 登录态已通过 Bearer token、`CurrentUserContext` 和 `TenantContext` 接入身份体系；但用户多租户切换、后台任务系统态授权审计，以及无上下文请求是否允许进入系统态仍需要更严格治理 | 进入多租户账号切换、后台任务审计或生产安全加固时，统一租户切换协议和系统态授权记录 |
+| TD-008 | 租户切换和系统态授权审计尚未最终封口 | 登录态已通过 Bearer token、`CurrentUserContext` 和 `TenantContext` 接入身份体系；但用户多租户切换、后台任务系统态授权审计，以及无上下文请求是否允许进入系统态仍需要更严格治理 | 进入多租户账号切换、后台任务审计或生产安全加固时，统一租户切换协议和系统态授权记录；后台任务部分由 [后台作业](platform/BACKGROUND_JOB_SCHEDULING.md) 的执行身份模型收口 |
 | TD-009 | 租户内唯一约束与软删值复用策略尚未最终定稿 | 当前唯一索引默认约束 `(tenant_id, field)`，同租户软删后仍不能复用唯一值；如果未来要支持 active-only unique，需要调整索引和查询策略 | 应用、模块、元数据、字典 alias 唯一约束先沿用不可复用口径；后续结合审计、回收站和数据恢复口径定稿 |
 
 ## 动态模型与运行态关注
@@ -70,7 +70,7 @@
 | --- | --- | --- | --- |
 | TD-002 | 聚合装配出的 child 已明确按 RAW 查询读取，并有契约测试锁住不执行 child service 完整 `afterSelect`；HYDRATED 聚合读取暂未开放 | 单独读取子实体和父聚合带出子实体的语义仍需保持使用者可预期 | 出现需要嵌套聚合或深度加载的业务场景时，设计显式 HYDRATED 入口 |
 | TD-010 | 引用能力的标题、选项和字段投影已明确按 RAW 读取目标记录，并有契约测试锁住不触发目标 service `afterSelect`；更通用的加载模式暂未设计 | 复杂聚合读取时，引用、父子关系和缓存可能需要更明确的加载深度策略 | 出现跨层级 HYDRATED 引用读取需求时，再设计统一加载模式 |
-| TD-017 | 外部写入、后台任务和异步批次尚未建设专题流水 | 平台运行审计只记录动作入口和必要身份上下文，不能解释幂等、重试、回执、批次进度和失败恢复 | 进入外部系统接入、统一后台任务调度或异步导入执行时，按 [审计与专题流水边界](platform/AUDIT_AND_PROCESS_LOG_BOUNDARY.md)、[外部写入接入边界](platform/EXTERNAL_WRITE_BOUNDARY.md) 和 [后台任务与异步批次边界](platform/BACKGROUND_JOB_AND_BATCH_BOUNDARY.md) 建设对应专题流水 |
+| TD-017 | 外部写入、后台任务和异步批次尚未建设专题流水 | 平台运行审计只记录动作入口和必要身份上下文，不能解释幂等、重试、回执、批次进度和失败恢复 | 后台任务的执行过程由 [后台作业](platform/BACKGROUND_JOB_SCHEDULING.md) 运行记录承接；进入外部系统接入或异步导入执行时，按 [审计与专题流水边界](platform/AUDIT_AND_PROCESS_LOG_BOUNDARY.md)、[外部写入接入边界](platform/EXTERNAL_WRITE_BOUNDARY.md) 和 [后台任务与异步批次边界](platform/BACKGROUND_JOB_AND_BATCH_BOUNDARY.md) 建设对应专题流水 |
 | TD-020 | 工作日历和 SLA 仍停留在自然时间边界 | `BusinessCalendarService` 当前默认实现只表达自然 elapsed time，workflow 超期仍按节点激活时刻加自然分钟数计算，不跳过节假日或非工作时间；`BusinessCalendar.workingTimeAware` 只能区分自然日历和未来工作日历能力，不是完整日历类型模型 | 进入审批 SLA、工单 SLA 或营业时间承诺时，补 calendar type/能力枚举、工作时段、节假日、时区归属和 SLA 计算策略，再接入 workflow 节点定义 |
 | TD-021 | 登录 session 生命周期审计和清理策略尚未完整模型化 | 当前 session 已持久化到 `iam_user_session`，支持 token hash、滑动过期、绝对过期、多端登录、登出和用户失效撤销；普通鉴权访问过期 session 时已写入撤销状态并发布生命周期事件，只读身份快照保持无写入；未被访问的过期会话仍没有后台清理、保留周期和审计汇总策略 | 进入登录安全审计、运维会话管理、长期运行数据清理或账号安全治理时，设计 session 过期落库、清理任务、保留周期和审计查询 |
 | TD-022 | 按用户撤销 session 仍是查询后逐条更新 | 当前 `revokeUserSessions` 为保证语义正确，按用户查询 session 后逐条乐观更新；用户多端数量较少时足够，但批量密码重置、组织禁用或账号安全事件会放大数据库往返 | 进入账号安全批处理、批量禁用或平台 DAO 条件批量更新能力建设时，补 `userId + revokedAt is null` 的条件批量撤销能力 |

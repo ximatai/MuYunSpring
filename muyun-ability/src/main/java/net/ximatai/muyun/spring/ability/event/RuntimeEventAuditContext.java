@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.ability.event;
 import net.ximatai.muyun.spring.common.identity.ActingContext;
 import net.ximatai.muyun.spring.common.identity.ActingContextHolder;
 import net.ximatai.muyun.spring.common.identity.BusinessPrincipal;
+import net.ximatai.muyun.spring.common.identity.JobExecutionContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
 
@@ -18,14 +19,26 @@ public final class RuntimeEventAuditContext {
     public static final String ACTING_PRINCIPAL_DEPARTMENT_ID = "actingPrincipalDepartmentId";
     public static final String ACTING_PRINCIPAL_EMPLOYEE_POSITION_ID = "actingPrincipalEmployeePositionId";
 
+    public static final String JOB_TYPE = "jobType";
+    public static final String JOB_PLAN_ID = "jobPlanId";
+    public static final String JOB_RUN_ID = "jobRunId";
+    public static final String JOB_IDENTITY_MODE = "jobIdentityMode";
+
     private RuntimeEventAuditContext() {
     }
 
     public static Map<String, Object> capture(String moduleAlias, String actionCode) {
-        return ActingContextHolder.current()
+        Map<String, Object> context = new LinkedHashMap<>(ActingContextHolder.current()
                 .filter(acting -> matches(acting, moduleAlias, actionCode))
                 .map(RuntimeEventAuditContext::actingContext)
-                .orElse(Map.of());
+                .orElse(Map.of()));
+        JobExecutionContext.current().ifPresent(job -> {
+            context.put(JOB_TYPE, job.jobType());
+            putText(context, JOB_PLAN_ID, job.planId());
+            context.put(JOB_RUN_ID, job.runId());
+            context.put(JOB_IDENTITY_MODE, job.identityMode());
+        });
+        return Map.copyOf(context);
     }
 
     public static String text(Map<String, Object> auditContext, String key) {

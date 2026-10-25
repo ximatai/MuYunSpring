@@ -140,6 +140,54 @@ class TenantContextTest {
         assertThat(TenantContext.currentTenantId()).isEmpty();
     }
 
+    @Test
+    void tenantSystemRetainsFilteringAndReasonWithoutGlobalSystemPrivileges() {
+        try (var previous = TenantContext.use("request-tenant")) {
+            try (var job = TenantContext.tenantSystem("tenant-a", "iam.directory-sync")) {
+                assertThat(TenantContext.currentTenantId()).contains("tenant-a");
+                assertThat(TenantContext.isSystem()).isFalse();
+                assertThat(TenantContext.isTenantSystem()).isTrue();
+                assertThat(TenantContext.systemReason()).contains("后台作业 iam.directory-sync");
+                assertThat(TenantContext.systemOperatorId()).contains("job:xZpF4KQDqr-UTEv-yTciicR5O5O7eQXW1iRfcjOM6Ek");
+                TestEntity owned = new TestEntity();
+                net.ximatai.muyun.spring.common.model.EntityLifecycle.prepareInsert(owned, java.time.Instant.now());
+                assertThat(owned.getTenantId()).isEqualTo("tenant-a");
+                assertThat(owned.getCreatedBy()).isEqualTo("job:xZpF4KQDqr-UTEv-yTciicR5O5O7eQXW1iRfcjOM6Ek");
+                TestEntity foreign = new TestEntity();
+                foreign.setTenantId("tenant-b");
+                assertThat(TenantContext.matchesCurrentTenant(foreign)).isFalse();
+                assertThatThrownBy(() -> TenantContext.applyToNewEntity(foreign))
+                        .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+                assertThatThrownBy(() -> net.ximatai.muyun.spring.common.model.EntityLifecycle.prepareUpdate(
+                        foreign, java.time.Instant.now()))
+                        .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+                TestEntity shared = new TestEntity();
+                assertThatThrownBy(() -> net.ximatai.muyun.spring.common.model.EntityLifecycle.prepareUpdate(
+                        shared, java.time.Instant.now()))
+                        .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+                assertThat(shared.getTenantId()).isNull();
+            }
+            assertThat(TenantContext.currentTenantId()).contains("request-tenant");
+            assertThat(TenantContext.systemReason()).isEmpty();
+            assertThat(TenantContext.backgroundJobType()).isEmpty();
+        }
+    }
+
+    @Test
+    void platformJobUsesExistingSystemSemanticsAndRequiresAType() {
+        assertThatThrownBy(() -> TenantContext.tenantSystem(" ", "job"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> TenantContext.tenantSystem("tenant-a", " "))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> TenantContext.backgroundJob(null))
+                .isInstanceOf(IllegalArgumentException.class);
+        try (var job = TenantContext.backgroundJob("platform.cleanup")) {
+            assertThat(TenantContext.isSystem()).isTrue();
+            assertThat(TenantContext.currentTenantId()).isEmpty();
+            assertThat(TenantContext.systemReason()).contains("后台作业 platform.cleanup");
+        }
+    }
+
     private static final class TestEntity extends net.ximatai.muyun.spring.common.model.standard.StandardEntity {
     }
 }
