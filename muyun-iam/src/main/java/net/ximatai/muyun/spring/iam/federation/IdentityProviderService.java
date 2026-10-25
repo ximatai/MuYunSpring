@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.iam.federation;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -21,9 +22,12 @@ import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.platform.job.JobFailure;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -151,10 +155,10 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
     /** Rechecks the authority after provider I/O, inside the page transaction, without vendor calls. */
     void requireDirectoryAuthority(String tenantId, IdentityProviderDescriptor expected) {
         if (!admissionLocks.configuration(tenantId, expected.id()))
-            throw new net.ximatai.muyun.spring.platform.job.JobFailure("DIRECTORY_CONFIGURATION_CHANGED", false);
+            throw new JobFailure("DIRECTORY_CONFIGURATION_CHANGED", false);
         var current = findUsable(expected.id()).map(this::descriptorOf).orElse(null);
         if (!expected.sameAuthority(current))
-            throw new net.ximatai.muyun.spring.platform.job.JobFailure("DIRECTORY_CONFIGURATION_CHANGED", false);
+            throw new JobFailure("DIRECTORY_CONFIGURATION_CHANGED", false);
     }
 
     private boolean identityScopeChanged(IdentityProvider existing, IdentityProvider provider) {
@@ -166,7 +170,7 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
         }
         ExternalLoginProtocol protocol = protocols.get(provider.getProviderType());
         ExternalDirectoryProtocol directory = directories.get(provider.getProviderType());
-        var keys = new java.util.HashSet<String>();
+        var keys = new HashSet<String>();
         if (protocol != null) keys.addAll(protocol.identityScopeConfigurationKeys());
         if (directory != null) keys.addAll(directory.identityScopeConfigurationKeys());
         Map<String, String> before = configurationOf(existing.getConfiguration());

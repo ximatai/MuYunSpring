@@ -1,6 +1,5 @@
 package net.ximatai.muyun.spring.iam.employee;
 
-import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -8,18 +7,22 @@ import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.TenantActiveScopedService;
-import net.ximatai.muyun.spring.ability.child.ChildAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
+import net.ximatai.muyun.spring.ability.child.ChildAbility;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.util.Preconditions;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -46,9 +49,11 @@ public class EmployeePositionService extends TenantActiveScopedService<EmployeeP
         relation.setPrimaryPosition(Boolean.TRUE.equals(relation.getPrimaryPosition()));
         if (relation.getSource() == null) relation.setSource("manual");
         if (relation.getSourceProviderId() == null) relation.setSourceProviderId("-");
-        if (!java.util.Set.of("manual", "directory").contains(relation.getSource())
-                || "manual".equals(relation.getSource()) && !"-".equals(relation.getSourceProviderId())
-                || "directory".equals(relation.getSource()) && relation.getSourceProviderId().isBlank())
+        if (!Set.of("manual", "directory").contains(relation.getSource())
+                || "manual".equals(relation.getSource())
+                        && !"-".equals(relation.getSourceProviderId())
+                || "directory".equals(relation.getSource())
+                        && relation.getSourceProviderId().isBlank())
             throw new IllegalArgumentException("Invalid employment source");
     }
 
@@ -84,10 +89,12 @@ public class EmployeePositionService extends TenantActiveScopedService<EmployeeP
         // from the persisted row; only the directory's internal fact writer may change them.
         if (existing != null) {
             relation.setSource(existing.getSource()); relation.setSourceProviderId(existing.getSourceProviderId());
-            relation.setExternalDepartmentId(existing.getExternalDepartmentId()); relation.setSourceStatus(existing.getSourceStatus());
+            relation.setExternalDepartmentId(existing.getExternalDepartmentId());
+            relation.setSourceStatus(existing.getSourceStatus());
             relation.setLastSyncRunId(existing.getLastSyncRunId());
         }
-        if (existing != null && !java.util.Objects.equals(existing.getEmployeeId(), relation.getEmployeeId())) {
+        if (existing != null
+                && !Objects.equals(existing.getEmployeeId(), relation.getEmployeeId())) {
             throw BusinessExceptions.warningText("iam.employee-position.owner-immutable",
                 TextReference.code("iam.employee-position.owner-immutable", "任职不能转移至其他职员"));
         }

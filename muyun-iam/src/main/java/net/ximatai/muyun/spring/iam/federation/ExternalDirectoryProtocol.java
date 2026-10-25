@@ -2,13 +2,18 @@ package net.ximatai.muyun.spring.iam.federation;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Read-only vendor boundary. Pages are stable and departments are returned parent before child. */
 public interface ExternalDirectoryProtocol {
     String providerType();
     default void validateConfiguration(Map<String, String> configuration) { }
+
     /** Configuration keys identifying the authority; immutable once any identity is bound. */
-    default java.util.Set<String> identityScopeConfigurationKeys() { return java.util.Set.of(); }
+    default Set<String> identityScopeConfigurationKeys() {
+        return Set.of();
+    }
+
     Department department(IdentityProviderDescriptor provider, String id);
     Page<Department> departments(IdentityProviderDescriptor provider, String rootId, String cursor, int limit);
     Page<String> departmentPeople(IdentityProviderDescriptor provider, String departmentId, String cursor, int limit);

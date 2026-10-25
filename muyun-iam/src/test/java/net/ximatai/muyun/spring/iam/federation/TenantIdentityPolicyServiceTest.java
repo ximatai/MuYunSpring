@@ -1,16 +1,21 @@
 package net.ximatai.muyun.spring.iam.federation;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
-import org.junit.jupiter.api.Test;
-
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
+import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.platform.job.JobService;
+
+import org.junit.jupiter.api.Test;
+
 class TenantIdentityPolicyServiceTest {
-    private final TenantIdentityPolicyService service = new TenantIdentityPolicyService(
-            mock(TenantIdentityPolicyDao.class), tenantId -> {
-            }, mock(IdentityProviderService.class), mock(DirectorySyncConfiguration.class),
-            mock(net.ximatai.muyun.spring.platform.job.JobService.class));
+    private final TenantIdentityPolicyService service =
+            new TenantIdentityPolicyService(
+                    mock(TenantIdentityPolicyDao.class),
+                    tenantId -> {},
+                    mock(IdentityProviderService.class),
+                    mock(DirectorySyncConfiguration.class),
+                    mock(JobService.class));
 
     @Test
     void rejectsProvisioningModesThatAreNotImplementedYet() {

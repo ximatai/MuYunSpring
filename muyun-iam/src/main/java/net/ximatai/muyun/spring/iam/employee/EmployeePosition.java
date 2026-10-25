@@ -1,28 +1,31 @@
 package net.ximatai.muyun.spring.iam.employee;
 
-import net.ximatai.muyun.spring.common.model.constraint.Required;
-import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
 import lombok.Getter;
 import lombok.Setter;
+
 import net.ximatai.muyun.database.core.annotation.Column;
 import net.ximatai.muyun.database.core.annotation.CompositeIndex;
 import net.ximatai.muyun.database.core.annotation.Default;
 import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.database.core.annotation.TrueOrFalse;
 import net.ximatai.muyun.database.core.builder.ColumnType;
-import net.ximatai.muyun.spring.common.model.capability.EnabledCapable;
 import net.ximatai.muyun.spring.ability.SortPartitionBy;
-import net.ximatai.muyun.spring.common.model.capability.SortCapable;
-import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
-import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
-import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
-import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateBinding;
-import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
-import net.ximatai.muyun.spring.ability.reference.ReferenceIntegrity;
-import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy;
 import net.ximatai.muyun.spring.ability.child.ChildOf;
-import net.ximatai.muyun.spring.iam.organization.OrganizationService;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateBinding;
+import net.ximatai.muyun.spring.ability.reference.ReferenceIntegrity;
+import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
+import net.ximatai.muyun.spring.common.model.capability.EnabledCapable;
+import net.ximatai.muyun.spring.common.model.capability.SortCapable;
+import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
+import net.ximatai.muyun.spring.common.model.constraint.Required;
+import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
+import net.ximatai.muyun.spring.common.option.OptionField;
+import net.ximatai.muyun.spring.common.option.OptionSourceType;
+import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.iam.department.DepartmentService;
+import net.ximatai.muyun.spring.iam.organization.OrganizationService;
 import net.ximatai.muyun.spring.iam.position.PositionService;
 
 @Getter
@@ -84,10 +87,16 @@ public class EmployeePosition extends StandardEntity implements EnabledCapable, 
     private Integer sortOrder;
 
     /** Manual and provider-owned positions may coexist at the same local placement. */
-    @Column(name = "source", type = ColumnType.VARCHAR, length = 16, nullable = false,
-            comment = "manual or directory", defaultVal = @Default(varchar = "manual"))
-    @net.ximatai.muyun.spring.common.option.OptionField(type = net.ximatai.muyun.spring.common.option.OptionSourceType.ENUM, enumType = EmploymentSource.class)
+    @Column(
+            name = "source",
+            type = ColumnType.VARCHAR,
+            length = 16,
+            nullable = false,
+            comment = "manual or directory",
+            defaultVal = @Default(varchar = "manual"))
+    @OptionField(type = OptionSourceType.ENUM, enumType = EmploymentSource.class)
     private String source = EmploymentSource.MANUAL.getCode();
+
     @Column(name = "source_provider_id", type = ColumnType.VARCHAR, length = 64, nullable = false,
             comment = "Owning directory provider; dash for manual", defaultVal = @Default(varchar = "-"))
     private String sourceProviderId = "-";

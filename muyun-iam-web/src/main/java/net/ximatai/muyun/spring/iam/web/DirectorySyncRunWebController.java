@@ -1,19 +1,25 @@
 package net.ximatai.muyun.spring.iam.web;
 
+import net.ximatai.muyun.spring.iam.application.IamApplication;
 import net.ximatai.muyun.spring.iam.federation.*;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.*;
+
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @ConditionalOnExternalIdentityFederation
-@PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class,
-        alias = DirectorySyncRunService.MODULE_ALIAS, title = "通讯录同步运行")
+@PlatformStaticModule(
+        application = IamApplication.class,
+        alias = DirectorySyncRunService.MODULE_ALIAS,
+        title = "通讯录同步运行")
 @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, title = "通讯录同步运行", order = 71)
 @RequestMapping("/iam.directory_sync_run")
-public class DirectorySyncRunWebController extends StaticModuleWebControllerAdapter<DirectorySyncRunService>
-        implements StaticQueryViewWeb<DirectorySyncRun, DirectorySyncRunService>, StaticModuleUiContributor {
+public class DirectorySyncRunWebController
+        extends StaticModuleWebControllerAdapter<DirectorySyncRunService>
+        implements StaticQueryViewWeb<DirectorySyncRun, DirectorySyncRunService>,
+                StaticModuleUiContributor {
     @Override public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(DirectorySyncRunService.MODULE_ALIAS)
                 .page(PageTemplates.listDetailCard(page -> page

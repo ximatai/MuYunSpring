@@ -1,17 +1,21 @@
 package net.ximatai.muyun.spring.iam.federation;
 
-import net.ximatai.muyun.spring.common.runtime.PlatformRuntimeModeProvider;
-import org.junit.jupiter.api.Test;
-import java.util.List;
-import java.util.Map;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
+
+import net.ximatai.muyun.spring.common.runtime.PlatformRuntimeModeProvider;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.Conditional;
+
+import java.util.List;
+import java.util.Map;
 
 class MockExternalDirectoryProtocolTest {
     @Test void refusesProductionRuntimeAndUsesTheLoginMockGate() {
         assertThatThrownBy(() -> new MockExternalDirectoryProtocol(mock(PlatformRuntimeModeProvider.class)))
                 .isInstanceOf(IllegalStateException.class);
-        assertThat(MockExternalDirectoryProtocol.class.getAnnotation(org.springframework.context.annotation.Conditional.class).value())
+        assertThat(MockExternalDirectoryProtocol.class.getAnnotation(Conditional.class).value())
                 .containsExactly(MockIdentityProviderCondition.class);
     }
     @Test void pagesSubtreesAndMembershipsWithoutLosingSourceStatus() {

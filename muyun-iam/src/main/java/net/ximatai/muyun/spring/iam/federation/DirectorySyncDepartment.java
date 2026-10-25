@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.common.model.constraint.TenantUniqueConstraint;
 @Getter
 @Setter
 @Table(name = "iam_directory_sync_department", comment = "DirectorySyncDepartment")
+@CompositeIndex(columns = {"run_id", "id"})
 @TenantUniqueConstraint(fields = {"runId", "externalDepartmentId"})
 public class DirectorySyncDepartment extends StandardEntity {
     @Column(name = "run_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "runId")
