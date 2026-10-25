@@ -176,6 +176,46 @@ class DirectorySyncIT {
         });
         assertThat(syncRuns.query(Criteria.of().eq("jobRunId", second),new PageRequest(0,1))).singleElement().satisfies(r -> { assertThat(r.getCompleted()).isTrue(); assertThat(r.getStatus()).isEqualTo("SUCCEEDED"); });
     }
+    @Test void repeatedActionsDeduplicateByModeAndScopeUntilTerminal() {
+        String sync = enqueue(false);
+        assertThat(enqueue(false)).isEqualTo(sync);
+        String preview = enqueue(true);
+        assertThat(preview).isNotEqualTo(sync);
+        assertThat(enqueue(true)).isEqualTo(preview);
+        tenant("tenant-a", () -> {
+            policy.setSyncRoleId(null);
+            policies.update(policy);
+            return null;
+        });
+        String revised = enqueue(false);
+        assertThat(revised).isNotEqualTo(sync);
+        execute(); execute(); execute();
+        assertThat(enqueue(false)).isNotEqualTo(revised);
+    }
+
+    @Test void scheduleUsesConfiguredOrPlatformDefaultZoneAndRejectsInvalidZone() {
+        tenant("tenant-a", () -> {
+            policy.setSyncZoneId("Asia/Shanghai");
+            policies.update(policy);
+            return null;
+        });
+        assertThat(jobPlans.findById(policy.getSyncPlanId()).getZoneId()).isEqualTo("Asia/Shanghai");
+        tenant("tenant-a", () -> {
+            policy.setSyncZoneId(null);
+            policies.update(policy);
+            return null;
+        });
+        assertThat(jobPlans.findById(policy.getSyncPlanId()).getZoneId())
+                .isEqualTo(PlatformAbilityRuntime.timeService().resolveZoneId(null).getId());
+        tenant("tenant-a", () -> {
+            policy.setSyncEnabled(false);
+            policy.setSyncZoneId("invalid/zone");
+            assertThatThrownBy(() -> policies.update(policy)).isInstanceOf(DateTimeException.class);
+            return null;
+        });
+        assertThat(jobPlans.findById(policy.getSyncPlanId()).getEnabled()).isTrue();
+    }
+
     @Test void previewWritesOnlyTopicFactsAndFailurePagesArePartial() {
         String preview = enqueue(true); execute(); assertThat(jobRuns.findById(preview).getStatus()).isEqualTo("SUCCEEDED");
         assertThat(global(() -> db.query("select id from iam_user union all select id from iam_employee union all select id from iam_department union all select id from iam_external_identity"))).isEmpty();

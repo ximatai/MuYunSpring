@@ -54,6 +54,7 @@ public class DirectorySyncConfiguration {
         policy.setSyncRoots(DirectorySyncStore.encode(normalized));
     }
     void maintain(TenantIdentityPolicy policy, TenantIdentityPolicy old) {
+        if (policy.getSyncZoneId() != null) java.time.ZoneId.of(policy.getSyncZoneId());
         store.lock(Map.of("tenantId", policy.getTenantId(), "providerId", policy.getProviderId()));
         if (old != null && !Objects.equals(old.getProviderId(), policy.getProviderId())) throw new IllegalArgumentException("Policy provider cannot change");
         policy.setSyncPlanId(old == null ? null : old.getSyncPlanId());
@@ -82,7 +83,7 @@ public class DirectorySyncConfiguration {
         }
         var plan = new JobPlan(); plan.setId(policy.getSyncPlanId()); plan.setTenantId(policy.getTenantId()); plan.setObjectKey(policy.getId());
         plan.setJobType(DirectorySyncJob.TYPE); plan.setIdentityMode("SYSTEM"); plan.setEnabled(true);
-        JobSchedule.cron(policy.getSyncExpression(), "UTC").apply(plan);
+        JobSchedule.cron(policy.getSyncExpression(), policy.getSyncZoneId()).apply(plan);
         policy.setSyncPlanId(jobs.getObject().registerManaged(TenantIdentityPolicyService.MODULE_ALIAS, plan, input(policy, "SYNC")).getId());
     }
     void validateRole(String id) {

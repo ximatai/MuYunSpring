@@ -91,7 +91,10 @@ public class TenantIdentityPolicyService extends TenantActiveScopedService<Tenan
         return inMutationTransaction(() -> {
             var policy = selectActiveRaw(id);
             if (policy == null || !Boolean.TRUE.equals(policy.getEnabled())) throw new IllegalArgumentException("Directory policy unavailable");
-            return jobs.enqueue(DirectorySyncJob.TYPE, policy.getTenantId(), DirectorySyncConfiguration.input(policy, preview ? "PREVIEW" : "SYNC"), null).getId();
+            String mode = preview ? "PREVIEW" : "SYNC";
+            String deduplicationKey = policy.getId() + ":" + mode + ":" + policy.getSyncScopeId();
+            return jobs.enqueue(DirectorySyncJob.TYPE, policy.getTenantId(),
+                    DirectorySyncConfiguration.input(policy, mode), deduplicationKey).getId();
         });
     }
 

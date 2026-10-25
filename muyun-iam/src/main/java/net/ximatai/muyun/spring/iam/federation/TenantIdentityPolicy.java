@@ -61,6 +61,8 @@ public class TenantIdentityPolicy extends StandardEnabledSortableEntity {
     private String syncRoleId;
     @Column(name = "sync_expression", type = ColumnType.VARCHAR, length = 128, comment = "Minute precision cron")
     private String syncExpression;
+    @Column(name = "sync_zone_id", type = ColumnType.VARCHAR, length = 64, comment = "Directory schedule time zone")
+    private String syncZoneId;
     @Column(name = "sync_enabled", type = ColumnType.BOOLEAN, comment = "Directory schedule enabled")
     private Boolean syncEnabled = false;
     @Column(name = "sync_scope_id", type = ColumnType.VARCHAR, length = 32, comment = "Immutable directory configuration version")
