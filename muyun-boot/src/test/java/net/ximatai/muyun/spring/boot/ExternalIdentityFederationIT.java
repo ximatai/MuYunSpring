@@ -260,6 +260,49 @@ class ExternalIdentityFederationIT {
         }
     }
 
+    @Test
+    void explicitRebindingClearsOnlyItsBlockAndFailedBindingPreservesIt() throws Exception {
+        try (var current = CurrentUserContext.use(CurrentUser.systemUser("rebind-it", "rebind-it"));
+             var tenant = TenantContext.use(TENANT)) {
+            createUser("rebind-user");
+            createUser("rebind-occupied");
+        }
+        String externalId = "explicit-rebind";
+        String token = passwordLogin("rebind-user");
+        var bound = completeFlow(post("/iam.auth/external/" + PROVIDER + "/bind", Map.of(), token), externalId);
+        assertThat(bound.path("status").asText()).isEqualTo("succeeded");
+        String bindingId = bound.path("binding").path("id").asText();
+        assertThat(post("/iam.auth/external/identities/" + bindingId + "/delete", Map.of(), token).getStatusCode()).isEqualTo(HttpStatus.OK);
+        try (var tenant = TenantContext.use(TENANT)) {
+            assertThat(externalIdentityService.isAutoRebindBlocked(PROVIDER, externalId)).isTrue();
+        }
+        String occupiedToken = passwordLogin("rebind-occupied");
+        var failedStart = post("/iam.auth/external/" + PROVIDER + "/bind", Map.of(), occupiedToken);
+        var other = completeFlow(post("/iam.auth/external/" + PROVIDER + "/bind", Map.of(), occupiedToken), "other-rebind");
+        assertThat(other.path("status").asText()).isEqualTo("succeeded");
+        var failed = completeFlow(failedStart, externalId);
+        assertThat(failed.path("failure").asText()).isEqualTo("alreadyBound");
+        assertThat(post("/iam.auth/external/identities/" + other.path("binding").path("id").asText() + "/delete",
+                Map.of(), occupiedToken).getStatusCode()).isEqualTo(HttpStatus.OK);
+        try (var tenant = TenantContext.use(TENANT)) {
+            assertThat(externalIdentityService.isAutoRebindBlocked(PROVIDER, externalId)).isTrue();
+            assertThat(externalIdentityService.isAutoRebindBlocked(PROVIDER, "other-rebind")).isTrue();
+        }
+        token = passwordLogin("rebind-user");
+        var rebound = completeFlow(post("/iam.auth/external/" + PROVIDER + "/bind", Map.of(), token), externalId);
+        assertThat(rebound.path("status").asText()).isEqualTo("succeeded");
+        try (var tenant = TenantContext.use(TENANT)) {
+            assertThat(externalIdentityService.isAutoRebindBlocked(PROVIDER, externalId)).isFalse();
+            assertThat(externalIdentityService.isAutoRebindBlocked(PROVIDER, "other-rebind")).isTrue();
+        }
+        assertThat(completeFlow(startLogin(), externalId).path("status").asText()).isEqualTo("succeeded");
+        assertThat(post("/iam.auth/external/identities/" + rebound.path("binding").path("id").asText() + "/delete",
+                Map.of(), token).getStatusCode()).isEqualTo(HttpStatus.OK);
+        try (var tenant = TenantContext.use(TENANT)) {
+            assertThat(externalIdentityService.isAutoRebindBlocked(PROVIDER, externalId)).isTrue();
+        }
+    }
+
     private JsonNode statusCompletion() {
         var start = post("/iam.auth/external/" + StatusProtocol.TYPE + "/login", Map.of("tenantId", TENANT), null).getBody();
         String state = start.path("state").asText();

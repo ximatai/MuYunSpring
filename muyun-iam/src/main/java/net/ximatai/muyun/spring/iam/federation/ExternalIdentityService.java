@@ -102,6 +102,14 @@ public class ExternalIdentityService extends TenantActiveScopedService<ExternalI
                 .eq("providerId", providerId).eq("externalUserId", externalUserId), new PageRequest(0, 1)).isEmpty();
     }
 
+    /** A verified explicit bind restores consent to subsequent directory management. Caller owns the source lock. */
+    void clearAutoRebindBlock(String providerId, String externalUserId) {
+        rebindBlocks.query(Criteria.of()
+                        .eq("tenantId", net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId().orElseThrow())
+                        .eq("providerId", providerId).eq("externalUserId", externalUserId), new PageRequest(0, 1))
+                .forEach(block -> rebindBlocks.deleteById(block.getId()));
+    }
+
     /** Bindings of one account in the current tenant scope. */
     public List<ExternalIdentity> bindingsOfUser(String userId) {
         return list(Criteria.of().eq("userId", userId), ALL);

@@ -446,9 +446,11 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
             return Outcome.denied(ExternalLoginFailure.SESSION_ENDED);
         }
         if (existing.isPresent()) {
-            return existing.get().getUserId().equals(userId)
-                    ? new Outcome(ExternalLoginStatus.SUCCEEDED, null, userId, existing.get().getId())
-                    : Outcome.denied(ExternalLoginFailure.IDENTITY_CONFLICT);
+            if (!existing.get().getUserId().equals(userId)) {
+                return Outcome.denied(ExternalLoginFailure.IDENTITY_CONFLICT);
+            }
+            identities.clearAutoRebindBlock(provider.id(), identity.externalUserId());
+            return new Outcome(ExternalLoginStatus.SUCCEEDED, null, userId, existing.get().getId());
         }
         if (identities.bindingsOfUser(userId).stream().anyMatch(binding -> provider.id().equals(binding.getProviderId()))) {
             return Outcome.denied(ExternalLoginFailure.ALREADY_BOUND);
@@ -471,6 +473,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
             // A concurrent bind of the same identity or provider lost the unique-index race.
             return Outcome.denied(ExternalLoginFailure.IDENTITY_CONFLICT);
         }
+        identities.clearAutoRebindBlock(provider.id(), identity.externalUserId());
         return new Outcome(ExternalLoginStatus.SUCCEEDED, null, userId, binding.getId());
     }
 
