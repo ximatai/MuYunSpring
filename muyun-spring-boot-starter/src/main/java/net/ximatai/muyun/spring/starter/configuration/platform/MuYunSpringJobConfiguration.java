@@ -13,7 +13,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import java.util.List;
 
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(MuYunSpringJobProperties.class)
+@EnableConfigurationProperties({MuYunSpringJobProperties.class, MuYunSpringContentGenerationProperties.class})
 public class MuYunSpringJobConfiguration {
     @Bean
     @ConditionalOnMissingBean(JobFailureRecipientResolver.class)
@@ -49,7 +49,9 @@ public class MuYunSpringJobConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    JobNodeExecutor jobNodeExecutor(JobService jobs, JobRegistry registry, MuYunSpringJobProperties properties) {
+    JobNodeExecutor jobNodeExecutor(JobService jobs, JobRegistry registry, MuYunSpringJobProperties properties,
+                                    MuYunSpringContentGenerationProperties content, org.springframework.core.env.Environment environment) {
+        content.configure(properties, environment);
         return new JobNodeExecutor(jobs, registry, properties);
     }
 }

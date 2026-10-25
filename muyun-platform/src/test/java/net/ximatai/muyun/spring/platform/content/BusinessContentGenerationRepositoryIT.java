@@ -38,6 +38,8 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
     private static final BusinessContentGenerationScope.Reference SCOPE = new BusinessContentGenerationScope.Reference("fixture", "version-1", "{}");
     @Autowired ContentGenerationFixtureDao dao;
     @Autowired BusinessContentGenerationDao jobDao;
+    @Autowired ObjectProvider<net.ximatai.muyun.spring.platform.job.JobService> queue;
+    @Autowired BusinessContentJobTestConfiguration jobConfiguration;
     @Autowired BusinessContentGenerationStore jobs;
     @Autowired BusinessContentStore originals;
     @Autowired BusinessContentTranslationStore translations;
@@ -107,6 +109,8 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
             }
         };
         when(scopeProvider.orderedStream()).thenAnswer(invocation -> Stream.of(adapter));
+        new org.springframework.jdbc.core.JdbcTemplate(dataSource).update("delete from platform_job_run");
+        new org.springframework.jdbc.core.JdbcTemplate(dataSource).update("delete from platform_job_plan");
         engine = restarted();
         jobDao.query(Criteria.of(), PageRequest.of(1, 10_000)).forEach(row -> jobDao.deleteById(row.getId()));
     }
@@ -398,9 +402,11 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
             when(gateway.generate(any())).thenThrow(new PlatformException("AI_MODEL_TIMEOUT", 504, "private provider diagnostic"));
             engine.runOne(); assertThat(request(row, false).state()).isEqualTo("RETRY");
             assertThat(engine.runOne()).isFalse();
-            now.updateAndGet(time -> time.plusSeconds(15)); engine.runOne();
-            assertThat(jobDao.findById(pending.reference()).getAttempts()).isEqualTo(2);
-            now.updateAndGet(time -> time.plusSeconds(30)); engine.runOne();
+            assertThat(Duration.between(jobs.run(jobDao.findById(pending.reference())).getUpdatedAt(), request(row, false).retryAt()).getSeconds()).isBetween(14L, 16L);
+            makeRetryAvailable(pending.reference()); engine.runOne();
+            assertThat(jobs.run(jobDao.findById(pending.reference())).getAttempts()).isEqualTo(2);
+            assertThat(Duration.between(jobs.run(jobDao.findById(pending.reference())).getUpdatedAt(), request(row, false).retryAt()).getSeconds()).isBetween(29L, 31L);
+            makeRetryAvailable(pending.reference()); engine.runOne();
             assertThat(request(row, false).state()).isEqualTo("FAILED");
             assertThat(request(row, false).problem()).isEqualTo("AI_MODEL_TIMEOUT");
             assertThat(engine.runOne()).isFalse(); verify(gateway, times(3)).generate(any());
@@ -526,7 +532,7 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
             for (var reference : List.of(firstJob.reference(), secondJob.reference())) {
                 var job = jobDao.findById(reference);
                 assertThat(job.getStatus()).isEqualTo("SUCCEEDED");
-                assertThat(job.getAttempts()).isEqualTo(1);
+                assertThat(jobs.run(job).getAttempts()).isEqualTo(1);
             }
             verify(gateway, times(2)).generate(any());
         }
@@ -549,7 +555,11 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
                 try {
                     await(entered);
                     assertThat(restarted().runOne()).isFalse();
-                    now.updateAndGet(time -> time.plus(BusinessContentGenerationStore.LEASE).plusSeconds(1));
+                    var leased = jobs.run(jobDao.findById(pending.reference()));
+                    assertThat(Duration.between(leased.getStartedAt(), leased.getLeaseUntil())).isEqualTo(Duration.ofMinutes(5));
+                    new org.springframework.jdbc.core.JdbcTemplate(dataSource).update(
+                            "update platform_job_run set lease_until=clock_timestamp()-interval '1 second' where id=?",
+                            jobDao.findById(pending.reference()).getRunId());
                     var recoveredEngine = restarted(); newWorker = executor.submit(recoveredEngine::runOne);
                     await(enteredNew); release.countDown();
                     assertThat(oldWorker.get(30, TimeUnit.SECONDS)).isTrue();
@@ -561,7 +571,7 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
                 assertThat(Objects.requireNonNull(newWorker).get(30, TimeUnit.SECONDS)).isTrue();
             }
             var job = jobDao.findById(pending.reference());
-            assertThat(job.getStatus()).isEqualTo("SUCCEEDED"); assertThat(job.getAttempts()).isEqualTo(2);
+            assertThat(job.getStatus()).isEqualTo("SUCCEEDED"); assertThat(jobs.run(job).getAttempts()).isEqualTo(2);
             var source = source(row); var original = originals.latest(source);
             assertThat(translations.history(source, BusinessContentStore.OriginalVersion.of(original), "en", PageRequest.of(1, 10)))
                     .hasSize(1).first().extracting(BusinessContentTranslation::getTranslatedText).isEqualTo(recovered);
@@ -589,12 +599,18 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
             var row = insert(RAW, "zh-CN");
             String rolledBack = tx.execute(status -> { var pending = request(row, false); status.setRollbackOnly(); return pending.reference(); });
             assertThat(jobDao.findById(rolledBack)).isNull();
+            assertThat(new org.springframework.jdbc.core.JdbcTemplate(dataSource).queryForObject(
+                    "select count(*) from platform_job_run", Integer.class)).isZero();
             var pending = request(row, false);
+            var runId = jobDao.findById(pending.reference()).getRunId();
             var hard = new AbstractAbilityService<ContentGenerationFixture>(MODULE, ContentGenerationFixture.class, dao) { };
             tx.executeWithoutResult(status -> {
-                hard.delete(row.getId()); assertThat(jobDao.findById(pending.reference())).isNull(); status.setRollbackOnly();
+                hard.delete(row.getId()); assertThat(jobDao.findById(pending.reference())).isNull();
+                assertThat(new org.springframework.jdbc.core.JdbcTemplate(dataSource).queryForObject(
+                        "select count(*) from platform_job_run where id=?", Integer.class, runId)).isZero(); status.setRollbackOnly();
             });
             assertThat(jobDao.findById(pending.reference())).isNotNull();
+            assertThat(jobs.run(jobDao.findById(pending.reference()))).isNotNull();
             hard.delete(row.getId()); assertThat(jobDao.findById(pending.reference())).isNull();
             assertThat(engine.runOne()).isFalse(); verify(gateway, never()).generate(any());
         }
@@ -612,6 +628,173 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
         }
     }
 
+    @Test void platformAccountCanTriggerWorkInABusinessTenant() {
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("platform-reader", "platform-reader"));
+             var tenant = TenantContext.use("tenant-business")) {
+            var row = insert(RAW, "zh-CN"); request(row, false);
+            doAnswer(invocation -> {
+                assertThat(CurrentUserContext.currentUser().orElseThrow().userId()).isEqualTo("platform-reader");
+                assertThat(CurrentUserContext.currentUser().orElseThrow().system()).isTrue();
+                assertThat(TenantContext.currentTenantId()).contains("tenant-business");
+                return response(EN);
+            }).when(gateway).generate(any());
+            assertThat(engine.runOne()).isTrue();
+            assertThat(request(row, false).state()).isEqualTo("READY");
+        }
+    }
+
+    @Test void platformBusinessScopeUsesThePlatformQueueAndRestoresThePlatformTrigger() {
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("platform-reader", "platform-reader"));
+             var tenant = TenantContext.system("platform content fixture")) {
+            var row = insert(RAW, "zh-CN"); var pending = request(row, false);
+            assertThat(jobs.run(jobDao.findById(pending.reference())).getScope()).isEqualTo("PLATFORM");
+            doAnswer(invocation -> {
+                assertThat(CurrentUserContext.currentUser().orElseThrow().userId()).isEqualTo("platform-reader");
+                assertThat(TenantContext.isSystem()).isTrue();
+                assertThat(TenantContext.currentTenantId()).isEmpty();
+                return response(EN);
+            }).when(gateway).generate(any());
+            assertThat(engine.runOne()).isTrue();
+            assertThat(request(row, false).state()).isEqualTo("READY");
+        }
+    }
+
+    @Test void retryDuringActiveWorkCannotReplaceTheOriginalTriggerIdentity() {
+        try (var author = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = insert(RAW, "zh-CN"); var pending = request(row, false);
+            try (var reader = actor("other")) {
+                assertThat(request(row, true).reference()).isEqualTo(pending.reference());
+                doAnswer(invocation -> {
+                    assertThat(CurrentUserContext.currentUser().orElseThrow().userId()).isEqualTo("cn");
+                    return response(EN);
+                }).when(gateway).generate(any());
+                engine.runOne();
+            }
+        }
+    }
+
+    @Test void statusSelectsTheLatestSequenceAndRetryKeepsTheSameSlot() {
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = insert(RAW, "zh-CN"); var first = request(row, false);
+            when(gateway.isTextGenerationAvailable()).thenReturn(false); engine.runOne();
+            when(gateway.isTextGenerationAvailable()).thenReturn(true);
+            var second = request(row, true);
+            assertThat(second.reference()).isNotEqualTo(first.reference());
+            assertThat(engine.status(SCOPE, MODULE, location(row), "description", "en").reference()).isEqualTo(second.reference());
+            assertThat(jobDao.findById(second.reference()).getSlotKey()).isEqualTo(jobDao.findById(first.reference()).getSlotKey());
+            assertThat(jobDao.findById(second.reference()).getSequence()).isEqualTo(2);
+        }
+    }
+
+    @Test void platformCancellationAndExhaustedLeaseKeepTerminalTopicFactsWithoutTheRun() {
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = insert(RAW, "zh-CN"); var pending = request(row, false);
+            var runId = jobDao.findById(pending.reference()).getRunId();
+            queue.getObject().cancel(runId);
+            assertThat(request(row, false).state()).isEqualTo("CANCELLED");
+            var next = request(row, true);
+            var nextRun = jobDao.findById(next.reference()).getRunId();
+            var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+            jdbc.update("update platform_job_run set status='RUNNING', attempts=3, lease_until=clock_timestamp()-interval '1 second' where id=?", nextRun);
+            assertThat(engine.runOne()).isFalse();
+            assertThat(request(row, false).state()).isEqualTo("FAILED");
+            assertThat(request(row, false).problem()).isEqualTo("ATTEMPTS_EXHAUSTED");
+            jdbc.update("update platform_job_run set finished_at=clock_timestamp()-interval '31 days' where id=?", nextRun);
+            assertThat(queue.getObject().purgeExpired()).isEqualTo(1);
+            assertThat(jobs.run(jobDao.findById(next.reference()))).isNull();
+            assertThat(engine.status(SCOPE, MODULE, location(row), "description", "en").state()).isEqualTo("FAILED");
+            assertThat(request(row, false).reference()).isEqualTo(next.reference());
+            verify(gateway, never()).generate(any());
+        }
+    }
+
+    @Test void administratorCannotRetryWithAnotherIdentityAndCancellationDuringTheCallPreventsPublication() {
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = insert(RAW, "zh-CN"); var pending = request(row, false);
+            var runId = jobDao.findById(pending.reference()).getRunId();
+            doAnswer(invocation -> { queue.getObject().cancel(runId); return response(EN); }).when(gateway).generate(any());
+            engine.runOne();
+            assertThat(request(row, false).state()).isEqualTo("CANCELLED");
+            try (var other = actor("other")) {
+                assertThatThrownBy(() -> queue.getObject().retry(runId)).isInstanceOf(IllegalStateException.class);
+            }
+            assertThat(maintenance.read(service, location(row), "en").fields().get("description").originalFallback()).isTrue();
+            assertThat(jobDao.findById(pending.reference()).getRequestJson()).contains("cn").doesNotContain("other");
+        }
+    }
+
+    @Test void scheduledTopicRetentionKeepsTheRunAndPublishedTranslationFacts() {
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = insert(RAW, "zh-CN"); var pending = request(row, false); engine.runOne();
+            var run = jobs.run(jobDao.findById(pending.reference()));
+            var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+            jdbc.update("update platform_business_content_generation set finished_at=clock_timestamp()-interval '31 days' where id=?", pending.reference());
+            queue.getObject().registerDefaults();
+            jdbc.update("update platform_job_plan set next_fire_at=clock_timestamp()-interval '1 second'");
+            queue.getObject().scan();
+            assertThat(queue.getObject().runOne("default", "retention-test")).isTrue();
+            assertThat(jobDao.findById(pending.reference())).isNull();
+            assertThat(jdbc.queryForObject("select count(*) from platform_job_run where id=?", Integer.class, run.getId())).isEqualTo(1);
+            assertThat(maintenance.read(service, location(row), "en").fields().get("description").text()).isEqualTo(EN);
+        }
+    }
+
+    @Test void takeoverAfterTopicPublicationDoesNotRepeatACompletedOrNonRetryableModelCall() {
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            for (boolean valid : List.of(true, false)) {
+                var row = insert(RAW, "zh-CN"); var pending = request(row, false);
+                when(gateway.generate(any())).thenReturn(response(valid ? EN : "invalid output"));
+                engine.runOne();
+                var topic = jobDao.findById(pending.reference());
+                assertThat(topic.getStatus()).isIn("SUCCEEDED", "FAILED");
+                new org.springframework.jdbc.core.JdbcTemplate(dataSource).update(
+                        "update platform_job_run set status='RUNNING', attempts=1, lease_until=clock_timestamp()-interval '1 second' where id=?", topic.getRunId());
+                assertThat(engine.runOne()).isTrue();
+                assertThat(jobDao.findById(topic.getId()).getStatus()).isEqualTo(topic.getStatus());
+                assertThat(jobs.run(topic).getStatus()).isEqualTo(topic.getStatus());
+            }
+            verify(gateway, times(2)).generate(any());
+        }
+    }
+
+    @Test void finalDeletionCanRemoveTheRunWhileCompletionWaitsForTheBusinessLock() throws Exception {
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = insert(RAW, "zh-CN"); var pending = request(row, false);
+            String runId = jobDao.findById(pending.reference()).getRunId();
+            var source = source(row); var entered = new CountDownLatch(1); var release = new CountDownLatch(1);
+            var writerHolds = new CountDownLatch(1); var workerWaiting = new CountDownLatch(1);
+            var completing = new AtomicBoolean();
+            doAnswer(invocation -> { entered.countDown(); await(release); completing.set(true); return response(EN); }).when(gateway).generate(any());
+            beforeLock = (scope, key) -> {
+                if (completing.get() && Thread.currentThread().getName().equals("content-deletion-completion")) workerWaiting.countDown();
+            };
+            try (var executor = Executors.newFixedThreadPool(2)) {
+                var worker = executor.submit(() -> { Thread.currentThread().setName("content-deletion-completion"); return engine.runOne(); });
+                await(entered);
+                var writer = executor.submit(() -> {
+                    try (var user = actor("cn"); var route = TenantContext.use("tenant-a")) {
+                        tx.executeWithoutResult(status -> {
+                            BusinessContentStore.lockRecord(source); writerHolds.countDown(); await(workerWaiting);
+                            new AbstractAbilityService<ContentGenerationFixture>(MODULE, ContentGenerationFixture.class, dao) { }.delete(row.getId());
+                        });
+                    }
+                });
+                try { await(writerHolds); release.countDown(); writer.get(30, TimeUnit.SECONDS); }
+                finally { release.countDown(); workerWaiting.countDown(); }
+                assertThat(worker.get(30, TimeUnit.SECONDS)).isTrue();
+            }
+            assertThat(jobDao.findById(pending.reference())).isNull();
+            assertThat(new org.springframework.jdbc.core.JdbcTemplate(dataSource).queryForObject(
+                    "select count(*) from platform_job_run where id=?", Integer.class, runId)).isZero();
+            assertThat(translationDao.query(Criteria.of().eq("recordId", row.getId()), PageRequest.of(1, 10))).isEmpty();
+        }
+    }
+
+    private void makeRetryAvailable(String reference) {
+        new org.springframework.jdbc.core.JdbcTemplate(dataSource).update(
+                "update platform_job_run set available_at=clock_timestamp()-interval '1 second' where id=?", jobDao.findById(reference).getRunId());
+    }
+
     private static void await(CountDownLatch latch) {
         try { if (!latch.await(30, TimeUnit.SECONDS)) throw new AssertionError("translation concurrency barrier timed out"); }
         catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new AssertionError(interrupted); }
@@ -623,8 +806,9 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
             public Clock withZone(ZoneId zone) { return this; }
             public Instant instant() { return now.get(); }
         };
-        return new BusinessContentGenerationService(originals, translations, jobs, identityProvider, scopeProvider,
-                gateway, json, transactions, clock);
+        var result = new BusinessContentGenerationService(originals, translations, jobs, identityProvider, scopeProvider,
+                gateway, json, transactions, clock, queue);
+        jobConfiguration.engine = result; return result;
     }
     private ContentGenerationFixture insert(String text, String language) {
         var row = new ContentGenerationFixture(); row.setDescription(text);

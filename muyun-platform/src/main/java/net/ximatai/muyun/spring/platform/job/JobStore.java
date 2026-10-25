@@ -13,9 +13,10 @@ final class JobStore {
     final JobPlanDao plans;
     final JobRunDao runs;
     final IDatabaseOperations<?> database;
+    private final JobRegistry registry;
     static final List<String> OPEN = List.of("PENDING", "RETRY", "RUNNING");
-    JobStore(JobPlanDao plans, JobRunDao runs, IDatabaseOperations<?> database) {
-        this.plans = Objects.requireNonNull(plans); this.runs = Objects.requireNonNull(runs); this.database = Objects.requireNonNull(database);
+    JobStore(JobPlanDao plans, JobRunDao runs, IDatabaseOperations<?> database, JobRegistry registry) {
+        this.plans = Objects.requireNonNull(plans); this.runs = Objects.requireNonNull(runs); this.database = Objects.requireNonNull(database); this.registry = Objects.requireNonNull(registry);
     }
     Instant now() {
         Number seconds = (Number) database.row("select extract(epoch from clock_timestamp()) as seconds").get("seconds");
@@ -34,8 +35,14 @@ final class JobStore {
         requireTransaction(); database.query("select id from platform_job_plan where id = ? for update", id);
         return plans.findById(id);
     }
+    void lockBusiness(String id) {
+        requireTransaction();
+        var row = runs.findById(id);
+        if (row != null && registry.contains(row.getJobType()))
+            registry.handler(row.getJobType()).lockBusiness(JobService.parameters(row.getParametersJson()));
+    }
     JobRun run(String id) {
-        requireTransaction(); database.query("select id from platform_job_run where id = ? for update", id);
+        requireTransaction(); lockBusiness(id); database.query("select id from platform_job_run where id = ? for update", id);
         return runs.findById(id);
     }
     JobRun leased(String id, String token) {
@@ -55,6 +62,7 @@ final class JobStore {
     void save(JobRun row) {
         int version = row.getVersion(); EntityLifecycle.prepareUpdate(row, now());
         if (runs.updateByIdAndVersion(row, version) != 1) throw new OptimisticLockException("Job run changed");
+        if (registry.contains(row.getJobType())) registry.handler(row.getJobType()).stateChanged(row);
     }
     List<JobRun> open(String field, String key) {
         return runs.query(Criteria.of().eq(field, key).in("status", OPEN), PageRequest.of(1, 1));

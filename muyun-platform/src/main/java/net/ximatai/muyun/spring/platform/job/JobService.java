@@ -37,7 +37,7 @@ public final class JobService {
             PlatformTransactionManager transactions, JobRegistry registry,
             ObjectProvider<JobFailureRecipientResolver> recipients, ObjectProvider<BusinessNotificationDelivery> notifications,
             ObjectProvider<JobManagementAccess> management, Duration defaultLease, int defaultRetentionDays) {
-        this.store = new JobStore(plans, runs, database); this.transactions = new TransactionTemplate(Objects.requireNonNull(transactions));
+        this.store = new JobStore(plans, runs, database, registry); this.transactions = new TransactionTemplate(Objects.requireNonNull(transactions));
         this.transactions.setTimeout(30); this.registry = Objects.requireNonNull(registry); this.recipients = Objects.requireNonNull(recipients);
         this.notifications = Objects.requireNonNull(notifications); this.management = Objects.requireNonNull(management);
         if (defaultLease == null || defaultLease.compareTo(Duration.ofSeconds(30)) < 0 || defaultLease.compareTo(Duration.ofHours(1)) > 0
@@ -259,6 +259,7 @@ public final class JobService {
             for (var candidate : candidates) {
                 JobRun claimed = tx(() -> {
                     store.partition((String) candidate.get("mutex_key"));
+                    store.lockBusiness((String) candidate.get("id"));
                     // A different run with this key may still hold its fencing row in a protected write.
                     store.database.query("select id from platform_job_run where mutex_key = ? and status = 'RUNNING' order by id for update", candidate.get("mutex_key"));
                     var row = store.run((String) candidate.get("id")); Instant now = store.now();
@@ -442,6 +443,20 @@ public final class JobService {
             return deleted;
         }));
     }
+    /** Topic deletion joins its owning transaction; the topic business lock must already be held. */
+    public void purgeUnfinished(String typeCode, String tenantId, String runId) {
+        requireScope(tenantId);
+        system(() -> tx(() -> {
+            var row = store.run(runId);
+            if (row != null) {
+                if (!typeCode.equals(row.getJobType()) || !Objects.equals(tenantId, row.getTenantId()))
+                    throw new PlatformAccessDeniedException("Job topic ownership mismatch");
+                if (JobStore.OPEN.contains(row.getStatus())) store.runs.deleteById(runId);
+            }
+            return null;
+        }));
+    }
+
     private JobRun fromPlan(JobPlan plan, JobDefinition type, String trigger, String actor) {
         var run = newRun(type, plan.getTenantId(), plan.getParametersJson(),
                 JobKeys.effective(type.code(), type.scope(), plan.getTenantId(), type.topicKey().apply(parameters(plan.getParametersJson()))), trigger, actor);

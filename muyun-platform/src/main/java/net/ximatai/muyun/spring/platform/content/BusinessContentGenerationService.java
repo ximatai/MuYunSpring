@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.common.platform.*;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.ai.AiModelGateway;
+import net.ximatai.muyun.spring.platform.job.*;
 import net.ximatai.muyun.spring.platform.content.BusinessContentService.*;
 import net.ximatai.muyun.spring.platform.content.BusinessContentStore.OriginalVersion;
 import org.springframework.beans.factory.ObjectProvider;
@@ -38,17 +39,19 @@ public final class BusinessContentGenerationService {
     private final ObjectMapper json;
     private final TransactionTemplate tx;
     private final Clock clock;
+    private final ObjectProvider<JobService> queue;
 
     public BusinessContentGenerationService(BusinessContentStore originals,
             BusinessContentTranslationStore translations, BusinessContentGenerationStore jobs,
             ObjectProvider<TrustedExecutionIdentityResolver> identities, ObjectProvider<BusinessContentGenerationScope> scopes,
-            AiModelGateway gateway, ObjectMapper json, PlatformTransactionManager transactions, Clock clock) {
+            AiModelGateway gateway, ObjectMapper json, PlatformTransactionManager transactions, Clock clock, ObjectProvider<JobService> queue) {
         this.originals = Objects.requireNonNull(originals);
         this.translations = Objects.requireNonNull(translations); this.jobs = Objects.requireNonNull(jobs);
         this.identities = Objects.requireNonNull(identities); this.scopes = Objects.requireNonNull(scopes);
         this.gateway = Objects.requireNonNull(gateway); this.json = Objects.requireNonNull(json);
         this.translator = new BusinessContentTextTranslator(gateway, json);
         this.tx = new TransactionTemplate(Objects.requireNonNull(transactions)); this.clock = Objects.requireNonNull(clock);
+        this.queue = Objects.requireNonNull(queue);
     }
 
     public record Status(String state, String reference, String problem, int attempts, Instant retryAt) { }
@@ -115,68 +118,79 @@ public final class BusinessContentGenerationService {
         });
     }
 
-    /** Scheduler/operational entry point. Claims commit before any network call; no caller transaction may surround work. */
+    /** Operational convenience; execution and claims belong exclusively to the platform queue. */
     public boolean runOne() {
         if (TransactionScopeSupport.isTransactionActive()) throw new IllegalStateException("Translation worker cannot run inside a transaction");
-        return control(this::executeOne);
+        var service = queue.getObject();
+        return service.runOne(BusinessContentGenerationJob.CHANNEL, "content-operational-" + java.util.UUID.randomUUID());
     }
 
-    private boolean executeOne() {
-        var job = control(() -> {
-            var candidates = jobs.candidates(clock.instant());
-            for (String id : candidates) {
-                var claimed = tx.execute(status -> jobs.claim(id, clock.instant()));
-                if (claimed != null) return claimed;
-            }
-            return null;
-        });
-        if (job == null) return false;
+    JobResult execute(JobContext context) {
+        var job = control(() -> jobs.find((String) context.parameters().get("generationId")));
+        if (job == null) return JobResult.success("CANCELLED", Map.of());
+        // Topic publication may have committed just before a node stopped, leaving its run unfinished.
+        if (!ACTIVE.contains(job.getStatus())) {
+            if ("FAILED".equals(job.getStatus())) throw new JobFailure(job.getProblemCode(), false);
+            return JobResult.success(job.getProblemCode() == null ? job.getStatus() : job.getProblemCode(), Map.of());
+        }
+        context.checkCancelled();
         Request request;
         try { request = json.readValue(job.getRequestJson(), Request.class); }
-        catch (Exception invalid) { finish(job, "FAILED", "INVALID_REQUEST", false); return true; }
+        catch (Exception invalid) { finish(context, job, "FAILED", "INVALID_REQUEST", false); return JobResult.success("COMPLETE", Map.of()); }
         try {
             var result = withIdentity(request, () -> {
-                var input = access(request, checked -> tx.execute(status -> prepare(job, request, checked)));
+                var input = access(request, checked -> context.transaction(() -> BusinessContentStore.lockRecord(source(job)), () -> prepare(job, request, checked)));
                 if (!gateway.isTextGenerationAvailable()) throw new Unavailable();
                 return translator.translate(input.text(), input.language(), request.language());
             });
-            withIdentity(request, () -> access(request, checked -> tx.execute(status -> {
+            withIdentity(request, () -> access(request, checked -> context.transaction(() -> BusinessContentStore.lockRecord(source(job)), () -> {
+                context.checkCancelled();
                 prepare(job, request, checked);
                 translations.saveMachine(source(job), new OriginalVersion(request.originalId(), request.originalRevision()),
                         request.language(), result.text(), request.expectedRevision(), new BusinessContentTranslationStore.Generation(
                                 job.getId(), result.providerRequestId(), request.policyVersion(), request.scope().version()));
-                var current = jobs.leased(job.getId(), job.getLeaseToken(), clock.instant());
-                if (current == null) throw new StaleWork();
-                jobs.finish(current, "SUCCEEDED", null, clock.instant());
+                jobs.finish(jobs.find(job.getId()), "SUCCEEDED", null, clock.instant());
                 return null;
             })));
+        } catch (JobFailure failure) {
+            throw failure;
         } catch (StaleWork | OptimisticLockException stale) {
-            finish(job, "STALE", "SOURCE_OR_TRANSLATION_CHANGED", false);
+            finish(context, job, "STALE", "SOURCE_OR_TRANSLATION_CHANGED", false);
         } catch (Unavailable unavailable) {
-            finish(job, "UNAVAILABLE", "MODEL_UNAVAILABLE", false);
+            finish(context, job, "UNAVAILABLE", "MODEL_UNAVAILABLE", false);
         } catch (InvalidExecution denied) {
-            finish(job, "CANCELLED", denied.problem, false);
+            finish(context, job, "CANCELLED", denied.problem, false);
         } catch (BusinessContentTextTranslator.InvalidResult invalid) {
-            finish(job, "FAILED", invalid.problem(), false);
+            finish(context, job, "FAILED", invalid.problem(), false);
         } catch (PlatformException failure) {
             if ("AI_MODEL_INTERRUPTED".equals(failure.code())) {
-                finish(job, "FAILED", "AI_MODEL_INTERRUPTED", true);
-                return true;
+                finish(context, job, "FAILED", "AI_MODEL_INTERRUPTED", true);
+                return JobResult.success("COMPLETE", Map.of());
             }
             boolean available;
             try { available = withIdentity(request, gateway::isTextGenerationAvailable); }
             catch (RuntimeException unavailable) { available = false; }
-            if (!available) finish(job, "UNAVAILABLE", "MODEL_UNAVAILABLE", false);
-            else finish(job, "FAILED", RETRYABLE.contains(failure.code()) ? failure.code() : "MODEL_REQUEST_FAILED",
+            if (!available) finish(context, job, "UNAVAILABLE", "MODEL_UNAVAILABLE", false);
+            else finish(context, job, "FAILED", RETRYABLE.contains(failure.code()) ? failure.code() : "MODEL_REQUEST_FAILED",
                     RETRYABLE.contains(failure.code()));
         } catch (RuntimeException failure) {
-            finish(job, "FAILED", "EXECUTION_FAILED", false);
+            finish(context, job, "FAILED", "EXECUTION_FAILED", false);
         }
-        return true;
+        var completed = control(() -> jobs.find(job.getId()));
+        return JobResult.success(completed == null ? "CANCELLED" : completed.getProblemCode() == null
+                ? completed.getStatus() : completed.getProblemCode(), Map.of());
     }
 
     /** Bounded topic retention; pending work is never silently discarded. */
-    public int purgeExpired() { return control(() -> tx.execute(status -> jobs.purgeExpired(clock.instant()))); }
+    public int purgeExpired() {
+        return control(() -> {
+            Instant now = clock.instant(); int removed = 0;
+            for (String id : jobs.expired(now)) removed += tx.execute(status -> {
+                jobs.lock(id); return jobs.purgeExpired(id, now);
+            });
+            return removed;
+        });
+    }
 
     private Input prepare(BusinessContentGeneration job, Request request, FieldTarget checked) {
         var target = locked(checked, () -> access(request, Function.identity()));
@@ -186,8 +200,7 @@ public final class BusinessContentGenerationService {
         if (original == null || !request.originalId().equals(original.getId()) || original.getRevision() != request.originalRevision()
                 || eligibility(target, original, request.language()) != null) throw new StaleWork();
         var version = OriginalVersion.of(original);
-        if (!Objects.equals(request.expectedRevision(), translations.state(target.source(), version, request.language()).revision())
-                || jobs.leased(job.getId(), job.getLeaseToken(), clock.instant()) == null) throw new StaleWork();
+        if (!Objects.equals(request.expectedRevision(), translations.state(target.source(), version, request.language()).revision())) throw new StaleWork();
         return new Input(target.text(), original.getSourceLanguage());
     }
 
@@ -239,15 +252,14 @@ public final class BusinessContentGenerationService {
             return work.get();
         }
     }
-    private void finish(BusinessContentGeneration job, String status, String problem, boolean retry) {
-        control(() -> tx.execute(ignored -> {
-            var current = jobs.leased(job.getId(), job.getLeaseToken(), clock.instant());
-            if (current != null) {
-                if (retry) jobs.retry(current, problem, clock.instant());
-                else jobs.finish(current, status, problem, clock.instant());
-            }
+    private void finish(JobContext context, BusinessContentGeneration job, String status, String problem, boolean retry) {
+        if (retry) throw new JobFailure(problem, true);
+        control(() -> context.transaction(() -> BusinessContentStore.lockRecord(source(job)), () -> {
+            var current = jobs.find(job.getId());
+            if (current != null) jobs.finish(current, status, problem, clock.instant());
             return null;
         }));
+        if ("FAILED".equals(status)) throw new JobFailure(problem, false);
     }
     private <T> T control(Supplier<T> work) {
         try (var noActor = CurrentUserContext.without(); var noPrincipal = ActingContextHolder.without();
@@ -273,9 +285,10 @@ public final class BusinessContentGenerationService {
     }
     private static String hash(String value) { return TextReference.versionOf(value).substring("sha256-".length()); }
     private static Status state(String state, String problem) { return new Status(state, null, problem, 0, null); }
-    private static Status view(BusinessContentGeneration row) {
+    private Status view(BusinessContentGeneration row) {
+        var run = jobs.run(row);
         return new Status("SUCCEEDED".equals(row.getStatus()) ? "STALE" : row.getStatus(), row.getId(), row.getProblemCode(),
-                row.getAttempts(), "RETRY".equals(row.getStatus()) ? row.getAvailableAt() : null);
+                run == null ? 0 : run.getAttempts(), "RETRY".equals(row.getStatus()) && run != null ? run.getAvailableAt() : null);
     }
     private static String language(String language) {
         if (language == null || !LANGUAGES.contains(language)) throw new IllegalArgumentException("Automatic reading language is not enabled");

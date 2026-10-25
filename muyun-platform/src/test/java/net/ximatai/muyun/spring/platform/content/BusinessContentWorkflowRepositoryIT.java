@@ -54,6 +54,8 @@ class BusinessContentWorkflowRepositoryIT extends PlatformPostgresIntegrationTes
     @Autowired BusinessContentTranslationService maintenance;
     @Autowired BusinessContentGenerationStore jobs;
     @Autowired BusinessContentGenerationDao jobDao;
+    @Autowired ObjectProvider<net.ximatai.muyun.spring.platform.job.JobService> queue;
+    @Autowired BusinessContentJobTestConfiguration jobConfiguration;
     @Autowired BusinessContentRevisionDao originalDao;
     @Autowired BusinessContentTranslationDao translationDao;
     @Autowired PlatformTransactionManager transactions;
@@ -276,8 +278,9 @@ class BusinessContentWorkflowRepositoryIT extends PlatformPostgresIntegrationTes
     private void archive() { tx.executeWithoutResult(status -> archives.archiveCurrentInstance(instance, WorkflowArchiveReason.RESET, NOW.plusSeconds(1))); }
     private long jobCount() { return jobDao.query(Criteria.of().eq("moduleAlias", module), PageRequest.of(1, 200)).size(); }
     private BusinessContentGenerationService restart() {
-        return new BusinessContentGenerationService(originals, translations, jobs, identities, scopes, gateway,
-                new ObjectMapper().findAndRegisterModules(), transactions, Clock.systemUTC());
+        var result = new BusinessContentGenerationService(originals, translations, jobs, identities, scopes, gateway,
+                new ObjectMapper().findAndRegisterModules(), transactions, Clock.systemUTC(), queue);
+        jobConfiguration.engine = result; return result;
     }
     private static BusinessContentTranslationService.Change change(BusinessContentTranslationService.Maintenance state, String text, Integer reviewed) {
         return new BusinessContentTranslationService.Change(state.original().revisionId(), state.original().revision(), state.expectedRevision(), text, reviewed);
