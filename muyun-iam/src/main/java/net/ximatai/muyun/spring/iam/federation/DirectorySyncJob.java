@@ -92,6 +92,7 @@ public class DirectorySyncJob implements JobHandler {
         public String department;
         public String bindingRow;
         public String bindingPositionRow;
+        public String processingBindingRow;
     }
 
     public static class Statistics {

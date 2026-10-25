@@ -99,6 +99,7 @@ class DirectorySyncIT {
     private TenantIdentityPolicy policy;
     private final List<BusinessNotification> alerts = new ArrayList<>();
     private DirectorySyncJob handler;
+    private DirectorySyncWriter writer;
     private ExternalDirectoryProtocol protocol;
 
     @BeforeEach
@@ -270,24 +271,26 @@ class DirectorySyncIT {
                         jobPositionService,
                         roles,
                         beans.getBeanProvider(JobService.class));
-        handler =
-                new DirectorySyncJob(
+        writer =
+                new DirectorySyncWriter(
                         store,
-                        providers,
+                        departments,
+                        employees,
+                        positions,
+                        accounts,
+                        employeeAccounts,
+                        identities,
+                        roles,
                         config,
-                        new DirectorySyncWriter(
-                                store,
-                                departments,
-                                employees,
-                                positions,
-                                accounts,
+                        new DirectorySourceLifecycle(
                                 employeeAccounts,
-                                identities,
+                                positions,
                                 roles,
-                                config,
-                                new DirectorySourceLifecycle(employeeAccounts, positions, roles,
-                                        new UserSessionRevocationService(new UserSessionRecordService(sessionRows),
-                                                event -> {}, Clock.systemUTC()))));
+                                new UserSessionRevocationService(
+                                        new UserSessionRecordService(sessionRows),
+                                        event -> {},
+                                        Clock.systemUTC())));
+        handler = new DirectorySyncJob(store, providers, config, writer);
         beans.registerSingleton("access", (JobManagementAccess) t -> {});
         beans.registerSingleton(
                 "recipients",
@@ -649,6 +652,49 @@ class DirectorySyncIT {
         tenant("tenant-a", () -> {
             assertThat(positionRows.query(Criteria.of(), new PageRequest(0, 300))).hasSize(207)
                     .allSatisfy(p -> assertThat(p.getSourceStatus()).isEqualTo("missing"));
+            return null;
+        });
+    }
+
+    @Test
+    void deletingBindingBetweenFinalizationBatchesDoesNotReuseItsPositionCursor() {
+        setPeople(List.of(person("a1", List.of("a1"), "active"),
+                new ExternalDirectoryProtocol.Person("bob", "Bob", "002", "a1", List.of("a1"), "active", null, null)), List.of());
+        enqueue(false);
+        execute();
+        tenant("tenant-a", () -> {
+            var bindings = identityRows.query(Criteria.of(), new PageRequest(0, 10), Sort.asc("id"));
+            for (int i = 0; i < 2; i++) {
+                var link = employeeAccountRows.query(Criteria.of().eq("userId", bindings.get(i).getUserId()),
+                        new PageRequest(0, 1)).getFirst();
+                var position = positionRows.query(Criteria.of().eq("employeeId", link.getEmployeeId()),
+                        new PageRequest(0, 1)).getFirst();
+                var extra = new EmployeePosition();
+                extra.setId((i == 0 ? "z" : "a").repeat(32));
+                extra.setTenantId("tenant-a");
+                extra.setEmployeeId(link.getEmployeeId());
+                extra.setOrganizationId(position.getOrganizationId());
+                extra.setDepartmentId(position.getDepartmentId());
+                extra.setPositionId("history");
+                extra.setSource("directory");
+                extra.setSourceProviderId(provider.getId());
+                extra.setSourceStatus("active");
+                DirectorySyncStore.insert(positionRows, extra);
+            }
+            var run = new DirectorySyncRun();
+            run.setId("missing-round");
+            run.setTenantId("tenant-a");
+            var cursor = new DirectorySyncJob.Cursor();
+            cursor.phase = "FINALIZING";
+            var scope = scopes.findById(policy.getSyncScopeId());
+            var tx = new TransactionTemplate(transactions);
+            tx.executeWithoutResult(status -> writer.finalizeMissing(run, scope, cursor));
+            assertThat(cursor.bindingPositionRow).isEqualTo("z".repeat(32));
+            // The administrator's delete commits between two separately fenced finalization batches.
+            identityRows.deleteById(bindings.getFirst().getId());
+            while (!"FINISHED".equals(cursor.phase))
+                tx.executeWithoutResult(status -> writer.finalizeMissing(run, scope, cursor));
+            assertThat(positionRows.findById("a".repeat(32)).getSourceStatus()).isEqualTo("missing");
             return null;
         });
     }

@@ -330,6 +330,10 @@ final class DirectorySyncWriter {
             return;
         }
         var binding = batch.getFirst();
+        if (!Objects.equals(cursor.processingBindingRow, binding.getId())) {
+            cursor.processingBindingRow = binding.getId();
+            cursor.bindingPositionRow = null;
+        }
         if (store.seen.query(Criteria.of().eq("tenantId", run.getTenantId())
                 .eq("runId", run.getId()).eq("externalUserId", binding.getExternalUserId()),
                 new PageRequest(0, 1)).isEmpty()) {
@@ -343,6 +347,7 @@ final class DirectorySyncWriter {
             if (cursor.bindingPositionRow != null) return;
         }
         cursor.bindingRow = binding.getId();
+        cursor.processingBindingRow = null;
         cursor.bindingPositionRow = null;
     }
 
