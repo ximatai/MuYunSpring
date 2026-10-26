@@ -173,6 +173,8 @@ final class DirectorySyncWriter {
             DirectorySyncScope scope,
             IdentityProviderDescriptor provider,
             ExternalDirectoryProtocol.Person person, String primarySource) {
+        // An unknown observation proves presence, but authorizes no IAM or employment mutation.
+        if ("unknown".equals(person.status())) return true;
         var binding =
                 identities
                         .findByExternalIdentity(

@@ -153,7 +153,9 @@ public class TenantIdentityPolicyService extends TenantActiveScopedService<Tenan
     }
 
     private static void requireSupportedProvisioning(TenantIdentityPolicy policy) {
-        if (policy.getSourceStatusMaxAgeSeconds() == null) policy.setSourceStatusMaxAgeSeconds(86400);
+        if (policy.getSyncExpression() == null || policy.getSyncExpression().isBlank())
+            policy.setSyncExpression("0 0 0 * * *");
+        if (policy.getSourceStatusMaxAgeSeconds() == null) policy.setSourceStatusMaxAgeSeconds(259200);
         if (policy.getSourceStatusMaxAgeSeconds() < 60 || policy.getSourceStatusMaxAgeSeconds() > 2592000)
             throw new IllegalArgumentException("Source status maximum age must be between 60 seconds and 30 days");
         // AUTO and REVIEW are reserved in the model; accepting them before they work would silently deny users.

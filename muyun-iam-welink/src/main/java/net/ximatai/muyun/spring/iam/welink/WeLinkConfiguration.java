@@ -70,7 +70,8 @@ final class WeLinkConfiguration {
     String status(String raw) {
         if (csv("activeStatuses", "3").contains(raw)) return "active";
         if (csv("departedStatuses", "").contains(raw)) return "departed";
-        return "disabled";
+        if (csv("disabledStatuses", "").contains(raw)) return "disabled";
+        return "unknown";
     }
     URI api(String path) { return URI.create(base("apiBaseUrl", API) + path); }
     String loginBase() { return base("loginBaseUrl", LOGIN); }

@@ -25,6 +25,7 @@ public interface ExternalDirectoryProtocol {
         throw new UnsupportedOperationException("Person lookup unavailable");
     }
     record Department(String id, String parentId, String title) { }
+    /** Status is active/disabled/departed/unknown. Unknown proves presence without authorizing mutations. */
     record Person(String id, String title, String employeeNo, String primaryDepartmentId,
                   List<String> departmentIds, String status, String mobile, String email) {
         public Person { departmentIds = departmentIds == null ? List.of() : List.copyOf(departmentIds); }

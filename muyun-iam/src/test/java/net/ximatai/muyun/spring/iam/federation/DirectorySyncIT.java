@@ -531,6 +531,46 @@ class DirectorySyncIT {
     }
 
     @Test
+    void unknownObservationsPreserveExistingIdentityEmploymentAndSessionsAndNeverProvision() {
+        enqueue(false);
+        execute();
+        String session = sessionFor("tenant-a");
+        var binding = tenant("tenant-a", () -> identityRows.query(Criteria.of(), new PageRequest(0, 10)).getFirst());
+        var employment = tenant("tenant-a", () -> positionRows.query(Criteria.of(), new PageRequest(0, 10)));
+        var employee = tenant("tenant-a", () -> employeeRows.query(Criteria.of(), new PageRequest(0, 10)).getFirst());
+        // A different primary and an unbound person must not authorize any placement or account changes.
+        setPeople(List.of(person("b", List.of("a1", "b"), "unknown"),
+                new ExternalDirectoryProtocol.Person("new", "New", "002", "a1", List.of("a1"), "unknown", null, null)), List.of());
+        for (boolean preview : List.of(true, false, false)) {
+            String id = enqueue(preview);
+            execute();
+            assertThat(jobRuns.findById(id).getResultCode()).isEqualTo("DIRECTORY_UNKNOWN_STATUS");
+            tenant("tenant-a", () -> {
+                var run = syncRuns.query(Criteria.of().eq("jobRunId", id), new PageRequest(0, 1)).getFirst();
+                var stats = DirectorySyncStore.decode(run.getStatistics(), DirectorySyncJob.Statistics.class);
+                assertThat(stats.unknownStatus).isEqualTo(2);
+                assertThat(stats.duplicates).isGreaterThan(0);
+                assertThat(stats.conflicts).isZero();
+                assertThat(run.getCompleted()).isTrue();
+                assertThat(identityRows.query(Criteria.of(), new PageRequest(0, 10))).singleElement().satisfies(current -> {
+                    assertThat(current.getVersion()).isEqualTo(binding.getVersion());
+                    assertThat(current.getSourceStatus()).isEqualTo("active");
+                    assertThat(current.getSourceCheckedAt()).isEqualTo(binding.getSourceCheckedAt());
+                });
+                assertThat(accountRows.query(Criteria.of(), new PageRequest(0, 10))).hasSize(1);
+                assertThat(employeeRows.findById(employee.getId()).getVersion()).isEqualTo(employee.getVersion());
+                assertThat(positionRows.query(Criteria.of(), new PageRequest(0, 10)))
+                        .extracting(EmployeePosition::getId, EmployeePosition::getVersion, EmployeePosition::getSourceStatus)
+                        .containsExactlyInAnyOrderElementsOf(employment.stream()
+                                .map(p -> tuple(p.getId(), p.getVersion(), p.getSourceStatus())).toList());
+                assertThat(sessionRows.findById(session).getRevokedAt()).isNull();
+                assertThat(grantRows.query(Criteria.of(), new PageRequest(0, 10))).isNotEmpty();
+                return null;
+            });
+        }
+    }
+
+    @Test
     void failedPageAndPreviewCannotInferMissing() {
         enqueue(false);
         execute();

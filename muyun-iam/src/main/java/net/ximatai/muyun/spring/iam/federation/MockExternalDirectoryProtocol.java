@@ -28,7 +28,7 @@ public class MockExternalDirectoryProtocol implements ExternalDirectoryProtocol 
             ids.clear();
             for (var p : data.people()) {
                 if (p.id() == null || !ids.add(p.id()) || p.title() == null || (p.primaryDepartmentId() != null && !p.departmentIds().contains(p.primaryDepartmentId()))
-                        || !Set.of("active", "disabled", "departed").contains(p.status())) throw new IllegalArgumentException();
+                        || !Set.of("active", "disabled", "departed", "unknown").contains(p.status())) throw new IllegalArgumentException();
                 for (String id : p.departmentIds()) if (data.departments().stream().noneMatch(d -> d.id().equals(id))) throw new IllegalArgumentException();
             }
             return data;

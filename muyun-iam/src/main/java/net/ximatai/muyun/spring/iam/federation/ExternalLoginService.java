@@ -431,7 +431,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                     && policy.getSyncScopeId() != null && binding.getSourceStatus() != null);
         if (!directoryManaged) return false;
         Instant checked = binding.getSourceCheckedAt() == null ? binding.getBoundAt() : binding.getSourceCheckedAt();
-        int seconds = policy.getSourceStatusMaxAgeSeconds() == null ? 86400 : policy.getSourceStatusMaxAgeSeconds();
+        int seconds = policy.getSourceStatusMaxAgeSeconds() == null ? 259200 : policy.getSourceStatusMaxAgeSeconds();
         return checked == null || !now.isBefore(checked.plusSeconds(seconds));
     }
 

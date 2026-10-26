@@ -98,7 +98,7 @@ public class DirectorySyncJob implements JobHandler {
     }
 
     public static class Statistics {
-        public long organizations, people, duplicates, conflicts, failedPages;
+        public long organizations, people, duplicates, conflicts, failedPages, unknownStatus;
         public List<String> failures = new ArrayList<>();
     }
 
@@ -169,7 +169,7 @@ public class DirectorySyncJob implements JobHandler {
                 return new JobResult(
                         stats.failedPages > 0 || stats.conflicts > 0
                                 ? "DIRECTORY_PARTIAL"
-                                : "DIRECTORY_COMPLETED",
+                                : stats.unknownStatus > 0 ? "DIRECTORY_UNKNOWN_STATUS" : "DIRECTORY_COMPLETED",
                         Map.of(
                                 "organizations",
                                 stats.organizations,
@@ -177,11 +177,13 @@ public class DirectorySyncJob implements JobHandler {
                                 stats.people,
                                 "duplicates",
                                 stats.duplicates,
+                                "unknownStatus",
+                                stats.unknownStatus,
                                 "conflicts",
                                 stats.conflicts,
                                 "failedPages",
                                 stats.failedPages),
-                        stats.failedPages > 0 || stats.conflicts > 0);
+                        stats.failedPages > 0 || stats.conflicts > 0 || stats.unknownStatus > 0);
             }
             if ("WRITING_PEOPLE".equals(cursor.phase)) {
                 var query = Criteria.of().eq("tenantId", run.getTenantId()).eq("runId", run.getId());
@@ -394,7 +396,7 @@ public class DirectorySyncJob implements JobHandler {
                                 providers.requireDirectoryAuthority(context.tenantId(), provider);
                                 for (var person : page.items()) {
                                     if (person.id() == null || person.id().isBlank() || person.title() == null
-                                            || !Set.of("active", "disabled", "departed").contains(person.status()))
+                                            || !Set.of("active", "disabled", "departed", "unknown").contains(person.status()))
                                         throw new IllegalArgumentException("DIRECTORY_INVALID_PERSON");
                                     var rows = store.seen.query(Criteria.of()
                                             .eq("tenantId", currentRun.getTenantId()).eq("runId", currentRun.getId())
@@ -416,6 +418,7 @@ public class DirectorySyncJob implements JobHandler {
                                         seen.setPerson(DirectorySyncStore.encode(person.withMemberships(null, List.of())));
                                         seen.setSourceStatus(person.status());
                                         currentStats.people++;
+                                        if ("unknown".equals(person.status())) currentStats.unknownStatus++;
                                     }
                                     // The page department is authoritative even when the vendor omits all memberships.
                                     memberships.add(cursor.department);

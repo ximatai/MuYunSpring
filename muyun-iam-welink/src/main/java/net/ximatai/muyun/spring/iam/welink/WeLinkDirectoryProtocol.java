@@ -6,7 +6,7 @@ import java.util.*;
 import java.time.Instant;
 import java.time.Clock;
 
-/** Read-only directory adapter. Unknown employment statuses fail closed as disabled. */
+/** Read-only directory adapter. Unmapped employment statuses remain unknown. */
 public final class WeLinkDirectoryProtocol implements ExternalDirectoryProtocol {
     private final WeLinkClient client;
     private final Clock clock;

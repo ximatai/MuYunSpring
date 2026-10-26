@@ -67,6 +67,17 @@ class WeLinkProtocolTest {
     private IdentityProviderDescriptor provider() { return provider(Map.of()); }
     private WeLinkDirectoryProtocol directory() { return new WeLinkDirectoryProtocol(client); }
 
+    @Test void onlyConfirmedStatusesAuthorizeLifecycleChanges() {
+        var defaults = new WeLinkConfiguration(Map.of());
+        assertThat(defaults.status("3")).isEqualTo("active");
+        for (String raw : List.of("6", "", "unrecognized"))
+            assertThat(defaults.status(raw)).isEqualTo("unknown");
+        var configured = new WeLinkConfiguration(Map.of("disabledStatuses", "6", "departedStatuses", "9"));
+        assertThat(configured.status("6")).isEqualTo("disabled");
+        assertThat(configured.status("9")).isEqualTo("departed");
+        assertThat(configured.status("other")).isEqualTo("unknown");
+    }
+
     @Test void cachesRefreshesAheadOfExpiryAndSeparatesCredentials() {
         var p = provider();
         directory().department(p, "root");
@@ -121,7 +132,7 @@ class WeLinkProtocolTest {
             assertThat(person.mobile()).isEqualTo("sensitive-mobile");
         });
         assertThat(first.items().get(1).status()).isEqualTo("departed");
-        assertThat(directory().departmentPeople(provider(Map.of("pageSize", "2")), "a", null, 200).items().get(1).status()).isEqualTo("disabled");
+        assertThat(directory().departmentPeople(provider(Map.of("pageSize", "2")), "a", null, 200).items().get(1).status()).isEqualTo("unknown");
         assertThat(directory().supportsPersonLookup(p)).isFalse();
         handler = req -> req.path().endsWith("/user/list") ? ok("{\"code\":0,\"hasMore\":1,\"data\":[{\"userId\":\"x\",\"userNameCn\":\"X\"}]}") : original.apply(req);
         assertThat(directory().departmentPeople(p, "a", "2", 200).nextCursor()).isNull(); // Short page wins.

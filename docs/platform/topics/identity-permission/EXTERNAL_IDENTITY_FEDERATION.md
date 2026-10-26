@@ -114,7 +114,7 @@ muyun:
 | `rateLimitCodes` / `authenticationFailureCodes` | 空 / `401,403`；逗号分隔业务码，不允许成功码 `0`、空项或重复。HTTP 401/403 及配置鉴权码清除应用 Token 后仅重试一次；应用票据获取失败不递归重试鉴权 |
 | `rootParentCodes` | 空；逗号分隔且经厂商确认的根父节点哨兵（如部署返回的 `0`），映射为无父节点；空值本身已视为无父节点，不预设某个真实部门编码是哨兵 |
 | `noMoreValue` | `0`；明确代表无更多的非布尔 hasMore 值。布尔 false 或返回条数小于请求 pageSize 也结束；满页的数字 1 默认继续，不能据存量代码直接判断结束 |
-| `activeStatuses` / `disabledStatuses` / `departedStatuses` | `3` / 空 / 空；逗号分隔且互不重叠；未知、缺失及未配置状态均为 disabled。离职值仅在厂商确认后配置，不能直接假定 `6` 为离职 |
+| `activeStatuses` / `disabledStatuses` / `departedStatuses` | `3` / 空 / 空；逗号分隔且互不重叠；只有 `3` 默认映射 active，其余（含 `6`）、缺失状态均为 unknown。停用与离职值仅在厂商确认后配置 |
 
 HTTP 使用项目已有 JDK HttpClient 与 Jackson，不引入新库。应用 Token 缓存仅在插件进程内，按身份源、Client ID、密钥及协议配置摘要隔离，最多 256 项，并发刷新合并；重启自然丢弃，不记录请求、响应、授权码、Token、密钥或手机号。网络及解析异常不携带可能包含敏感内容的底层 cause；上游 message 用于判断登录兑换成功，但不向平台/日志透传。授权码兑换与登录身份读取不自动重试，避免一次性授权结果重复消费。状态限流退避只应用于应用票据和通讯录。
 
@@ -179,6 +179,7 @@ HTTP 使用项目已有 JDK HttpClient 与 Jackson，不引入新库。应用 To
 
 1. 登录要求本地状态与来源状态同时允许。
 2. 同步与开户只能更新来源状态，不能恢复管理员禁用的账号、职员或任岗。
+3. `unknown` 表示来源状态未确认：不新开户、不改变已有账号或任岗来源状态及核验时间、不撤销会话、不调岗、不按缺失回收该人员。预览与正式同步按去重人员计入 `unknownStatus`，在运行详情的统计摘要与作业结果中可见，并以告警结果提示管理员核实映射。未知观测不延长既有来源状态的新鲜度。
 3. 同步只维护自身来源的数据：来源职员资料、同步部门、同步任岗与默认角色授权；手工任岗、手工授权和本地角色不被覆盖或回收。
 
 ## 登录与绑定流程
@@ -260,10 +261,10 @@ HTTP 使用项目已有 JDK HttpClient 与 Jackson，不引入新库。应用 To
 
 ### 阶段 A/B 接入契约
 
-- 读取插件实现 `ExternalDirectoryProtocol`，仅消费 `IdentityProviderDescriptor`。部门分页为包含所选根的父先子后序列，部门只要求 `id/parentId/title`，无祖先路径。部门人员分页直接返回基本资料与来源状态，每项表示当前部门的一条任职观测，可选携带厂商主部门与完整任职集合；平台不逐人查询详情。`supportsPersonLookup` 默认关闭，仅声明支持时才使用 `person` 核验超龄登录身份。状态由插件将已确认的厂商取值映射为 `active/disabled/departed`，未确认状态不得默认为在职。分页 token 不透明，单页最多 100 条；只读拉取发生暂时失败时最多读取三次，50／100 毫秒退避，插件须遵守厂商限流。身份源可以只实现登录或读取能力，两类协议声明的身份范围配置键共同受绑定后的权威锁定约束；每页提交前在数据库事务内复核身份源权威，读取期间发生权威变化时以 `DIRECTORY_CONFIGURATION_CHANGED` 失败，不提交该页。
-- `mock` 读取与模拟登录使用相同开发模式及开关门禁。身份源协议配置的字符串键 `directory` 保存 JSON 字符串，其对象包含 `departments`、`people`、`failPages`。不增加第二套可编辑文件或服务，现有身份源管理页即可维护，fixture 可由测试直接构造。部门按父先子后排列，字段为 `id/parentId/title`；人员字段为 `id/title/employeeNo/primaryDepartmentId/departmentIds/status/mobile/email`，主部门可空，状态为 `active/disabled/departed`。配置字符串键 `directorySingleDepartmentView=true` 使人员分页省略主部门和全部部门；`people.departmentIds` 仍决定 fixture 中各部门能观测到哪些人。`directoryPersonLookup=false` 关闭员工详情（默认支持）；可组合模拟 WeLink 形态。`failPages` 可填写 `departments:<root>:<offset>` 或 `people:<department>:<offset>`，用于模拟确定性失败。
+- 读取插件实现 `ExternalDirectoryProtocol`，仅消费 `IdentityProviderDescriptor`。部门分页为包含所选根的父先子后序列，部门只要求 `id/parentId/title`，无祖先路径。部门人员分页直接返回基本资料与来源状态，每项表示当前部门的一条任职观测，可选携带厂商主部门与完整任职集合；平台不逐人查询详情。`supportsPersonLookup` 默认关闭，仅声明支持时才使用 `person` 核验超龄登录身份。状态由插件将已确认的厂商取值映射为 `active/disabled/departed/unknown`，未确认状态不得默认为在职。分页 token 不透明，单页最多 100 条；只读拉取发生暂时失败时最多读取三次，50／100 毫秒退避，插件须遵守厂商限流。身份源可以只实现登录或读取能力，两类协议声明的身份范围配置键共同受绑定后的权威锁定约束；每页提交前在数据库事务内复核身份源权威，读取期间发生权威变化时以 `DIRECTORY_CONFIGURATION_CHANGED` 失败，不提交该页。
+- `mock` 读取与模拟登录使用相同开发模式及开关门禁。身份源协议配置的字符串键 `directory` 保存 JSON 字符串，其对象包含 `departments`、`people`、`failPages`。不增加第二套可编辑文件或服务，现有身份源管理页即可维护，fixture 可由测试直接构造。部门按父先子后排列，字段为 `id/parentId/title`；人员字段为 `id/title/employeeNo/primaryDepartmentId/departmentIds/status/mobile/email`，主部门可空，状态为 `active/disabled/departed/unknown`。配置字符串键 `directorySingleDepartmentView=true` 使人员分页省略主部门和全部部门；`people.departmentIds` 仍决定 fixture 中各部门能观测到哪些人。`directoryPersonLookup=false` 关闭员工详情（默认支持）；可组合模拟 WeLink 形态。`failPages` 可填写 `departments:<root>:<offset>` 或 `people:<department>:<offset>`，用于模拟确定性失败。
 - 策略的 `syncRoots` 是 `[{"externalDepartmentId":"部门 ID","organizationId":"本地机构 ID"}]`。保存前在持锁事务之外按部门详情的 `parentId` 逐级回溯、合并重复及被祖先覆盖的根；无父节点识别为全企业根。回溯最多 256 层并检测环与返回 ID 不符；同步分页的范围校验复用同一回溯，在事务外核对详情与分页父节点一致。选择父链回溯以避免依赖厂商祖先字段或尚未读完的分页树；代价是每个部门至多一次父链的读取，插件需遵守限流。同一根映射多个机构拒绝。空范围或全企业根要求 `syncScopeConfirmed=true`。空范围表示不读取任何人员，不自动解释为全企业。范围、默认岗位或角色变化产生不可变 `DirectorySyncScope`，队列仅冻结其引用，不保存通讯录全文或凭据。`syncPositionId` 必填，`syncRoleId` 可选，仅接受非管理用途的普通任职角色。
-- `syncExpression` 使用秒位为 0 的 cron，`syncZoneId` 指定合法 IANA 时区，为空时由平台默认时区解析，`syncEnabled` 与策略启停共同控制托管计划。关闭或删除策略时删除托管计划，保留执行历史。动作 `preview`、`synchronize` 按策略、模式与范围版本 `scopeId` 去重，同一未结束运行直接返回其 ID；终态后可再次发起。动作返回平台作业运行 ID，执行身份始终是租户内 SYSTEM。
+- `syncExpression` 默认每天零点（`0 0 0 * * *`），使用秒位为 0 的 cron，`syncZoneId` 指定合法 IANA 时区，为空时由平台默认时区解析，`syncEnabled` 与策略启停共同控制托管计划。关闭或删除策略时删除托管计划，保留执行历史。动作 `preview`、`synchronize` 按策略、模式与范围版本 `scopeId` 去重，同一未结束运行直接返回其 ID；终态后可再次发起。动作返回平台作业运行 ID，执行身份始终是租户内 SYSTEM。
 - 租户类型为 `iam.directory-sync`，自动装配独立 `directory-sync` 通道；部署可通过 `muyun.platform.job.channels.directory-sync.threads/claim-interval` 调整资源，默认 2 个线程、1 秒领取间隔。同一租户和身份源的预览、正式同步共用互斥键，其他租户独立。运行租约五分钟、单次最长一小时、最多三次领取（支持失联执行者接管）；处理器失败不自动重试，保留标准失败提醒和人工重试。
 - 游标分部门、任职观测收集、按人员写入与缺失收尾四阶段：保存根序号及外部分页 token，再按本轮部门事实的稳定 ID 遍历人员分页。人员收集按“运行 + 外部用户”唯一键合并到 `DirectorySyncSeen`，保存首条人员资料、按观测顺序去重的部门集合、来源状态和可选厂商主部门；不同部门观测到相互矛盾的状态或主部门，按失败页处理，避免任意覆盖。每页事实、统计与游标同事务提交。收集结束后按人员事实 ID 做 keyset 分页，每人一次性写入主岗与兼岗，和人员游标同事务提交；不在 JVM 装载整轮人员。人员页有失败时不根据不完整任职更新在职人员及回收其任岗，可信停用、离职仍使来源失效；缺失收尾仍要求整轮成功。租约接管沿用原运行；人工重试按平台契约创建新的作业运行，但通过受租户与范围版本校验的引用沿用原同步专题运行和游标。`lockBusiness/stateChanged` 在同一事务镜像终态。
 - 主部门优先采用厂商给定值；厂商未提供时，已有本来源同步主岗所在外部部门仍在本轮范围内任职集合中则保留，否则取本轮最先观测的范围内部门。范围外任职不扩大权限；厂商主部门在范围外时采用首个范围内任职。主部门来源 `primaryDepartmentSource=vendor/inferred` 保存在本轮人员事实和同步主岗上，兼岗为空，回收主岗时清除。预览使用相同聚合及主部门决策，不修改 IAM；调岗回收以完整聚合结果为准。
@@ -272,7 +273,7 @@ HTTP 使用项目已有 JDK HttpClient 与 Jackson，不引入新库。应用 To
 - 正式同步读取全部成功、无冲突、`completed=true` 后进入缺失收尾。每次受租约保护事务按绑定 ID 稳定游标选择一个本租户本来源的同步绑定，最多回收 100 条同步任岗；任岗子游标与变更同事务提交。该轮未见到的绑定来源标为 `missing` 并撤销本租户账号会话。预览、失败页、冲突、过期版本及待确认范围均不推断缺失；每次正式提交复核生效版本，已被替代的排队或续跑作业以 `DIRECTORY_SCOPE_CHANGED` 拒绝写入。重复收尾不会重复撤销已经撤销的会话。
 - `disabled/departed/missing` 使绑定和本来源任岗来源失效，不改账号、职员或任岗的本地 `enabled`，不物理删除历史账号。来源任岗失效后不参与有效授权解析。主部门或任职变化将旧来源任岗标为 `retired`（清除主岗标记），保留历史；新任职复用或建立来源任岗。`EmploymentRoleGrant.source/sourceProviderId` 独立表达默认角色授权归属，只删除过时的来源授权，同一任岗同一角色的手工授权也保留。恢复来源在职不恢复本地禁用；管理员已设置手工主岗时记录同步冲突，不覆盖手工主岗。
 - 同步根新增、移除或机构映射变化只产生 `pendingSyncScopeId`，定时计划与正式同步继续使用 `syncScopeId`。对待确认方案执行 `preview` 复用同一读取、互斥和租约机制，以 `SCOPE_PREVIEW` 模式保存部门及人员见到事实，完成后聚合报告受影响部门、人员、将回收任岗及来源授权数；同机构内的根归属及树重挂也计入部门和人员影响，不写 IAM 业务数据。管理员通过策略模块的 `scopeImpact` 查看，提交 `confirmScope`（附报告中的候选 `scopeId` 和 `runId`）确认；后端校验所审成功报告、基线版本及当前来源事实计数后原子切换计划，并立即排队正式同步（空范围同样排队回收）。正式同步逐页应用，跨机构映射建立替换部门并保留旧部门历史。复用预览使运行与失败诊断只有一条链路；影响报告属于冻结范围版本，不新增平行作业类型。
-- 租户策略 `sourceStatusMaxAgeSeconds` 默认 86400 秒（24 小时），允许 60–2592000 秒。已同步绑定外部登录只允许来源 `active`，同时复核本地账号及关联职员启用；来源年龄以 `sourceCheckedAt` 计算，缺少时间时以绑定时间计算。超龄先在事务外通过可选员工详情协议读取权威状态；未声明支持详情、无协议、读取失败或无可信状态均拒绝登录。无详情能力时，来源最大年龄应大于同步周期，并预留调度、分页与重试余量；自动开户仍未开放。短登录事务重新锁定配置、绑定及账号，版本变化不覆盖较新的同步事实。查询到停用或离职时持久化来源失效、回收派生授权并撤销本租户会话。新鲜度门禁适用范围见“范围与语义”第 8 条；主动绑定尚无通讯录来源状态时不适用最大年龄限制。
+- 租户策略 `sourceStatusMaxAgeSeconds` 默认 259200 秒（72 小时），允许 60–2592000 秒。已同步绑定外部登录只允许来源 `active`，同时复核本地账号及关联职员启用；来源年龄以 `sourceCheckedAt` 计算，缺少时间时以绑定时间计算。超龄先在事务外通过可选员工详情协议读取权威状态；未声明支持详情、无协议、读取失败或无可信状态均拒绝登录。无详情能力时，来源最大年龄应大于同步周期，并预留调度、分页与重试余量；自动开户仍未开放。短登录事务重新锁定配置、绑定及账号，版本变化不覆盖较新的同步事实。查询到停用或离职时持久化来源失效、回收派生授权并撤销本租户会话。新鲜度门禁适用范围见“范围与语义”第 8 条；主动绑定尚无通讯录来源状态时不适用最大年龄限制。
 - `iam.directory-sync-retention` 使用平台级 `default` 通道，每小时 fixed-delay、首次延迟一分钟；保留每个租户与身份源按终态完成顺序选择最近一次整轮完成的正式同步，保留该轮及其启动后的全部运行（跨范围版本，人工续跑旧轮不按创建顺序误删基线），无完成轮时仅按 30 天留存。更早且最后更新超过 30 天的终态运行可清理，预览与部分成功不推进保留基线；未结束运行及排队中的人工续跑引用始终保留。每轮最多 10 批，每批最多删除 200 条人员见到事实、200 条部门事实，开始清理即拒绝该旧轮的人工续跑（`DIRECTORY_CONTINUATION_EXPIRED`），可重新发起完整同步；子事实删完才删除所属运行；先取专题业务锁再取清理作业运行锁，并在锁内复核。结果为 `DIRECTORY_FACTS_CLEANED`／`BATCH_LIMIT_REACHED`。部门映射与不可变范围版本独立保留，不参与此清理。
 
 ## 安全前置
