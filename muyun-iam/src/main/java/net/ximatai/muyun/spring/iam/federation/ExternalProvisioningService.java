@@ -71,16 +71,17 @@ public class ExternalProvisioningService {
                 "select s.id from iam_directory_sync_seen s join iam_directory_sync_run r on r.id=s.run_id "
                 + "join iam_directory_sync_scope c on c.id=r.scope_id where s.tenant_id=? and c.tenant_id=? "
                 + "and c.provider_id=? and s.external_user_id=? and s.source_status <> 'active' "
-                + "and s.updated_at >= ? limit 1", policy.getTenantId(), policy.getTenantId(), provider.id(), externalId,
+                + "and s.created_at >= ? limit 1", policy.getTenantId(), policy.getTenantId(), provider.id(), externalId,
                 java.sql.Timestamp.from(observation.at())).isEmpty()) throw rejected();
         var person = observation == null ? null : observation.person();
         Instant checked = observation == null ? null : observation.at();
         String primarySource = person != null && person.primaryDepartmentId() != null ? "vendor" : "inferred";
         if (observation == null) {
-            // Only the newest complete, active-scope observation is eligible. Absence in that run fails closed.
+            // Round order is immutable: continuation must not promote old observations.
+            // The latest round must be complete; absence in that round fails closed.
             var runs = store.runs.query(Criteria.of().eq("tenantId", policy.getTenantId())
                     .eq("policyId", policy.getId()).eq("scopeId", policy.getSyncScopeId())
-                    .in("mode", List.of("SYNC", "PREVIEW")), new PageRequest(0, 1), Sort.desc("updatedAt"));
+                    .in("mode", List.of("SYNC", "PREVIEW")), new PageRequest(0, 1), Sort.desc("createdAt"), Sort.desc("id"));
             if (runs.isEmpty() || !Boolean.TRUE.equals(runs.getFirst().getCompleted())
                     || !Objects.equals(runs.getFirst().getAuthorityFingerprint(), provider.authorityFingerprint())
                     || Boolean.TRUE.equals(runs.getFirst().getRetentionStarted())) throw rejected();

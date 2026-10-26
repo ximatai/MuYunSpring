@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- 按需开户按稳定轮次顺序选择通讯录证据，旧预览续跑不再覆盖较新 unknown；状态冲突使用实际观测时间，避免处理或重试刷新证据年龄。
+
 ### Added
 
 - 前端根包公开 `useExternalLoginHost` 及宿主类型、`CurrentUserProfileDialog`、`ExternalIdentityBindings`；自有工作台壳可复用外部登录回调完成、失败提示、地址清理、会话交接与登录/绑定二维码，standalone App 使用同一入口。事务凭证继续保留于当前标签页会话，不进入 URL。

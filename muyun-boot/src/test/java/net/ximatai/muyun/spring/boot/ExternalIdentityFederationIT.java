@@ -1134,6 +1134,36 @@ class ExternalIdentityFederationIT {
     }
 
     @Test
+    void continuingAnOlderPreviewCannotOverrideANewerUnknownObservation() {
+        var fixture = provisioningFixture("continued_preview", ProvisioningMode.AUTO);
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-it", "Test"));
+             var tenant = TenantContext.use(TENANT)) {
+            statusProtocol.directoryPeople = List.of("continued-person");
+            statusProtocol.failAfterPeoplePage = true;
+            String older = tenantIdentityPolicyService.synchronize(fixture.policy(), true);
+            assertThat(jobs.runOne(DirectorySyncJob.CHANNEL, "provisioning-it")).isTrue();
+            assertThat(jobRuns.findById(older).getStatus()).isEqualTo("FAILED");
+            assertThat(jdbcTemplate.queryForObject("select source_status from iam_directory_sync_seen s join iam_directory_sync_run r on r.id=s.run_id where r.job_run_id=?",
+                    String.class, older)).isEqualTo("active");
+            statusProtocol.failAfterPeoplePage = false;
+            statusProtocol.status = "unknown";
+            String newer = tenantIdentityPolicyService.synchronize(fixture.policy(), true);
+            assertThat(jobs.runOne(DirectorySyncJob.CHANNEL, "provisioning-it")).isTrue();
+            assertThat(jobRuns.findById(newer).getResultCode()).isEqualTo("DIRECTORY_UNKNOWN_STATUS");
+            var continuation = jobs.retry(older);
+            assertThat(jobs.runOne(DirectorySyncJob.CHANNEL, "provisioning-it")).isTrue();
+            assertThat(jobRuns.findById(continuation.getId()).getResultCode()).isEqualTo("DIRECTORY_COMPLETED");
+            statusProtocol.lookupSupported = false;
+            assertThat(provisioningScan(fixture.provider(), "continued-person").path("result").path("failure").asText())
+                    .isEqualTo("admissionRejected");
+            assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isZero();
+        } finally {
+            statusProtocol.failAfterPeoplePage = false;
+            statusProtocol.status = "active"; statusProtocol.lookupSupported = true; statusProtocol.directoryPeople = List.of();
+        }
+    }
+
+    @Test
     void provisioningDoesNotReuseAnotherTenantsOrganizationFactsOrApplications() {
         var fixture = provisioningFixture("isolation_provision", ProvisioningMode.REVIEW);
         assertThat(provisioningScan(fixture.provider(), "tenant-isolated").path("result").path("status").asText()).isEqualTo("reviewPending");
@@ -1303,6 +1333,7 @@ class ExternalIdentityFederationIT {
         volatile int calls;
         volatile Runnable lookupHook = () -> {};
         volatile List<String> directoryPeople = List.of();
+        volatile boolean failAfterPeoplePage;
         @Override public void validateConfiguration(Map<String, String> configuration) { }
         @Override public Set<String> identityScopeConfigurationKeys() { return Set.of(); }
         @Override public String providerType() { return TYPE; }
@@ -1328,7 +1359,11 @@ class ExternalIdentityFederationIT {
             return new Page<>(List.of(new Department("root", null, "Root")), null);
         }
         @Override public Page<Person> departmentPeople(IdentityProviderDescriptor provider, String department, String cursor, int limit) {
-            return new Page<>(directoryPeople.stream().map(id -> new Person(id, id, null, "root", List.of("root"), status, null, null)).toList(), null);
+            if ("after-people".equals(cursor)) {
+                if (failAfterPeoplePage) throw new net.ximatai.muyun.spring.platform.job.JobFailure("TEST_AFTER_PEOPLE", false);
+                return new Page<>(List.of(), null);
+            }
+            return new Page<>(directoryPeople.stream().map(id -> new Person(id, id, null, "root", List.of("root"), status, null, null)).toList(), failAfterPeoplePage ? "after-people" : null);
         }
     }
 
