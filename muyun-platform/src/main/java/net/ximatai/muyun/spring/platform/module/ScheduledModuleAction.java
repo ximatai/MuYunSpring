@@ -7,6 +7,8 @@ import java.util.Map;
 public interface ScheduledModuleAction {
     String moduleAlias();
     String actionCode();
+    /** Declares whether the action requires a non-empty parameter object; validate remains authoritative. */
+    default boolean parametersRequired() { return false; }
     default void validate(Map<String, Object> parameters) { }
     Object execute(Map<String, Object> parameters);
 }

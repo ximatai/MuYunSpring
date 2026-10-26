@@ -150,6 +150,19 @@ muyun-iam
 - 静态贡献调用正常领域 Service，使用 `listForAction` / `selectForAction` 等动作感知查询读取受数据权限保护的数据；普通 `list/select` 不会因绑定了动作上下文而自动变成授权查询。写入保留原 Ability 与领域服务链路，不提供裸 DAO 调用捷径。
 - 静态参数使用 JSON 对象，原文及编码后的参数各不超过 16 KiB，完整冻结输入（含身份引用）仍受作业 16 KiB 限制；递归拒绝密码、密钥、令牌、认证头等凭据字段。贡献的参数校验应声明业务允许的参数，不在参数中保存凭据或业务全文。参数作为动作 payload，不绑定记录、表单、查询结构或 HTTP 请求。
 
+### 目标候选选择
+
+`GET /platform.scheduled_action_plan/scheduled-targets?executionTenantId=...` 提供只读候选，
+返回模块别名与本地化标题、动作编码与本地化标题、`source`（`static` / `dynamic`）及 `parametersRequired`。
+接口沿用计划模块的 `reference` 权限，并复用 `authorizedScheduledTargets()`、保存使用的目标校验与执行身份校验；
+平台管理员仅见所选有效执行租户（留空为平台范围）内的白名单目标，租户发起人固定为账号租户，且须有目标动作权限与可捕获身份。
+目录预算与计划查询一致，超限明确失败，不静默截断。候选查询不尝试校验尚未填写的 JSON 参数；保存和执行仍做实时校验，权限或配置变更可使已选目标失效。
+
+标准计划表单通过受控表单增强声明接入平台 `ReferencePicker`，不把模块内动作编码伪装成动作目录记录 ID。
+模块与动作支持按标题或编码搜索；切换模块清空动作，执行范围切换重新读取候选并隔离迟到响应。
+历史无效标识保留显示并提示重新选择，不能提交为新目标；读取失败可重试且阻止保存。
+静态贡献以 `parametersRequired()` 声明参数提示（默认 `false`），具体结构由 `validate` 校验；动态动作当前没有参数必填 schema，返回 `null` 表示未声明，不推断执行器内部业务参数要求。
+
 ### 二开静态动作接入示例
 
 学校演示（`school-demo`）的 [DisableGraduatedStudentsAction](../../muyun-demo/src/main/java/net/ximatai/muyun/spring/demo/school/student/DisableGraduatedStudentsAction.java)

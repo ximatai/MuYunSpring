@@ -10,6 +10,7 @@ import { passwordPolicyPageEnhancement } from './passwordPolicyPageEnhancement';
 import { tenantModulePageEnhancement } from './tenantModulePageEnhancement';
 import { employeeModulePageEnhancement } from './employeeModulePageEnhancement';
 import { userModulePageEnhancement } from './userModulePageEnhancement';
+import { scheduledActionPlanPageEnhancement } from './scheduledActionPlanPageEnhancement';
 import { roleModulePageEnhancement } from './roleModulePageEnhancement';
 
 configureWorkspaceViewContributions('platform-admin-runtime', workspaceViewContributions);
@@ -25,6 +26,7 @@ configureModulePageEnhancementContributions('platform-admin-runtime', [
   employeeModulePageEnhancement,
   userModulePageEnhancement,
   roleModulePageEnhancement,
+  scheduledActionPlanPageEnhancement,
 ]);
 
 export {

@@ -3695,7 +3695,15 @@
       "platform.external-login.tenant": "租户",
       "platform.external-login.placements": "任职归属",
       "platform.external-login.confirm-join": "确认并登录",
-      "platform.external-login.cancel-join": "取消"
+      "platform.external-login.cancel-join": "取消",
+      "platform.scheduled-target.unavailable": "当前目标已失效或无权调度，请重新选择",
+      "platform.scheduled-target.static": "静态",
+      "platform.scheduled-target.dynamic": "动态",
+      "platform.scheduled-target.load-failed": "候选加载失败，请重试",
+      "platform.scheduled-target.retry": "重试",
+      "platform.scheduled-target.parameters-required": "此动作需要参数，请填写静态参数 JSON",
+      "platform.scheduled-target.loading": "正在加载候选",
+      "platform.scheduled-target.parameters-unspecified": "此动作未声明参数要求，保存时将校验参数"
     }
   },
   "en": {
@@ -7395,7 +7403,15 @@
       "platform.external-login.tenant": "Tenant",
       "platform.external-login.placements": "Organization and department",
       "platform.external-login.confirm-join": "Confirm and sign in",
-      "platform.external-login.cancel-join": "Cancel"
+      "platform.external-login.cancel-join": "Cancel",
+      "platform.scheduled-target.unavailable": "The target is unavailable or unauthorized. Select another target.",
+      "platform.scheduled-target.static": "Static",
+      "platform.scheduled-target.dynamic": "Dynamic",
+      "platform.scheduled-target.load-failed": "Could not load targets. Please retry.",
+      "platform.scheduled-target.retry": "Retry",
+      "platform.scheduled-target.parameters-required": "This action requires parameters. Enter the static JSON parameters.",
+      "platform.scheduled-target.loading": "Loading targets",
+      "platform.scheduled-target.parameters-unspecified": "This action has no declared parameter requirements. Parameters are checked on save."
     }
   },
   "fr": {
