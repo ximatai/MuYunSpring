@@ -44,7 +44,11 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
         this.mapper = mapper; this.resolvers = resolvers; this.catalogs = catalogs;
     }
     @Override public boolean supports(MethodParameter parameter, Class<? extends HttpMessageConverter<?>> converter) {
-        return net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Target.class.isAssignableFrom(parameter.getParameterType()) ||
+        return net.ximatai.muyun.spring.platform.config.LowCodeConfigHealthReport.class.isAssignableFrom(parameter.getParameterType()) ||
+                net.ximatai.muyun.spring.platform.config.LowCodePackageDryRunResult.class.isAssignableFrom(parameter.getParameterType()) ||
+                net.ximatai.muyun.spring.platform.config.LowCodeModulePackageImportDraft.class.isAssignableFrom(parameter.getParameterType()) ||
+                net.ximatai.muyun.spring.platform.config.LowCodeModuleConfigArchiveResult.class.isAssignableFrom(parameter.getParameterType()) ||
+                net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Target.class.isAssignableFrom(parameter.getParameterType()) ||
                 org.springframework.core.ResolvableType.forMethodParameter(parameter).getGeneric(0).resolve() == net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Target.class ||
                 parameter.getContainingClass() == PlatformModuleRuntimeActionWebController.class ||
                 org.springframework.core.ResolvableType.forMethodParameter(parameter).getGeneric(0).resolve() == OpenApiModuleCatalogItem.class ||
@@ -107,6 +111,32 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
         return output;
     }
     private void collect(Object value, String path, List<Slot> slots) {
+        if (value instanceof net.ximatai.muyun.spring.platform.config.LowCodeConfigHealthReport report) {
+            collect(report.items(), path + "/items", slots);
+        } else if (value instanceof net.ximatai.muyun.spring.platform.config.LowCodeConfigHealthItem item) {
+            diagnosticSlot(path, "message", item.textSource(), item.messageArgs(), slots);
+            diagnosticSlot(path, "suggestion", item.suggestionSource(), item.suggestionArgs(), slots);
+        } else if (value instanceof net.ximatai.muyun.spring.platform.config.LowCodePackageImportConflict conflict) {
+            diagnosticSlot(path, "message", conflict.textSource(), conflict.messageArgs(), slots);
+        } else if (value instanceof net.ximatai.muyun.spring.platform.config.LowCodePackageDependencyDiagnostic diagnostic) {
+            diagnosticSlot(path, "message", diagnostic.textSource(), diagnostic.messageArgs(), slots);
+        } else if (value instanceof net.ximatai.muyun.spring.platform.config.LowCodePackageDryRunResult result) {
+            collect(result.healthReport(), path + "/healthReport", slots);
+            collect(result.conflicts(), path + "/conflicts", slots);
+        } else if (value instanceof net.ximatai.muyun.spring.platform.config.LowCodeModulePackageImportDraft draft) {
+            collect(draft.dryRunResult(), path + "/dryRunResult", slots);
+        } else if (value instanceof net.ximatai.muyun.spring.platform.config.LowCodeModuleConfigArchiveResult result) {
+            collect(result.healthReport(), path + "/healthReport", slots);
+        } else collectPlatform(value, path, slots);
+    }
+
+    private static void diagnosticSlot(String path, String property, TextReference source,
+                                       Map<String, Object> arguments, List<Slot> slots) {
+        if (source != null && source.sourceKind() == TextReference.SourceKind.CODE)
+            slots.add(new Slot(path, property, source, arguments, false, true));
+    }
+
+    private void collectPlatform(Object value, String path, List<Slot> slots) {
         if (value instanceof MetadataModelChangeSetPreview preview) {
             collect(preview.relationPreviews(), path + "/relationPreviews", slots);
             collect(preview.warnings(), path + "/warnings", slots);

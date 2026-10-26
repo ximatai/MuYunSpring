@@ -1,6 +1,6 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.i18n.TextSourceAware;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.i18n.TextResources;
 
@@ -27,9 +27,9 @@ public record MetadataChangeSetValidationIssue(Severity severity, String code, S
     }
 
     public static MetadataChangeSetValidationIssue failure(String code, String subject, RuntimeException failure) {
-        if (failure instanceof PlatformException declared && declared.textSource() != null) {
+        if (failure instanceof TextSourceAware declared && declared.textSource() != null) {
             return new MetadataChangeSetValidationIssue(Severity.ERROR, code, subject,
-                    declared.getMessage(), declared.textSource(), declared.messageArgs());
+                    failure.getMessage(), declared.textSource(), declared.messageArgs());
         }
         if (failure instanceof net.ximatai.muyun.spring.common.exception.DeclarationValidationException declared) {
             return new MetadataChangeSetValidationIssue(Severity.ERROR, code, subject,

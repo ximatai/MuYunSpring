@@ -56,6 +56,30 @@ class PlatformPresentationResponseAdviceTest {
         assertThat(mapper.valueToTree(projection.project(List.of(stale))).at("/0/messageText").isMissingNode()).isTrue();
     }
 
+    @Test
+    void projectsHealthAndNestedImportResourcesWithoutChangingOriginalFacts() {
+        var text = DiagnosticText.code("test.config.message", "Missing dependency: {id}", Map.of("id", "custom {id}"));
+        var suggestion = DiagnosticText.code("test.config.suggestion", "Add {id}", Map.of("id", "custom {id}"));
+        var item = net.ximatai.muyun.spring.platform.config.LowCodeConfigHealthItem.error(
+                net.ximatai.muyun.spring.platform.config.LowCodeConfigHealthScope.DEPENDENCY, "MISSING", text,
+                "MODULE", "crm.customer", suggestion);
+        var raw = new net.ximatai.muyun.spring.platform.config.LowCodeConfigHealthItem(item.scope(), item.code(),
+                item.severity(), "external diagnostic", item.targetType(), item.targetId(), "user suggestion");
+        var stale = new net.ximatai.muyun.spring.platform.config.LowCodeConfigHealthItem(item.scope(), item.code(),
+                item.severity(), "changed original", item.targetType(), item.targetId(), item.suggestion(),
+                item.textSource(), item.messageArgs(), item.suggestionSource(), item.suggestionArgs());
+        var report = net.ximatai.muyun.spring.platform.config.LowCodeConfigHealthReport.of("crm.contract", List.of(item, raw, stale));
+        var output = mapper.valueToTree(advice(Map.of(text.textSource(), "缺少依赖：{id}", suggestion.textSource(), "添加 {id}")).project(report));
+        assertThat(output.at("/items/0/message").asText()).isEqualTo(item.message());
+        assertThat(output.at("/items/0/messageText/languages/en/text").asText()).isEqualTo("缺少依赖：custom {id}");
+        assertThat(output.at("/items/0/suggestionText/languages/en/text").asText()).isEqualTo("添加 custom {id}");
+        assertThat(output.at("/items/0/code").asText()).isEqualTo("MISSING");
+        assertThat(output.at("/items/0/targetId").asText()).isEqualTo("crm.customer");
+        assertThat(output.at("/items/1/messageText").isMissingNode()).isTrue();
+        assertThat(output.at("/items/1/suggestionText").isMissingNode()).isTrue();
+        assertThat(output.at("/items/2/messageText").isMissingNode()).isTrue();
+    }
+
     @Test void projectsCodeSourceLabelsUsingSharedResourcesWithoutChangingTheirIdentity() throws Exception {
         var source = net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy.titleSource("createdAt");
         var target = new net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Target(

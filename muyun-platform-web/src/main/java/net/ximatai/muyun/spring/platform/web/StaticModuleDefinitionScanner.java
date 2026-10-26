@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.common.exception.DeclaredStateException;
+import net.ximatai.muyun.spring.common.exception.DeclaredArgumentException;
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefinition;
 
 import net.ximatai.muyun.spring.platform.application.PlatformStaticApplication;
@@ -105,7 +108,8 @@ public class StaticModuleDefinitionScanner {
                 var byAnchor = new LinkedHashMap<>(merged.getOrDefault(code, Map.of()));
                 invocations.forEach((anchor, invocation) -> {
                     if (byAnchor.putIfAbsent(anchor, invocation) != null) {
-                        throw new IllegalStateException("multiple page action invocation bindings: " + alias + "." + code + " / " + anchor);
+                        throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.multiple-page-action-invocation-bindings",
+                    "multiple page action invocation bindings: {alias}.{code} / {anchor}", Map.of("alias", String.valueOf(alias), "code", String.valueOf(code), "anchor", String.valueOf(anchor))));
                     }
                 });
                 merged.put(code, Map.copyOf(byAnchor));
@@ -150,8 +154,8 @@ public class StaticModuleDefinitionScanner {
                 origins.add("@PlatformStaticWebProjection");
             }
             if (origins.size() > 1) {
-                throw new IllegalStateException("static action endpoint origin annotations are mutually exclusive: "
-                        + beanClass.getName() + " -> " + origins);
+                throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.static-action-endpoint-origin-annotations-are-mutually-exclusive",
+                    "static action endpoint origin annotations are mutually exclusive: {typeName} -> {origins}", Map.of("typeName", String.valueOf(beanClass.getName()), "origins", String.valueOf(origins))));
             }
         }
     }
@@ -241,8 +245,8 @@ public class StaticModuleDefinitionScanner {
                 StaticServiceAbilityCompiler.compile(service(bean), staticCapabilityRegistry);
         for (EntityCapability declared : module.capabilities()) {
             if (StaticCapabilityDeclarationCatalog.isServiceOnly(declared, staticCapabilityRegistry)) {
-                throw new IllegalStateException("@PlatformStaticModule must not redeclare service ability: "
-                        + module.alias() + "." + declared.name());
+                throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticmodule-must-not-redeclare-service-ability",
+                    "@PlatformStaticModule must not redeclare service ability: {alias}.{name}", Map.of("alias", String.valueOf(module.alias()), "name", String.valueOf(declared.name()))));
             }
             capabilities.add(declared);
         }
@@ -307,16 +311,16 @@ public class StaticModuleDefinitionScanner {
                                 net.ximatai.muyun.spring.ability.reference.ModuleReadProjection projection) {
         if (projection.path() != null || projection.referencePath() != null) return projection.path();
         if (modelClass == null) {
-            throw new IllegalArgumentException("declared read projection requires a static entity model: "
-                    + projection.outputField());
+            throw new DeclaredArgumentException(DiagnosticText.code("platform.static.diagnostic.declared-read-projection-requires-a-static-entity-model",
+                    "declared read projection requires a static entity model: {outputField}", Map.of("outputField", String.valueOf(projection.outputField()))));
         }
         List<ReferencePlan> plans = StaticReferenceResolver.plans(modelClass).stream()
                 .filter(plan -> plan.cardinality() == net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE)
                 .filter(plan -> plan.projections().stream().anyMatch(item -> item.outputField().equals(projection.outputField())))
                 .toList();
         if (plans.size() != 1) {
-            throw new IllegalArgumentException("declared read projection requires exactly one direct @ReferenceLoad: "
-                    + moduleAlias + "." + projection.outputField());
+            throw new DeclaredArgumentException(DiagnosticText.code("platform.static.diagnostic.declared-read-projection-requires-exactly-one-direct-referenceload",
+                    "declared read projection requires exactly one direct @ReferenceLoad: {moduleAlias}.{outputField}", Map.of("moduleAlias", String.valueOf(moduleAlias), "outputField", String.valueOf(projection.outputField()))));
         }
         ReferencePlan plan = plans.getFirst();
         ReferenceProjection output = plan.projections().stream()
@@ -325,9 +329,8 @@ public class StaticModuleDefinitionScanner {
                 .filter(reference -> reference.sourceField().equals(plan.sourceField()))
                 .map(StaticReferenceDefinition::code)
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "declared read projection source is not a static reference: "
-                                + moduleAlias + "." + plan.sourceField()));
+                .orElseThrow(() -> new DeclaredArgumentException(DiagnosticText.code("platform.static.diagnostic.declared-read-projection-source-is-not-a-static-reference",
+                    "declared read projection source is not a static reference: {moduleAlias}.{sourceField}", Map.of("moduleAlias", String.valueOf(moduleAlias), "sourceField", String.valueOf(plan.sourceField())))));
         return referenceCode + "." + output.targetField();
     }
 
@@ -340,8 +343,8 @@ public class StaticModuleDefinitionScanner {
             return null;
         }
         if (!module.alias().equals(uiDefinition.moduleAlias())) {
-            throw new IllegalStateException("static module UI definition alias must match module alias: "
-                    + module.alias() + " != " + uiDefinition.moduleAlias());
+            throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.static-module-ui-contributor-alias-must-match-module-alias",
+                    "static module UI definition alias must match module alias: {alias} != {moduleAlias}", Map.of("alias", String.valueOf(module.alias()), "moduleAlias", String.valueOf(uiDefinition.moduleAlias()))));
         }
         return uiDefinition;
     }
@@ -350,8 +353,8 @@ public class StaticModuleDefinitionScanner {
         boolean hasRoute = !module.route().isBlank();
         boolean hasExternalUrl = !module.externalUrl().isBlank();
         if (hasRoute && hasExternalUrl) {
-            throw new IllegalStateException("@PlatformStaticModule cannot declare both route and externalUrl: "
-                    + module.alias());
+            throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticmodule-cannot-declare-both-route-and-externalurl",
+                    "@PlatformStaticModule cannot declare both route and externalUrl: {alias}", Map.of("alias", String.valueOf(module.alias()))));
         }
         if (hasRoute) {
             return ModuleEntryType.ROUTE;
@@ -379,8 +382,8 @@ public class StaticModuleDefinitionScanner {
         for (RelationProjectionJoinDefinition join : projectionJoins) {
             EntityDefinition target = join.targetEntity();
             if (entities.containsKey(target.alias())) {
-                throw new IllegalStateException("static projection join entity conflicts with module entity: "
-                        + module.alias() + "." + target.alias());
+                throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.static-projection-join-entity-conflicts-with-module-entity",
+                    "static projection join entity conflicts with module entity: {alias}.{alias2}", Map.of("alias", String.valueOf(module.alias()), "alias2", String.valueOf(target.alias()))));
             }
             entities.put(target.alias(), target);
         }
@@ -389,8 +392,8 @@ public class StaticModuleDefinitionScanner {
                 EntityDefinition target = new StaticEntityDefinitionCompiler().compile(
                         child.plan().relationCode(), child.childModel().getSimpleName(), child.childModel());
                 if (entities.putIfAbsent(target.alias(), target) != null) {
-                    throw new IllegalStateException("explicit aggregate child entity conflicts with module entity: "
-                            + module.alias() + "." + target.alias());
+                    throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.explicit-aggregate-child-entity-conflicts-with-module-entity",
+                    "explicit aggregate child entity conflicts with module entity: {alias}.{alias2}", Map.of("alias", String.valueOf(module.alias()), "alias2", String.valueOf(target.alias()))));
                 }
             }
         }
@@ -429,16 +432,16 @@ public class StaticModuleDefinitionScanner {
         PlatformStaticApplication application = AnnotationUtils.findAnnotation(
                 module.application(), PlatformStaticApplication.class);
         if (application == null) {
-            throw new IllegalStateException("@PlatformStaticModule application must declare @PlatformStaticApplication: "
-                    + module.application().getName());
+            throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticmodule-application-must-declare-platformstaticapplication",
+                    "@PlatformStaticModule application must declare @PlatformStaticApplication: {typeName}", Map.of("typeName", String.valueOf(module.application().getName()))));
         }
         return new ApplicationDeclaration(application.alias());
     }
 
     private void validateModuleAlias(PlatformStaticModule module, ApplicationDeclaration application) {
         if (!module.alias().startsWith(application.alias() + ".")) {
-            throw new IllegalStateException("@PlatformStaticModule alias must belong to application: "
-                    + module.alias() + " is not under " + application.alias());
+            throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticmodule-alias-must-belong-to-application-is-not-under",
+                    "@PlatformStaticModule alias must belong to application: {alias} is not under {alias2}", Map.of("alias", String.valueOf(module.alias()), "alias2", String.valueOf(application.alias()))));
         }
     }
 
@@ -451,8 +454,8 @@ public class StaticModuleDefinitionScanner {
                 && ability.getModuleAlias() != null
                 && !ability.getModuleAlias().isBlank()
                 && !module.alias().equals(ability.getModuleAlias())) {
-            throw new IllegalStateException("@PlatformStaticModule alias must match service module alias: "
-                    + module.alias() + " != " + ability.getModuleAlias());
+            throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticmodule-alias-must-match-service-module-alias",
+                    "@PlatformStaticModule alias must match service module alias: {alias} != {serviceModuleAlias}", Map.of("alias", String.valueOf(module.alias()), "serviceModuleAlias", String.valueOf(ability.getModuleAlias()))));
         }
         org.springframework.web.bind.annotation.RequestMapping mapping =
                 AnnotationUtils.findAnnotation(beanClass, org.springframework.web.bind.annotation.RequestMapping.class);
@@ -464,8 +467,8 @@ public class StaticModuleDefinitionScanner {
         PlatformStaticWebScope webScope = AnnotationUtils.findAnnotation(beanClass, PlatformStaticWebScope.class);
         if (webScope != null && webScope.value() == PlatformStaticWebScope.Scope.CUSTOM) {
             if (paths.isEmpty()) {
-                throw new IllegalStateException("@PlatformStaticWebScope(CUSTOM) requires @RequestMapping: "
-                        + module.alias());
+                throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticwebscope-custom-requires-requestmapping",
+                    "@PlatformStaticWebScope(CUSTOM) requires @RequestMapping: {alias}", Map.of("alias", String.valueOf(module.alias()))));
             }
             return;
         }
@@ -474,8 +477,8 @@ public class StaticModuleDefinitionScanner {
         }
         String expectedPath = "/" + module.alias();
         if (!paths.equals(List.of(expectedPath))) {
-            throw new IllegalStateException("@PlatformStaticModule module-alias web scope requires @RequestMapping: "
-                    + expectedPath + ", actual " + paths);
+            throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticmodule-module-alias-web-scope-requires-requestmapping-actual",
+                    "@PlatformStaticModule module-alias web scope requires @RequestMapping: {expectedPath}, actual {paths}", Map.of("expectedPath", String.valueOf(expectedPath), "paths", String.valueOf(paths))));
         }
     }
 
@@ -519,8 +522,8 @@ public class StaticModuleDefinitionScanner {
             String targetModule = PlatformStaticActionContributionSupport.targetModule(contribution);
             StaticModuleDefinition target = definitions.get(targetModule);
             if (target == null) {
-                throw new IllegalStateException("@PlatformStaticActionContribution target module is not scanned: "
-                        + targetModule + " <- " + beanClass.getName());
+                throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticactioncontribution-target-module-is-not-scanned",
+                    "@PlatformStaticActionContribution target module is not scanned: {targetModule} <- {typeName}", Map.of("targetModule", String.valueOf(targetModule), "typeName", String.valueOf(beanClass.getName()))));
             }
             LinkedHashMap<String, StaticModuleActionDefinition> merged = new LinkedHashMap<>();
             target.actions().forEach(action -> merged.put(action.actionCode(), action));
@@ -562,8 +565,8 @@ public class StaticModuleDefinitionScanner {
             String targetModule = PlatformNameRules.requireModuleAlias(declaration.module());
             StaticModuleDefinition target = definitions.get(targetModule);
             if (target == null) {
-                throw new IllegalStateException("@PlatformStaticActionDeclaration target module is not scanned: "
-                        + targetModule + " <- " + beanClass.getName());
+                throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticactiondeclaration-target-module-is-not-scanned",
+                    "@PlatformStaticActionDeclaration target module is not scanned: {targetModule} <- {typeName}", Map.of("targetModule", String.valueOf(targetModule), "typeName", String.valueOf(beanClass.getName()))));
             }
             LinkedHashMap<String, StaticModuleActionDefinition> merged = new LinkedHashMap<>();
             target.actions().forEach(action -> merged.put(action.actionCode(), action));
@@ -586,8 +589,8 @@ public class StaticModuleDefinitionScanner {
             }
             StaticModuleDefinition target = definitions.get(scope.module());
             if (target == null) {
-                throw new IllegalStateException("@PlatformStaticActionScope target module is not scanned: "
-                        + scope.module() + " <- " + beanClass.getName());
+                throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticactionscope-target-module-is-not-scanned",
+                    "@PlatformStaticActionScope target module is not scanned: {module} <- {typeName}", Map.of("module", String.valueOf(scope.module()), "typeName", String.valueOf(beanClass.getName()))));
             }
             LinkedHashMap<String, StaticModuleActionDefinition> targetActions = new LinkedHashMap<>();
             target.actions().forEach(action -> targetActions.put(action.actionCode(), action));
@@ -626,8 +629,8 @@ public class StaticModuleDefinitionScanner {
         }
         for (EntityDefinition entity : contributionEntities) {
             if (merged.containsKey(entity.alias())) {
-                throw new IllegalStateException("@PlatformStaticActionContribution entity conflicts with target module: "
-                        + targetModule + "." + entity.alias() + " <- " + contributor.getName());
+                throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticactioncontribution-entity-conflicts-with-target-module",
+                    "@PlatformStaticActionContribution entity conflicts with target module: {targetModule}.{alias} <- {typeName}", Map.of("targetModule", String.valueOf(targetModule), "alias", String.valueOf(entity.alias()), "typeName", String.valueOf(contributor.getName()))));
             }
             merged.put(entity.alias(), entity);
         }
@@ -643,8 +646,8 @@ public class StaticModuleDefinitionScanner {
             return null;
         }
         if (!targetModule.equals(uiDefinition.moduleAlias())) {
-            throw new IllegalStateException("@PlatformStaticActionContribution UI definition alias must match target module: "
-                    + targetModule + " != " + uiDefinition.moduleAlias());
+            throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticactioncontribution-ui-definition-alias-must-match-target-module",
+                    "@PlatformStaticActionContribution UI definition alias must match target module: {targetModule} != {moduleAlias}", Map.of("targetModule", String.valueOf(targetModule), "moduleAlias", String.valueOf(uiDefinition.moduleAlias()))));
         }
         return uiDefinition;
     }
@@ -659,8 +662,8 @@ public class StaticModuleDefinitionScanner {
         if (targetUiDefinition != null
                 && targetUiDefinition.page() != null
                 && contributionUiDefinition.page() != null) {
-            throw new IllegalStateException("@PlatformStaticActionContribution page conflicts with target module: "
-                    + targetModule + " <- " + contributor.getName());
+            throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticactioncontribution-page-conflicts-with-target-module",
+                    "@PlatformStaticActionContribution page conflicts with target module: {targetModule} <- {typeName}", Map.of("targetModule", String.valueOf(targetModule), "typeName", String.valueOf(contributor.getName()))));
         }
         LinkedHashMap<String, UiActionDefinition> actions = new LinkedHashMap<>();
         if (targetUiDefinition != null) {
@@ -668,8 +671,8 @@ public class StaticModuleDefinitionScanner {
         }
         for (UiActionDefinition action : contributionUiDefinition.actions()) {
             if (actions.containsKey(action.actionCode())) {
-                throw new IllegalStateException("@PlatformStaticActionContribution UI action conflicts with target module: "
-                        + targetModule + "." + action.actionCode() + " <- " + contributor.getName());
+                throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticactioncontribution-ui-action-conflicts-with-target-module",
+                    "@PlatformStaticActionContribution UI action conflicts with target module: {targetModule}.{actionCode} <- {typeName}", Map.of("targetModule", String.valueOf(targetModule), "actionCode", String.valueOf(action.actionCode()), "typeName", String.valueOf(contributor.getName()))));
             }
             actions.put(action.actionCode(), action);
         }
@@ -677,8 +680,8 @@ public class StaticModuleDefinitionScanner {
         if (targetUiDefinition != null) editorContributions.addAll(targetUiDefinition.editorContributions());
         for (PageDetailEditorContribution contribution : contributionUiDefinition.editorContributions()) {
             if (editorContributions.stream().anyMatch(existing -> existing.resource().equals(contribution.resource()))) {
-                throw new IllegalStateException("@PlatformStaticActionContribution detail editor conflicts with target module: "
-                        + targetModule + "." + contribution.resource() + " <- " + contributor.getName());
+                throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticactioncontribution-detail-editor-conflicts-with-target-module",
+                    "@PlatformStaticActionContribution detail editor conflicts with target module: {targetModule}.{resource} <- {typeName}", Map.of("targetModule", String.valueOf(targetModule), "resource", String.valueOf(contribution.resource()), "typeName", String.valueOf(contributor.getName()))));
             }
             editorContributions.add(contribution);
         }
@@ -686,16 +689,16 @@ public class StaticModuleDefinitionScanner {
         if (targetUiDefinition != null) detailRelations.addAll(targetUiDefinition.detailRelations());
         for (PageDetailRelationDefinition relation : contributionUiDefinition.detailRelations()) {
             if (detailRelations.stream().anyMatch(existing -> existing.code().equals(relation.code()))) {
-                throw new IllegalStateException("@PlatformStaticActionContribution detail relation conflicts with target module: "
-                        + targetModule + "." + relation.code() + " <- " + contributor.getName());
+                throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticactioncontribution-detail-relation-conflicts-with-target-module",
+                    "@PlatformStaticActionContribution detail relation conflicts with target module: {targetModule}.{code} <- {typeName}", Map.of("targetModule", String.valueOf(targetModule), "code", String.valueOf(relation.code()), "typeName", String.valueOf(contributor.getName()))));
             }
             detailRelations.add(relation);
         }
         ViewDefinition defaultEditor = targetUiDefinition == null ? null : targetUiDefinition.defaultEditor();
         if (contributionUiDefinition.defaultEditor() != null) {
             if (defaultEditor != null) {
-                throw new IllegalStateException("@PlatformStaticActionContribution default editor conflicts with target module: "
-                        + targetModule + " <- " + contributor.getName());
+                throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticactioncontribution-default-editor-conflicts-with-target-module",
+                    "@PlatformStaticActionContribution default editor conflicts with target module: {targetModule} <- {typeName}", Map.of("targetModule", String.valueOf(targetModule), "typeName", String.valueOf(contributor.getName()))));
             }
             defaultEditor = contributionUiDefinition.defaultEditor();
         }
@@ -703,8 +706,8 @@ public class StaticModuleDefinitionScanner {
         if (targetUiDefinition != null) editorSurfaces.addAll(targetUiDefinition.editorSurfaces());
         for (EditorSurfaceDefinition surface : contributionUiDefinition.editorSurfaces()) {
             if (editorSurfaces.stream().anyMatch(existing -> existing.key().equals(surface.key()))) {
-                throw new IllegalStateException("@PlatformStaticActionContribution editor surface conflicts with target module: "
-                        + targetModule + "." + surface.key() + " <- " + contributor.getName());
+                throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticactioncontribution-editor-surface-conflicts-with-target-module",
+                    "@PlatformStaticActionContribution editor surface conflicts with target module: {targetModule}.{key} <- {typeName}", Map.of("targetModule", String.valueOf(targetModule), "key", String.valueOf(surface.key()), "typeName", String.valueOf(contributor.getName()))));
             }
             editorSurfaces.add(surface);
         }
@@ -712,8 +715,8 @@ public class StaticModuleDefinitionScanner {
         if (targetUiDefinition != null) pageActions.addAll(targetUiDefinition.pageActions());
         for (PageActionDefinition action : contributionUiDefinition.pageActions()) {
             if (pageActions.stream().anyMatch(existing -> existing.key().equals(action.key()))) {
-                throw new IllegalStateException("@PlatformStaticActionContribution page action conflicts with target module: "
-                        + targetModule + "." + action.actionCode() + " <- " + contributor.getName());
+                throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticactioncontribution-page-action-conflicts-with-target-module",
+                    "@PlatformStaticActionContribution page action conflicts with target module: {targetModule}.{actionCode} <- {typeName}", Map.of("targetModule", String.valueOf(targetModule), "actionCode", String.valueOf(action.actionCode()), "typeName", String.valueOf(contributor.getName()))));
             }
             pageActions.add(action);
         }
@@ -730,8 +733,8 @@ public class StaticModuleDefinitionScanner {
                                      LinkedHashMap<String, StaticModuleActionDefinition> actions,
                                      StaticModuleActionDefinition action) {
         if (actions.containsKey(action.actionCode())) {
-            throw new IllegalStateException(sourceAnnotation + " action conflicts with target module: "
-                    + targetModule + "." + action.actionCode() + " <- " + contributor.getName());
+            throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.action-conflicts-with-target-module",
+                    "{sourceAnnotation} action conflicts with target module: {targetModule}.{actionCode} <- {typeName}", Map.of("sourceAnnotation", String.valueOf(sourceAnnotation), "targetModule", String.valueOf(targetModule), "actionCode", String.valueOf(action.actionCode()), "typeName", String.valueOf(contributor.getName()))));
         }
         actions.put(action.actionCode(), action);
     }
@@ -742,12 +745,12 @@ public class StaticModuleDefinitionScanner {
                                       StaticModuleActionDefinition action) {
         StaticModuleActionDefinition targetAction = targetActions.get(action.actionCode());
         if (targetAction == null) {
-            throw new IllegalStateException("@PlatformStaticActionScope action is not declared by target module: "
-                    + targetModule + "." + action.actionCode() + " <- " + scope.getName());
+            throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticactionscope-action-is-not-declared-by-target-module",
+                    "@PlatformStaticActionScope action is not declared by target module: {targetModule}.{actionCode} <- {typeName}", Map.of("targetModule", String.valueOf(targetModule), "actionCode", String.valueOf(action.actionCode()), "typeName", String.valueOf(scope.getName()))));
         }
         if (!targetAction.equals(action)) {
-            throw new IllegalStateException("@PlatformStaticActionScope action conflicts with target module: "
-                    + targetModule + "." + action.actionCode() + " <- " + scope.getName());
+            throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.platformstaticactionscope-action-conflicts-with-target-module",
+                    "@PlatformStaticActionScope action conflicts with target module: {targetModule}.{actionCode} <- {typeName}", Map.of("targetModule", String.valueOf(targetModule), "actionCode", String.valueOf(action.actionCode()), "typeName", String.valueOf(scope.getName()))));
         }
     }
 
@@ -960,8 +963,8 @@ public class StaticModuleDefinitionScanner {
                                           StaticModuleActionDefinition action) {
         StaticModuleActionDefinition existing = actions.putIfAbsent(actionCode, action);
         if (existing != null && !existing.equals(action)) {
-            throw new IllegalStateException("@CustomActionEndpoint action conflicts within controller: "
-                    + method.getDeclaringClass().getName() + "." + actionCode + " <- " + method.getName());
+            throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.customactionendpoint-action-conflicts-within-controller",
+                    "@CustomActionEndpoint action conflicts within controller: {typeName}.{actionCode} <- {contributorType}", Map.of("typeName", String.valueOf(method.getDeclaringClass().getName()), "actionCode", String.valueOf(actionCode), "contributorType", String.valueOf(method.getName()))));
         }
     }
 

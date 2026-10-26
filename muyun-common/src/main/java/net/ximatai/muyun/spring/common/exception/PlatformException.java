@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-public class PlatformException extends RuntimeException {
+public class PlatformException extends RuntimeException implements net.ximatai.muyun.spring.common.i18n.TextSourceAware {
     private final String code;
     private final int httpStatus;
     private final ErrorScope scope;

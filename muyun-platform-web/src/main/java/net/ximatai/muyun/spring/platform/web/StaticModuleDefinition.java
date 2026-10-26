@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.common.exception.DeclaredArgumentException;
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefinition;
 
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
@@ -90,8 +92,8 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         actions = actions == null ? List.of() : List.copyOf(actions);
         entities = entities == null ? List.of() : List.copyOf(entities);
         if (uiDefinition != null && !moduleAlias.equals(uiDefinition.moduleAlias())) {
-            throw new IllegalArgumentException("static module UI definition alias must match module alias: "
-                    + moduleAlias + " != " + uiDefinition.moduleAlias());
+            throw new DeclaredArgumentException(DiagnosticText.code("platform.static.diagnostic.static-module-ui-definition-alias-must-match-module-alias",
+                    "static module UI definition alias must match module alias: {moduleAlias} != {uiModuleAlias}", Map.of("moduleAlias", String.valueOf(moduleAlias), "uiModuleAlias", String.valueOf(uiDefinition.moduleAlias()))));
         }
         pageContextBindings = pageContextBindings == null ? List.of() : List.copyOf(pageContextBindings);
         references = references == null ? List.of() : List.copyOf(references);
@@ -426,8 +428,8 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         Set<String> outputFields = new java.util.LinkedHashSet<>();
         for (StaticModuleReadProjectionDefinition projection : projections) {
             if (!outputFields.add(projection.outputField())) {
-                throw new IllegalArgumentException("duplicate static module read projection output field: "
-                        + moduleAlias + "." + projection.outputField());
+                throw new DeclaredArgumentException(DiagnosticText.code("platform.static.diagnostic.duplicate-static-module-read-projection-output-field",
+                    "duplicate static module read projection output field: {moduleAlias}.{outputField}", Map.of("moduleAlias", String.valueOf(moduleAlias), "outputField", String.valueOf(projection.outputField()))));
             }
         }
         if (entities.isEmpty()) {
@@ -453,8 +455,8 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 .forEach(reservedFields::add);
         for (StaticModuleReadProjectionDefinition projection : projections) {
             if (reservedFields.contains(projection.outputField())) {
-                throw new IllegalArgumentException("static module read projection output field conflicts with main field: "
-                        + moduleAlias + "." + projection.outputField());
+                throw new DeclaredArgumentException(DiagnosticText.code("platform.static.diagnostic.static-module-read-projection-output-field-conflicts-with-main-field",
+                    "static module read projection output field conflicts with main field: {moduleAlias}.{outputField}", Map.of("moduleAlias", String.valueOf(moduleAlias), "outputField", String.valueOf(projection.outputField()))));
             }
         }
     }
@@ -466,8 +468,8 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         Set<String> codes = new java.util.LinkedHashSet<>();
         for (StaticReferenceDefinition reference : references) {
             if (!codes.add(reference.code())) {
-                throw new IllegalArgumentException("duplicate static reference code: "
-                        + moduleAlias + "." + reference.code());
+                throw new DeclaredArgumentException(DiagnosticText.code("platform.static.diagnostic.duplicate-static-reference-code",
+                    "duplicate static reference code: {moduleAlias}.{code}", Map.of("moduleAlias", String.valueOf(moduleAlias), "code", String.valueOf(reference.code()))));
             }
         }
     }

@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import net.ximatai.muyun.spring.common.exception.DeclaredArgumentException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import net.ximatai.muyun.spring.ability.reference.ReferencePath;
 import net.ximatai.muyun.spring.ability.reference.ModuleReadProjection;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
@@ -20,12 +23,14 @@ public record StaticModuleReadProjectionDefinition(String path,
 
     public StaticModuleReadProjectionDefinition {
         if ((path == null || path.isBlank()) && referencePath == null) {
-            throw new IllegalArgumentException("static module read projection path must not be blank");
+            throw new DeclaredArgumentException(DiagnosticText.code("platform.static.diagnostic.static-module-read-projection-path-must-not-be-blank",
+                    "static module read projection path must not be blank"));
         }
         path = path == null || path.isBlank() ? null : path.trim();
         projectionType = projectionType == null ? ModuleReadProjection.ProjectionType.FIELD : projectionType;
         if (referencePath == null && !path.contains(".")) {
-            throw new IllegalArgumentException("static module read projection path requires reference field path: " + path);
+            throw new DeclaredArgumentException(DiagnosticText.code("platform.static.diagnostic.static-module-read-projection-path-requires-reference-field-path",
+                    "static module read projection path requires reference field path: {path}", Map.of("path", String.valueOf(path))));
         }
         outputField = outputField == null || outputField.isBlank()
                 ? defaultOutputField(path, referencePath)

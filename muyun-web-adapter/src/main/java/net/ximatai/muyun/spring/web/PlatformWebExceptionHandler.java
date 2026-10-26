@@ -117,9 +117,15 @@ public class PlatformWebExceptionHandler {
         ActionMessage actionMessage = ActionMessage.warning(
                 PlatformErrorCodes.VALIDATION_FAILED,
                 exception.getMessage());
-        return recorded(ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(PlatformWebError.of(PlatformErrorCodes.VALIDATION_FAILED, 400,
-                        exception.getMessage(), actionMessage)), exception);
+        var error = PlatformWebError.of(PlatformErrorCodes.VALIDATION_FAILED, 400,
+                exception.getMessage(), actionMessage);
+        if (exception instanceof net.ximatai.muyun.spring.common.i18n.TextSourceAware declared) {
+            error = new PlatformWebError(error.traceId(), error.code(), error.status(), error.message(),
+                    new ActionMessage(actionMessage.code(), actionMessage.text(), actionMessage.type(),
+                            declared.messageArgs(), declared.textSource()),
+                    error.scope(), error.targets(), error.details(), declared.messageArgs(), declared.textSource());
+        }
+        return recorded(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error), exception);
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)

@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.config;
 
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import java.util.Map;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
@@ -86,31 +87,28 @@ public class LowCodeModulePackageExchangeService {
         List<LowCodePackageImportConflict> conflicts = new ArrayList<>();
         LowCodeModuleConfigVersion current = versionService.currentVersion(modulePackage.moduleAlias());
         if (modulePackage.mode() == LowCodePackageMode.PAGE_ONLY && current == null) {
-            conflicts.add(new LowCodePackageImportConflict(
-                    LowCodePackageConflictType.PAGE_ONLY_REQUIRES_EXISTING_MODULE,
-                    LowCodePackageConflictSeverity.ERROR,
-                    modulePackage.moduleAlias(),
-                    null,
-                    "PAGE_ONLY package requires an existing module config version"
-            ));
+            conflicts.add(new LowCodePackageImportConflict(LowCodePackageConflictType.PAGE_ONLY_REQUIRES_EXISTING_MODULE,
+                LowCodePackageConflictSeverity.ERROR,
+                modulePackage.moduleAlias(),
+                null,
+                DiagnosticText.code("platform.config.diagnostic.page-only-package-requires-an-existing-module-config-version",
+                    "PAGE_ONLY package requires an existing module config version")));
         }
         if (modulePackage.mode() == LowCodePackageMode.MODULE_FULL && current != null) {
-            conflicts.add(new LowCodePackageImportConflict(
-                    LowCodePackageConflictType.MODULE_ALREADY_HAS_VERSION,
-                    LowCodePackageConflictSeverity.WARN,
-                    modulePackage.moduleAlias(),
-                    current.getId(),
-                    "MODULE_FULL package will be imported as draft over an existing module"
-            ));
+            conflicts.add(new LowCodePackageImportConflict(LowCodePackageConflictType.MODULE_ALREADY_HAS_VERSION,
+                LowCodePackageConflictSeverity.WARN,
+                modulePackage.moduleAlias(),
+                current.getId(),
+                DiagnosticText.code("platform.config.diagnostic.module-full-package-will-be-imported-as-draft-over-an-existing-module",
+                    "MODULE_FULL package will be imported as draft over an existing module")));
         }
         if (modulePackage.mode() == LowCodePackageMode.TEMPLATE && current != null) {
-            conflicts.add(new LowCodePackageImportConflict(
-                    LowCodePackageConflictType.TEMPLATE_TARGET_MODULE_EXISTS,
-                    LowCodePackageConflictSeverity.ERROR,
-                    modulePackage.moduleAlias(),
-                    current.getId(),
-                    "TEMPLATE package requires a new target module alias"
-            ));
+            conflicts.add(new LowCodePackageImportConflict(LowCodePackageConflictType.TEMPLATE_TARGET_MODULE_EXISTS,
+                LowCodePackageConflictSeverity.ERROR,
+                modulePackage.moduleAlias(),
+                current.getId(),
+                DiagnosticText.code("platform.config.diagnostic.template-package-requires-a-new-target-module-alias",
+                    "TEMPLATE package requires a new target module alias")));
         }
         conflicts.addAll(dependencyConflicts(modulePackage));
         return conflicts;
@@ -126,12 +124,12 @@ public class LowCodeModulePackageExchangeService {
 
     private LowCodePackageImportConflict dependencyConflict(LowCodeModulePackage modulePackage,
                                                            LowCodePackageDependencyDiagnostic diagnostic) {
-        return new LowCodePackageImportConflict(
-                diagnostic.conflictType(),
+        return new LowCodePackageImportConflict(diagnostic.conflictType(),
                 diagnostic.blocking() ? LowCodePackageConflictSeverity.ERROR : LowCodePackageConflictSeverity.WARN,
                 modulePackage.moduleAlias(),
                 diagnostic.targetId(),
-                diagnostic.message()
-        );
+                diagnostic.message(),
+                diagnostic.textSource(),
+                diagnostic.messageArgs());
     }
 }

@@ -111,7 +111,18 @@ class StaticApplicationDefinitionRegistrarTest {
 
         assertThatThrownBy(preflightTask::run)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("iam.user -> iam");
+                .hasMessageContaining("iam.user -> iam")
+                .satisfies(failure -> {
+                    var declared = (net.ximatai.muyun.spring.common.i18n.TextSourceAware) failure;
+                    assertThat(declared.messageArgs()).containsEntry("moduleAlias", "iam.user").containsEntry("applicationAlias", "iam");
+                    var loader = getClass().getClassLoader();
+                    var resources = net.ximatai.muyun.spring.common.i18n.TextResources.load(loader,
+                            net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(loader, "zh-CN"));
+                    assertThat(resources.resolve(declared.textSource(), declared.messageArgs(), "zh-CN").text())
+                            .isEqualTo("静态模块引用了未声明的静态应用：iam.user -> iam");
+                    assertThat(resources.resolve(declared.textSource(), declared.messageArgs(), "en").text())
+                            .isEqualTo(failure.getMessage());
+                });
         verify(applicationService, never()).disable(org.mockito.ArgumentMatchers.anyString());
         verify(applicationService, never()).insert(org.mockito.ArgumentMatchers.any());
         verify(applicationService, never()).update(org.mockito.ArgumentMatchers.any());

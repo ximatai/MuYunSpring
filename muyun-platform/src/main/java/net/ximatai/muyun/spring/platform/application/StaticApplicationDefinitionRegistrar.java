@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.application;
 
+import net.ximatai.muyun.spring.common.exception.DeclaredStateException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
@@ -71,8 +74,8 @@ public class StaticApplicationDefinitionRegistrar implements PlatformBootstrapTa
             return;
         }
         if (!Boolean.TRUE.equals(application.getSystemManaged())) {
-            throw new IllegalStateException("static application conflicts with non-platform-managed application: "
-                    + definition.alias());
+            throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.static-application-conflicts-with-non-platform-managed-application",
+                    "static application conflicts with non-platform-managed application: {alias}", Map.of("alias", String.valueOf(definition.alias()))));
         }
         applyManagedFields(application, definition);
         applicationService.update(application);
