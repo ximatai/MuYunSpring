@@ -37,6 +37,12 @@ it('assembles a custom shell with public login, callback handoff and personal bi
       messageOrigin: 'invalid',
     },
   });
+  const profile: Consumer.ExternalProvisioningProfile = {
+    displayName: 'Applicant',
+    tenantId: 'tenant-a',
+    departmentIds: ['sales'],
+    placements: ['Org / Sales'],
+  };
   const provider = { providerId: 'welink', title: 'WeLink', providerType: 'welink' };
   const login = {
     token: 'host-session',
@@ -55,12 +61,7 @@ it('assembles a custom shell with public login, callback handoff and personal bi
         return Response.json({
           status: 'confirmationRequired',
           purpose: 'login',
-          confirmation: {
-            displayName: 'Applicant',
-            tenantId: 'tenant-a',
-            departmentIds: ['sales'],
-            placements: ['Org / Sales'],
-          },
+          confirmation: profile,
         });
       if (path.endsWith('/welink/confirm'))
         return Response.json({ status: 'succeeded', purpose: 'login', login });

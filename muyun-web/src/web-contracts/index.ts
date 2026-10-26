@@ -378,7 +378,7 @@ export interface ExternalLoginCompleteRequest {
   parameters: Record<string, string>;
 }
 
-export interface ExternalProvisioningConfirmation {
+export interface ExternalProvisioningProfile {
   displayName: string;
   tenantId: string;
   departmentIds: string[];
@@ -391,7 +391,7 @@ export interface ExternalLoginCompletion {
   failure?: ExternalLoginFailure;
   login?: LoginResult;
   binding?: ExternalIdentityView;
-  confirmation?: ExternalProvisioningConfirmation;
+  confirmation?: ExternalProvisioningProfile;
 }
 
 export interface OwnExternalIdentities {

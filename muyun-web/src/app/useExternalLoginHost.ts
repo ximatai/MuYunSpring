@@ -6,7 +6,7 @@ import {
   userFacingErrorMessage,
   type ExternalLoginClient,
 } from '@muyun/web-core';
-import type { ExternalProvisioningConfirmation, LoginResult } from '@muyun/web-contracts';
+import type { ExternalProvisioningProfile, LoginResult } from '@muyun/web-contracts';
 import { presentPlatformMessage, presentPlatformSuccess } from '@muyun/platform-components';
 import {
   externalLoginFailureMessage,
@@ -33,7 +33,7 @@ export function useExternalLoginHost(options: ExternalLoginHostOptions) {
   let inFlight: Promise<boolean> | undefined;
   const provisioning = ref<{
     pending: PendingExternalLogin;
-    confirmation: ExternalProvisioningConfirmation;
+    confirmation: ExternalProvisioningProfile;
   }>();
   const confirming = ref(false);
 

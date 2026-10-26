@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import type { ExternalProvisioningConfirmation } from '@muyun/web-contracts';
+import type { ExternalProvisioningProfile } from '@muyun/web-contracts';
 import { useLanguageContext } from '@muyun/web-core';
 import { UiButton } from '@muyun/vue-ui-antdv';
 
-defineProps<{ confirmation: ExternalProvisioningConfirmation; busy?: boolean; error?: string }>();
+defineProps<{ confirmation: ExternalProvisioningProfile; busy?: boolean; error?: string }>();
 defineEmits<{ confirm: []; cancel: [] }>();
 const language = useLanguageContext();
 </script>
