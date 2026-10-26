@@ -110,6 +110,10 @@ public class PlatformWebExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<PlatformWebError> handleBadRequest(IllegalArgumentException exception) {
+        if (exception instanceof net.ximatai.muyun.spring.common.exception.DeclarationValidationException declared) {
+            var failure = PlatformErrors.badRequestText(declared.textSource(), declared.messageArgs(), declared);
+            return platformError(failure);
+        }
         ActionMessage actionMessage = ActionMessage.warning(
                 PlatformErrorCodes.VALIDATION_FAILED,
                 exception.getMessage());

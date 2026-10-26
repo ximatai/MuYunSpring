@@ -1,5 +1,9 @@
 package net.ximatai.muyun.spring.common.util;
 
+import net.ximatai.muyun.spring.common.exception.DeclarationValidationException;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import java.util.Map;
+
 public final class PlatformNameRules {
     public static final int IDENTIFIER_MAX_LENGTH = 63;
     public static final int MODULE_ALIAS_MAX_LENGTH = 128;
@@ -17,7 +21,7 @@ public final class PlatformNameRules {
     public static String requireApplicationAlias(String value) {
         requireText(value, "applicationAlias");
         if (!isIdentifier(value)) {
-            throw new IllegalArgumentException("invalid applicationAlias: " + value);
+            throw invalid("applicationAlias", value);
         }
         return value;
     }
@@ -25,7 +29,7 @@ public final class PlatformNameRules {
     public static String requireModuleAlias(String value) {
         requireText(value, "moduleAlias");
         if (value.length() > MODULE_ALIAS_MAX_LENGTH || !value.matches(MODULE_ALIAS_PATTERN)) {
-            throw new IllegalArgumentException("invalid moduleAlias: " + value);
+            throw invalid("moduleAlias", value);
         }
         return value;
     }
@@ -35,7 +39,9 @@ public final class PlatformNameRules {
         String validModuleAlias = requireModuleAlias(moduleAlias);
         String prefix = validApplicationAlias + ".";
         if (!validModuleAlias.startsWith(prefix) || validModuleAlias.length() == prefix.length()) {
-            throw new IllegalArgumentException("moduleAlias must start with applicationAlias: " + moduleAlias);
+            throw new DeclarationValidationException(TextReference.code(
+                    "platform.declaration.name.module-application", "moduleAlias must start with applicationAlias: {moduleAlias}"),
+                    Map.of("moduleAlias", moduleAlias));
         }
         return validModuleAlias;
     }
@@ -47,7 +53,7 @@ public final class PlatformNameRules {
 
     public static String requireIdentifier(String value, String name) {
         if (!isIdentifier(value)) {
-            throw new IllegalArgumentException("invalid " + name + ": " + value);
+            throw invalid(name, value);
         }
         return value;
     }
@@ -55,7 +61,7 @@ public final class PlatformNameRules {
     public static String requireCode(String value, String name) {
         requireText(value, name);
         if (!value.matches(CODE_PATTERN)) {
-            throw new IllegalArgumentException("invalid " + name + ": " + value);
+            throw invalid(name, value);
         }
         return value;
     }
@@ -63,7 +69,7 @@ public final class PlatformNameRules {
     public static String requireActionCode(String value, String name) {
         requireText(value, name);
         if (!value.matches("[a-z][A-Za-z0-9_]{0,63}")) {
-            throw new IllegalArgumentException("invalid " + name + ": " + value);
+            throw invalid(name, value);
         }
         return value;
     }
@@ -74,7 +80,7 @@ public final class PlatformNameRules {
 
     public static String requireFieldName(String value, String name) {
         if (value == null || !value.matches(FIELD_NAME_PATTERN)) {
-            throw new IllegalArgumentException("invalid " + name + ": " + value);
+            throw invalid(name, value);
         }
         return value;
     }
@@ -83,9 +89,16 @@ public final class PlatformNameRules {
         return value != null && value.matches(IDENTIFIER_PATTERN);
     }
 
+    private static DeclarationValidationException invalid(String name, String value) {
+        return new DeclarationValidationException(TextReference.code(
+                "platform.declaration.name.invalid", "invalid {name}: {value}"),
+                Map.of("name", String.valueOf(name), "value", String.valueOf(value)));
+    }
+
     private static void requireText(String value, String name) {
         if (value == null || value.isBlank()) {
-            throw new NullPointerException(name + " must not be blank");
+            throw new DeclarationValidationException(TextReference.code(
+                    "platform.declaration.name.required", "{name} must not be blank"), Map.of("name", String.valueOf(name)));
         }
     }
 }

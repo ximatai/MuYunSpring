@@ -7,6 +7,28 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PlatformNameRulesTest {
     @Test
+    void declarationFailuresKeepOriginalsAndTechnicalArgumentsForBothLanguages() {
+        var loader = getClass().getClassLoader();
+        var resources = net.ximatai.muyun.spring.common.i18n.TextResources.load(loader,
+                net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(loader, "zh-CN"));
+        for (String value : java.util.Arrays.asList(null, "", "Invalid {name}")) {
+            var failure = org.junit.jupiter.api.Assertions.assertThrows(
+                    net.ximatai.muyun.spring.common.exception.DeclarationValidationException.class,
+                    () -> PlatformNameRules.requireApplicationAlias(value));
+            assertThat(failure.textSource().sourceKind()).isEqualTo(
+                    net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CODE);
+            assertThat(failure.messageArgs()).containsEntry("name", "applicationAlias");
+            for (String language : java.util.List.of("en", "zh-CN")) {
+                var translated = resources.resolve(failure.textSource(), failure.messageArgs(), language);
+                assertThat(translated.missing()).isFalse();
+                assertThat(translated.fallback()).isFalse();
+                assertThat(translated.text()).contains("applicationAlias");
+                if (value != null && !value.isEmpty()) assertThat(translated.text()).contains(value);
+            }
+        }
+    }
+
+    @Test
     void shouldValidateApplicationAliasAndModuleAlias() {
         assertThat(PlatformNameRules.requireApplicationAlias("crm_app")).isEqualTo("crm_app");
         assertThat(PlatformNameRules.requireModuleAlias("crm.customer_profile")).isEqualTo("crm.customer_profile");
