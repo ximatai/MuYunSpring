@@ -6,9 +6,13 @@ import {
   userFacingErrorMessage,
   type ExternalLoginClient,
 } from '@muyun/web-core';
-import type { LoginResult } from '@muyun/web-contracts';
+import type { ExternalProvisioningConfirmation, LoginResult } from '@muyun/web-contracts';
 import { presentPlatformMessage, presentPlatformSuccess } from '@muyun/platform-components';
-import { externalLoginFailureMessage, takeExternalLoginReturn } from './externalLoginReturn';
+import {
+  externalLoginFailureMessage,
+  takeExternalLoginReturn,
+  type PendingExternalLogin,
+} from './externalLoginReturn';
 
 /** App-level composition; protocol clients and browser transaction storage remain separate concerns. */
 export interface ExternalLoginHostOptions {
@@ -27,6 +31,35 @@ export function useExternalLoginHost(options: ExternalLoginHostOptions) {
   const failure = ref<() => string>();
   const completing = ref(false);
   let inFlight: Promise<boolean> | undefined;
+  const provisioning = ref<{
+    pending: PendingExternalLogin;
+    confirmation: ExternalProvisioningConfirmation;
+  }>();
+  const confirming = ref(false);
+
+  async function confirmProvisioning(): Promise<void> {
+    const selected = provisioning.value;
+    if (!selected || confirming.value) return;
+    confirming.value = true;
+    failure.value = undefined;
+    try {
+      const result = await options.client.confirm(selected.pending.providerId, {
+        state: selected.pending.state,
+        browserProof: selected.pending.browserProof,
+      });
+      if (result.status === 'succeeded') {
+        provisioning.value = undefined;
+        if (result.login) await options.onAuthenticated(result.login);
+        else
+          failure.value = () =>
+            language.t('platform.external-login.created-sign-in-again', '账号已创建，请重新扫码登录');
+      } else failure.value = () => externalLoginFailureMessage(result, language);
+    } catch (cause) {
+      failure.value = () => userFacingErrorMessage(normalizeError(cause), language);
+    } finally {
+      confirming.value = false;
+    }
+  }
 
   async function complete(): Promise<boolean> {
     completing.value = true;
@@ -50,6 +83,14 @@ export function useExternalLoginHost(options: ExternalLoginHostOptions) {
         browserProof: pending.browserProof,
         parameters: returned.parameters,
       });
+      if (
+        completion.status === 'confirmationRequired' &&
+        completion.confirmation &&
+        pending.purpose === 'login'
+      ) {
+        provisioning.value = { pending, confirmation: completion.confirmation };
+        return true;
+      }
       if (completion.status === 'succeeded' && completion.login) {
         await options.onAuthenticated(completion.login);
         return true;
@@ -78,9 +119,18 @@ export function useExternalLoginHost(options: ExternalLoginHostOptions) {
 
   return {
     client: options.client,
+    /** Read-only server profile. Browser credentials remain private to this host instance. */
+    confirmation: computed(() => provisioning.value?.confirmation),
+    confirming: computed(() => confirming.value),
+    confirmProvisioning,
+    cancelProvisioning() {
+      if (confirming.value) return;
+      provisioning.value = undefined;
+      failure.value = undefined;
+    },
     error: computed(() => failure.value?.()),
     completing: computed(() => completing.value),
-    /** True means login handoff or a signed-out failure already decided the screen. Concurrent calls coalesce. */
+    /** True means session handoff, pending confirmation, or a signed-out failure decided the screen. Concurrent calls coalesce. */
     completeReturn(): Promise<boolean> {
       if (!inFlight)
         inFlight = complete().finally(() => {

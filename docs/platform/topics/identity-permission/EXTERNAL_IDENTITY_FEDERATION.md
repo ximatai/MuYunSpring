@@ -195,7 +195,7 @@ HTTP 使用项目已有 JDK HttpClient 与 Jackson，不引入新库。应用 To
 1. 登录要求本地状态与来源状态同时允许。
 2. 同步与开户只能更新来源状态，不能恢复管理员禁用的账号、职员或任岗。
 3. `unknown` 表示来源状态未确认：不新开户、不改变已有账号或任岗来源状态及核验时间、不撤销会话、不调岗、不按缺失回收该人员。预览与正式同步按去重人员计入 `unknownStatus`，在运行详情的统计摘要与作业结果中可见，并以告警结果提示管理员核实映射。未知观测不延长既有来源状态的新鲜度。
-3. 同步只维护自身来源的数据：来源职员资料、同步部门、同步任岗与默认角色授权；手工任岗、手工授权和本地角色不被覆盖或回收。
+4. 同步只维护自身来源的数据：来源职员资料、同步部门、同步任岗与默认角色授权；手工任岗、手工授权和本地角色不被覆盖或回收。
 
 ## 登录与绑定流程
 
@@ -218,7 +218,7 @@ HTTP 使用项目已有 JDK HttpClient 与 Jackson，不引入新库。应用 To
 5. 工作台在提交前从地址栏移除回传参数，地址中最多保留锁定租户标记；授权码、state、凭证与任何 Token 都不留在地址或浏览历史中。工作台页面声明不发送 Referer，回传地址不会经后续请求带出。
 6. 外部 Token 不作为平台 Token。外部身份解析成功后经 IAM 内部会话签发入口登录，复用租户启用、账号启用、登录审计与会话生命周期；会话登录方式记为 `external:<身份源编码>`。
 7. 强制改密只约束以密码建立的会话；密码登录锁定只防护本地密码，不阻止也不解除外部登录。
-8. 完成结果状态为 `succeeded`、`denied`、`expired`，拒绝原因以稳定码表达（`identityNotBound`、`identityConflict`、`alreadyBound`、`enterpriseMismatch`、`policyDisabled`、`accountUnavailable`、`sessionEnded`、`providerRejected`、`providerUnavailable`，平台自身故障为 `internalError`）。需要绑定、开户确认、审核和选择租户的状态随对应能力加入。
+8. 完成结果状态为 `succeeded`、`denied`、`expired`、`confirmationRequired`、`reviewPending`、`reviewRejected`，拒绝原因以稳定码表达（`identityNotBound`、`identityConflict`、`alreadyBound`、`enterpriseMismatch`、`policyDisabled`、`accountUnavailable`、`sessionEnded`、`providerRejected`、`providerUnavailable`、`admissionRejected`，平台自身故障为 `internalError`）。开户确认及审核状态不包含业务会话；公共入口选择租户仍不在当前范围。
 9. 以 POST 把授权结果送回回调地址的身份源（如 OIDC `form_post`、SAML）以及“手机授权、桌面登录”的桥接流程不在本流程内：它们的结果不经过发起浏览器，需要单独设计浏览器绑定或手机端确认后再接入。
 10. 厂商不提供扫码状态时，不展示虚构的“已扫码”中间状态。
 
@@ -285,7 +285,7 @@ REVIEW 通过 `iam.join_application` 标准静态模块维护待审、批准、�
 
 ### 阶段 A/B 接入契约
 
-- 读取插件实现 `ExternalDirectoryProtocol`，仅消费 `IdentityProviderDescriptor`。部门分页为包含所选根的父先子后序列，部门只要求 `id/parentId/title`，无祖先路径。部门人员分页直接返回基本资料与来源状态，每项表示当前部门的一条任职观测，可选携带厂商主部门与完整任职集合；平台不逐人查询详情。`supportsPersonLookup` 默认关闭，仅声明支持时才使用 `person` 核验超龄登录身份。状态由插件将已确认的厂商取值映射为 `active/disabled/departed/unknown`，未确认状态不得默认为在职。分页 token 不透明，单页最多 100 条；只读拉取发生暂时失败时最多读取三次，50／100 毫秒退避，插件须遵守厂商限流。身份源可以只实现登录或读取能力，两类协议声明的身份范围配置键共同受绑定后的权威锁定约束；每页提交前在数据库事务内复核身份源权威，读取期间发生权威变化时以 `DIRECTORY_CONFIGURATION_CHANGED` 失败，不提交该页。
+- 读取插件实现 `ExternalDirectoryProtocol`，仅消费 `IdentityProviderDescriptor`。部门分页为包含所选根的父先子后序列，部门只要求 `id/parentId/title`，无祖先路径。部门人员分页直接返回基本资料与来源状态，每项表示当前部门的一条任职观测，可选携带厂商主部门与完整任职集合；平台不逐人查询详情。`supportsPersonLookup` 默认关闭，仅声明支持时才使用 `person` 核验超龄登录身份及按需开户准入。状态由插件将已确认的厂商取值映射为 `active/disabled/departed/unknown`，未确认状态不得默认为在职。分页 token 不透明，单页最多 100 条；只读拉取发生暂时失败时最多读取三次，50／100 毫秒退避，插件须遵守厂商限流。身份源可以只实现登录或读取能力，两类协议声明的身份范围配置键共同受绑定后的权威锁定约束；每页提交前在数据库事务内复核身份源权威，读取期间发生权威变化时以 `DIRECTORY_CONFIGURATION_CHANGED` 失败，不提交该页。
 - `mock` 读取与模拟登录使用相同开发模式及开关门禁。身份源协议配置的字符串键 `directory` 保存 JSON 字符串，其对象包含 `departments`、`people`、`failPages`。不增加第二套可编辑文件或服务，现有身份源管理页即可维护，fixture 可由测试直接构造。部门按父先子后排列，字段为 `id/parentId/title`；人员字段为 `id/title/employeeNo/primaryDepartmentId/departmentIds/status/mobile/email`，主部门可空，状态为 `active/disabled/departed/unknown`。配置字符串键 `directorySingleDepartmentView=true` 使人员分页省略主部门和全部部门；`people.departmentIds` 仍决定 fixture 中各部门能观测到哪些人。`directoryPersonLookup=false` 关闭员工详情（默认支持）；可组合模拟 WeLink 形态。`failPages` 可填写 `departments:<root>:<offset>` 或 `people:<department>:<offset>`，用于模拟确定性失败。
 - 策略的 `syncRoots` 是 `[{"externalDepartmentId":"部门 ID","organizationId":"本地机构 ID"}]`。保存前在持锁事务之外按部门详情的 `parentId` 逐级回溯、合并重复及被祖先覆盖的根；无父节点识别为全企业根。回溯最多 256 层并检测环与返回 ID 不符；同步分页的范围校验复用同一回溯，在事务外核对详情与分页父节点一致。选择父链回溯以避免依赖厂商祖先字段或尚未读完的分页树；代价是每个部门至多一次父链的读取，插件需遵守限流。同一根映射多个机构拒绝。空范围或全企业根要求 `syncScopeConfirmed=true`。空范围表示不读取任何人员，不自动解释为全企业。范围、默认岗位或角色变化产生不可变 `DirectorySyncScope`，队列仅冻结其引用，不保存通讯录全文或凭据。`syncPositionId` 必填，`syncRoleId` 可选，仅接受非管理用途的普通任职角色。
 - `syncExpression` 默认每天零点（`0 0 0 * * *`），使用秒位为 0 的 cron，`syncZoneId` 指定合法 IANA 时区，为空时由平台默认时区解析，`syncEnabled` 与策略启停共同控制托管计划。关闭或删除策略时删除托管计划，保留执行历史。动作 `preview`、`synchronize` 按策略、模式与范围版本 `scopeId` 去重，同一未结束运行直接返回其 ID；终态后可再次发起。动作返回平台作业运行 ID，执行身份始终是租户内 SYSTEM。

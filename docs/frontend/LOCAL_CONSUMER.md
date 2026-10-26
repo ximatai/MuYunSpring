@@ -72,7 +72,7 @@ npm link <muyun-spring-repository>/build/consumer-npm/staging/web-app
 ## 自有壳的外部登录与个人绑定
 
 根包公开 `useExternalLoginHost`、`ExternalLoginHostOptions`、`ExternalLoginHost`、
-`CurrentUserProfileDialog` 和 `ExternalIdentityBindings`。宿主继续使用现有的
+`CurrentUserProfileDialog`、`ExternalIdentityBindings` 和 `ExternalProvisioningConfirmation`。宿主继续使用现有的
 `LoginView`、`createExternalLoginClient`、`createLoginContextClient`；无需读取私有路径、
 复制 state/browserProof 或操作事务 sessionStorage。standalone App 也使用同一宿主入口。
 
@@ -83,9 +83,9 @@ npm link <muyun-spring-repository>/build/consumer-npm/staging/web-app
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { useExternalLoginHost, createExternalLoginClient, LoginView,
-  ExternalIdentityBindings } from '@ximatai/muyun-web-app';
+  ExternalIdentityBindings, ExternalProvisioningConfirmation } from '@ximatai/muyun-web-app';
 const ready = ref(false), client = createExternalLoginClient(http);
-const { completeReturn, error, completing } = useExternalLoginHost({
+const { completeReturn, error, completing, confirmation, confirming, confirmProvisioning, cancelProvisioning } = useExternalLoginHost({
   client, router, signedIn: () => Boolean(session.value),
   onAuthenticated: acceptLogin,
 });
@@ -95,7 +95,9 @@ onMounted(async () => {
 });
 </script>
 <template>
-  <LoginView v-if="ready && !session" :auth-client="authClient"
+  <ExternalProvisioningConfirmation v-if="ready && confirmation" :confirmation="confirmation"
+    :busy="confirming" :error="error" @confirm="confirmProvisioning" @cancel="cancelProvisioning" />
+  <LoginView v-else-if="ready && !session" :auth-client="authClient"
     :login-context-client="loginContextClient" :external-login-client="client"
     :loading="completing" :error="error" @authenticated="acceptLogin" />
   <ExternalIdentityBindings v-if="ready && session" :client="client" :token="session.token" />
@@ -103,9 +105,13 @@ onMounted(async () => {
 ```
 
 应在恢复普通会话前调用 `completeReturn()`，并在完成前暂缓渲染登录表单，让清理后的租户地址
-决定表单的租户锁定。返回 `true` 表示已交接登录结果或已有待展示的未登录失败；返回 `false`
+决定表单的租户锁定。返回 `true` 表示已交接登录结果、等待开户确认或已有待展示的未登录失败；返回 `false`
 表示继续宿主原有会话恢复流程（包括绑定成功）。`error`、`completing` 是只读响应式状态；
 未登录失败交给 `LoginView.error` 展示，已登录失败和绑定成功使用平台反馈。
+AUTO 返回的 `confirmation` 是服务端只读资料，宿主使用公开确认组件或自有视图展示，调用
+`confirmProvisioning()` 后仍通过 `onAuthenticated` 交接会话；`confirming` 防止重复提交和请求期间取消。
+`cancelProvisioning()` 丢弃当前确认凭证，返回登录页；刷新后须重新扫码。REVIEW 待审或拒绝通过
+`error` 提示，不交接业务会话。
 `callbackPath` 默认 `/`，可指定已注册的宿主回调路由（相对于 Router base），并与后端 redirect URI 对齐。
 重复并发调用会合并；事务在请求前消费，地址以 Router replace 清除厂商参数和 hash，保留发起登录
 的锁定租户。刷新或旧回调重放不会重试已消费事务；网络失败后需重新发起授权。
