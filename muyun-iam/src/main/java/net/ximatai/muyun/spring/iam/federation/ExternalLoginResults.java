@@ -16,7 +16,7 @@ public final class ExternalLoginResults {
      * browser that started the transaction can complete it, and the proof never travels in a URL.
      */
     public record Start(String transactionId, String state, String authorizationUrl, String browserProof,
-                        Instant expiresAt) {
+                        Instant expiresAt, ExternalLoginProtocol.QrCode qrCode) {
     }
 
     /**

@@ -308,7 +308,8 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         URI authorizationUri = providers.protocolOf(provider)
                 .authorizationUri(providers.descriptorOf(provider), context(state, codeVerifier));
         return new ExternalLoginResults.Start(transaction.getId(), state, authorizationUri.toString(), browserProof,
-                transaction.getExpiresAt());
+                transaction.getExpiresAt(), providers.protocolOf(provider)
+                        .qrCode(providers.descriptorOf(provider), context(state, codeVerifier)));
     }
 
     private Outcome resolve(ExternalLoginTransaction transaction, String state, Map<String, String> parameters,
@@ -430,7 +431,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                     && policy.getSyncScopeId() != null && binding.getSourceStatus() != null);
         if (!directoryManaged) return false;
         Instant checked = binding.getSourceCheckedAt() == null ? binding.getBoundAt() : binding.getSourceCheckedAt();
-        int seconds = policy.getSourceStatusMaxAgeSeconds() == null ? 86400 : policy.getSourceStatusMaxAgeSeconds();
+        int seconds = policy.getSourceStatusMaxAgeSeconds() == null ? 259200 : policy.getSourceStatusMaxAgeSeconds();
         return checked == null || !now.isBefore(checked.plusSeconds(seconds));
     }
 

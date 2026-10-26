@@ -28,6 +28,11 @@ muyun:
   #     workbench-url: http://127.0.0.1:5173/app/
   #     mock:
   #       enabled: true
+  #     # WeLink requires an explicit muyun-iam-welink dependency in the consumer application.
+  #     # Set provider credentials via an environment-variable reference in the identity provider record.
+  #     # Register the exact workbench-url on WeLink; production URLs must use HTTPS.
+  #     # welink:
+  #     #   enabled: true
   security:
     # To enable encrypted and signed field protection, uncomment and set a Base64-encoded
     # 16/24/32-byte AES master key through a local secret environment variable.

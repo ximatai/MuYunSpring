@@ -3680,7 +3680,11 @@
       "platform.screen.ExternalIdentityBindings.bind": "去绑定",
       "platform.external-login.internal-error": "平台处理失败，请稍后重试",
       "platform.external-login.session-ended": "发起绑定的登录已失效，请重新登录后再绑定",
-      "platform.screen.ModuleActionManagementView.schedulable": "允许定时调用（无需表单的模块动作）"
+      "platform.screen.ModuleActionManagementView.schedulable": "允许定时调用（无需表单的模块动作）",
+      "platform.welink.qr-title": "WeLink 扫码授权",
+      "platform.welink.expired": "二维码授权已超时，请关闭后重新发起",
+      "platform.welink.load-failed": "无法加载 WeLink 二维码，请检查网络后重新发起，或使用其他登录方式",
+      "platform.welink.scan": "请使用 WeLink 扫码并在手机上确认授权"
     }
   },
   "en": {
@@ -7365,7 +7369,11 @@
       "platform.screen.ExternalIdentityBindings.bind": "Link",
       "platform.external-login.internal-error": "The platform could not finish the request. Please try again later.",
       "platform.external-login.session-ended": "The sign-in that started the link has ended. Sign in again before linking.",
-      "platform.screen.ModuleActionManagementView.schedulable": "Allow scheduled invocation (module actions without a form)"
+      "platform.screen.ModuleActionManagementView.schedulable": "Allow scheduled invocation (module actions without a form)",
+      "platform.welink.qr-title": "WeLink QR authorization",
+      "platform.welink.expired": "QR authorization expired. Close it and try again.",
+      "platform.welink.load-failed": "Unable to load the WeLink QR code. Check your network and try again, or use another sign-in method.",
+      "platform.welink.scan": "Scan with WeLink and confirm authorization on your phone."
     }
   },
   "fr": {

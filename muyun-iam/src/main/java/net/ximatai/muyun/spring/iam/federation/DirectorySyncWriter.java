@@ -4,6 +4,12 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.TreeAbility;
+import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
+import net.ximatai.muyun.spring.common.model.contract.EntityContract;
+import net.ximatai.muyun.spring.common.platform.*;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.ability.VersionedRecordMutation;
 import net.ximatai.muyun.spring.iam.department.*;
 import net.ximatai.muyun.spring.iam.employee.*;
@@ -97,7 +103,7 @@ final class DirectorySyncWriter {
         }
         department.setParentId(parent);
         if (fresh || replacement) departments.insert(department);
-        else departments.update(department);
+        else updateOwned(run, departments, department);
         map.setRootId(root.externalDepartmentId());
         map.setOrganizationId(root.organizationId());
         map.setDepartmentId(department.getId());
@@ -106,6 +112,30 @@ final class DirectorySyncWriter {
         map.setLastSeenAt(Instant.now());
         if (fresh) DirectorySyncStore.insert(store.mappings, map);
         else DirectorySyncStore.save(store.mappings, map);
+    }
+
+    /**
+     * A fenced directory mutation is authorized by the source mapping/binding above, not a human's
+     * data grants or the generic scheduled-action whitelist. Keep the normal service update path;
+     * never grant a whole job or a tenant a reusable permission bypass.
+     */
+    private <T extends EntityContract> void updateOwned(DirectorySyncRun run, CrudAbility<T> service, T entity) {
+        if (!(service == departments || service == employees || service == accounts)
+                || !"SYNC".equals(run.getMode())
+                || !TenantContext.isTenantSystem()
+                || !TransactionScopeSupport.isTransactionActive()
+                || !TenantContext.backgroundJobType().filter(DirectorySyncJob.TYPE::equals).isPresent()
+                || TenantContext.tenantFilterBypassed()
+                || !TenantContext.currentTenantId().filter(run.getTenantId()::equals).isPresent()
+                || !Objects.equals(run.getTenantId(), entity.getTenantId())) {
+            throw new IllegalStateException("Directory mutation requires its fenced tenant job transaction");
+        }
+        var policy = new ActionExecutionPolicy("directorySync", PlatformActionLevel.RECORD,
+                ActionAccessMode.AUTH_REQUIRED, false, false, ActionDefaultGrantPolicy.NONE, null);
+        try (var action = ActionExecutionContextHolder.use(ActionExecutionContext.ofPolicy(
+                service.getModuleAlias(), policy, Set.of(entity.getId()), CurrentUserContext.currentUser()))) {
+            if (service.update(entity) != 1) throw new IllegalStateException("Directory record is no longer available");
+        }
     }
 
     /** Preserve an existing source primary while it remains in the current observed memberships. */
@@ -143,6 +173,8 @@ final class DirectorySyncWriter {
             DirectorySyncScope scope,
             IdentityProviderDescriptor provider,
             ExternalDirectoryProtocol.Person person, String primarySource) {
+        // An unknown observation proves presence, but authorizes no IAM or employment mutation.
+        if ("unknown".equals(person.status())) return true;
         var binding =
                 identities
                         .findByExternalIdentity(
@@ -263,10 +295,10 @@ final class DirectorySyncWriter {
             employee.setEmployeeNo(employeeNo(scope, person));
             employee.setMobile(person.mobile());
             employee.setEmail(person.email());
-            employees.update(employee);
+            updateOwned(run, employees, employee);
             var account = accounts.selectActiveRaw(binding.getUserId());
             account.setTitle(person.title());
-            accounts.update(account);
+            updateOwned(run, accounts, account);
             binding.setDisplayName(person.title());
             binding.setSourceStatus(person.status());
             binding.setSourceCheckedAt(Instant.now());

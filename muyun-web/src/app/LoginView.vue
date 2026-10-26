@@ -14,9 +14,20 @@ import {
 import type { ExternalLoginMethod, LoginResult, TenantBranding } from '@muyun/web-contracts';
 import { UiButton, UiInput } from '@muyun/vue-ui-antdv';
 import { normalizeInitialValue, resolveLoginTenantDefaults } from './loginTenant';
-import { navigateToExternalAuthorization, rememberExternalLogin } from './externalLoginReturn';
+import WeLinkQrCode from './WeLinkQrCode.vue';
+import type { ExternalLoginStart } from '@muyun/web-contracts';
+import {
+  forgetExternalLogin,
+  navigateToExternalAuthorization,
+  rememberExternalLogin,
+} from './externalLoginReturn';
 
 const language = useLanguageContext();
+const qrStart = ref<ExternalLoginStart>();
+function closeQrCode() {
+  if (qrStart.value) forgetExternalLogin(qrStart.value.state);
+  qrStart.value = undefined;
+}
 
 defineOptions({ name: 'LoginView' });
 
@@ -91,13 +102,19 @@ async function startExternalLogin(method: ExternalLoginMethod) {
   formError.value = undefined;
   externalBusy.value = true;
   try {
+    closeQrCode();
     const start = await props.externalLoginClient.startLogin(method.providerId, tenantId.value);
     rememberExternalLogin(start, {
       providerId: method.providerId,
       purpose: 'login',
       tenantId: tenantId.value,
     });
-    navigateToExternalAuthorization(start.authorizationUrl);
+    if (start.qrCode) {
+      qrStart.value = start;
+      externalBusy.value = false;
+    } else {
+      navigateToExternalAuthorization(start.authorizationUrl);
+    }
   } catch (cause) {
     formError.value = () => loginErrorMessage(cause);
     externalBusy.value = false;
@@ -217,6 +234,7 @@ async function submitPasswordChange() {
         {{ formError?.() || error || loginContextError?.() }}
       </p>
 
+      <WeLinkQrCode v-if="qrStart" :key="qrStart.state" :start="qrStart" @close="closeQrCode" />
       <form v-if="!passwordChangeRequired" class="login-form" @submit.prevent="submit">
         <label v-if="!tenantLocked">
           <span>{{ language.t('platform.screen.LoginView.tenant-id', '租户 ID') }}</span>
@@ -262,6 +280,7 @@ async function submitPasswordChange() {
           :key="method.providerId"
           class="login-submit"
           :loading="externalBusy"
+          :disabled="externalBusy"
           @click="startExternalLogin(method)"
         >
           {{

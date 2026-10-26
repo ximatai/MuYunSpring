@@ -73,8 +73,8 @@ public class TenantIdentityPolicy extends StandardEnabledSortableEntity {
     @ReferenceTo(target = RoleService.class)
     private String syncRoleId;
 
-    @Column(name = "sync_expression", type = ColumnType.VARCHAR, length = 128, comment = "Minute precision cron")
-    private String syncExpression;
+    @Column(name = "sync_expression", type = ColumnType.VARCHAR, length = 128, defaultVal = @Default(varchar = "0 0 0 * * *"), comment = "Minute precision cron")
+    private String syncExpression = "0 0 0 * * *";
     @Column(name = "sync_zone_id", type = ColumnType.VARCHAR, length = 64, comment = "Directory schedule time zone")
     private String syncZoneId;
     @Column(name = "sync_enabled", type = ColumnType.BOOLEAN, comment = "Directory schedule enabled")
@@ -89,6 +89,6 @@ public class TenantIdentityPolicy extends StandardEnabledSortableEntity {
     private String pendingSyncScopeId;
 
     @Column(name = "source_status_max_age_seconds", type = ColumnType.INT, nullable = false,
-            defaultVal = @Default(number = 86400), comment = "Maximum authoritative source status age")
-    private Integer sourceStatusMaxAgeSeconds = 86400;
+            defaultVal = @Default(number = 259200), comment = "Maximum authoritative source status age")
+    private Integer sourceStatusMaxAgeSeconds = 259200;
 }

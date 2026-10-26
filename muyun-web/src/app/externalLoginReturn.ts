@@ -41,6 +41,17 @@ export function rememberExternalLogin(
   writePending(storage, pending.slice(-5));
 }
 
+/** Closing the QR surface discards this tab's proof; a later return cannot complete that transaction. */
+export function forgetExternalLogin(
+  state: string,
+  storage: Storage | undefined = sessionStorageOrUndefined(),
+) {
+  writePending(
+    storage,
+    readPending(storage).filter((entry) => entry.state !== state),
+  );
+}
+
 /** Sends the browser to the provider authorization page; the page itself is outside the workbench. */
 export function navigateToExternalAuthorization(authorizationUrl: string) {
   window.location.assign(authorizationUrl);

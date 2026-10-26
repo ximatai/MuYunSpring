@@ -38,13 +38,13 @@ class MockExternalDirectoryProtocolTest {
         assertThat(protocol.person(descriptor,"one").departmentIds()).containsExactly("a","b");
         assertThat(protocol.person(descriptor,"two").status()).isEqualTo("disabled");
     }
-    @Test void rejectsUntrustworthyFixtureAncestryAndUnknownStatus() {
+    @Test void rejectsUntrustworthyFixtureAncestryAndInvalidStatus() {
         var mode = mock(PlatformRuntimeModeProvider.class); when(mode.isDevelopment()).thenReturn(true);
         var protocol = new MockExternalDirectoryProtocol(mode);
         var ancestry = new MockExternalDirectoryProtocol.Data(List.of(new ExternalDirectoryProtocol.Department("root","missing","Root")),List.of(),List.of());
         assertThatThrownBy(() -> protocol.validateConfiguration(Map.of("directory", DirectorySyncStore.encode(ancestry)))).isInstanceOf(IllegalArgumentException.class);
         var data = new MockExternalDirectoryProtocol.Data(List.of(new ExternalDirectoryProtocol.Department("root",null,"Root")),
-                List.of(new ExternalDirectoryProtocol.Person("one","One",null,"root",List.of("root"),"unknown",null,null)),List.of());
+                List.of(new ExternalDirectoryProtocol.Person("one","One",null,"root",List.of("root"),"invalid",null,null)),List.of());
         var invalid = data;
         assertThatThrownBy(() -> protocol.validateConfiguration(Map.of("directory", DirectorySyncStore.encode(invalid)))).isInstanceOf(IllegalArgumentException.class);
     }

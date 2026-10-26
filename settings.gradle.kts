@@ -21,6 +21,7 @@ include(
     "muyun-dynamic",
     "muyun-platform",
     "muyun-iam",
+    "muyun-iam-welink",
     "muyun-web-adapter",
     "muyun-platform-web",
     "muyun-iam-web",

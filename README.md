@@ -55,6 +55,7 @@ muyun-ability     平台能力接口、默认实现、生命周期和数据访�
 muyun-dynamic     动态元数据、动态记录运行态和动态运行态刷新
 muyun-platform    平台配置、页面交付、自动化、工作流和治理能力
 muyun-iam         租户、组织、用户、角色、权限和身份上下文
+muyun-iam-welink  可选 WeLink 身份源插件，扫码身份兑换与只读通讯录
 muyun-web-adapter 通用 HTTP 协议适配、请求生命周期和 Web 基础能力
 muyun-platform-web 平台能力的静态 Web 交付、端点投影和实时推送适配
 muyun-iam-web     IAM 领域的 Web 交付

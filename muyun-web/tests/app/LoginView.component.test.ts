@@ -19,6 +19,59 @@ describe('LoginView', () => {
     window.sessionStorage.clear();
   });
 
+  it('presents a QR transaction locally and discards its browser proof on close', async () => {
+    vi.mocked(navigateToExternalAuthorization).mockClear();
+    const start = {
+      transactionId: 'qr-tx',
+      state: 'qr-state',
+      browserProof: 'private-proof',
+      authorizationUrl: 'https://login.welink.huaweicloud.com/sso/oauth2/sns_authorize',
+      expiresAt: new Date(Date.now() + 180000).toISOString(),
+      qrCode: {
+        providerType: 'welink',
+        scriptUrl: 'official',
+        authorizationUrl: 'official',
+        clientId: 'client',
+        redirectUri: 'callback',
+        state: 'qr-state',
+        scope: 'snsapi_login',
+        messageOrigin: 'official',
+      },
+    };
+    window.history.replaceState({}, '', '/?tenant=tenant-a');
+    const client = externalLoginClient({ startLogin: vi.fn().mockResolvedValue(start) });
+    const wrapper = mount(LoginView, {
+      props: {
+        authClient: authClient(),
+        loginContextClient: loginContextClient(undefined, [
+          { providerId: 'welink', title: 'WeLink', providerType: 'welink' },
+        ]),
+        externalLoginClient: client,
+      },
+      global: {
+        stubs: {
+          WeLinkQrCode: {
+            props: ['start'],
+            emits: ['close'],
+            template: '<button class="qr-close" @click="$emit(\'close\')">Close QR</button>',
+          },
+        },
+      },
+    });
+    await flushPromises();
+    const button = wrapper
+      .findAll('button')
+      .find((candidate) => candidate.text().includes('使用 WeLink 登录'));
+    await button!.trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.qr-close').exists()).toBe(true);
+    expect(navigateToExternalAuthorization).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem('muyun.externalLogin.pending')).toContain('private-proof');
+    await wrapper.get('.qr-close').trigger('click');
+    expect(window.sessionStorage.getItem('muyun.externalLogin.pending')).toBeNull();
+    wrapper.unmount();
+  });
+
   it('offers the tenant external sign-in methods and keeps the browser proof out of the address', async () => {
     window.history.replaceState({}, '', '/?tenant=tenant-a');
     const external = externalLoginClient();
