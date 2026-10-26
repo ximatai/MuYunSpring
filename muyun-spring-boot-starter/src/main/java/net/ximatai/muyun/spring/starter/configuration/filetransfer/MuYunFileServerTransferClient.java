@@ -27,7 +27,7 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
     private final MuYunFileServerTransferAccessService accessService;
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
-    private final HttpClient contentHttpClient = HttpClient.newBuilder().build();
+    private final HttpClient contentHttpClient = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
     MuYunFileServerTransferClient(MuYunFileServerTransferAccessService accessService,
                                   RestClient restClient,
@@ -77,9 +77,9 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
             return response.body();
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new PlatformException("file server download request was interrupted for file: " + access.fileId(), exception);
+            throw new PlatformException("file server download request was interrupted for file: " + access.fileId());
         } catch (java.io.IOException exception) {
-            throw new PlatformException("file server download request failed for file: " + access.fileId(), exception);
+            throw new PlatformException("file server download request failed for file: " + access.fileId());
         }
     }
 
@@ -96,7 +96,7 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
                 throw new PlatformException("file server delete response does not confirm requested file");
             }
         } catch (RestClientException | java.io.IOException exception) {
-            throw new PlatformException("file server delete request failed for file: " + access.fileId(), exception);
+            throw new PlatformException("file server delete request failed for file: " + access.fileId());
         }
     }
 
@@ -122,7 +122,7 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
             return metadata;
         } catch (RestClientException | java.io.IOException exception) {
             throw new PlatformException("file server " + expectedOperation.name().toLowerCase()
-                    + " request failed for file: " + access.fileId(), exception);
+                    + " request failed for file: " + access.fileId());
         }
     }
 

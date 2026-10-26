@@ -25,6 +25,43 @@ class MuYunFileServerTransferClientTest {
     }
 
     @Test
+    void officialAssemblyNeverForwardsTicketsOnRedirectsOrLeaksUpstreamErrors() throws Exception {
+        var destinationRequests = new java.util.concurrent.atomic.AtomicInteger();
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        String base = "http://127.0.0.1:" + server.getAddress().getPort();
+        var status = new java.util.concurrent.atomic.AtomicInteger(307);
+        server.createContext("/api/", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            if (status.get() == 307) {
+                exchange.getResponseHeaders().set("Location", base + "/untrusted?" + exchange.getRequestURI().getRawQuery());
+            }
+            byte[] body = "sensitive-upstream-body".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(status.get(), body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.createContext("/untrusted", exchange -> {
+            destinationRequests.incrementAndGet(); exchange.sendResponseHeaders(500, -1); exchange.close();
+        });
+        server.start();
+        try (var user = CurrentUserContext.use(CurrentUser.tenantUser("u", "u", "tenant"))) {
+            var properties = new MuYunFileServerTransferProperties();
+            properties.setBaseUrl(URI.create(base)); properties.setIssuer("test"); properties.setSecret("server-secret");
+            var access = new MuYunFileServerTransferAccessService(properties, new ObjectMapper());
+            var client = new MuYunFileServerTransferConfiguration().fileTransferClient(access, new ObjectMapper());
+            for (int code : new int[]{307, 500}) {
+                status.set(code);
+                for (Runnable request : java.util.List.<Runnable>of(() -> client.readMetadata("file"),
+                        () -> client.promote("file"), () -> client.delete("file"), () -> client.openContent("file"))) {
+                    org.assertj.core.api.Assertions.assertThatThrownBy(request::run)
+                            .hasNoCause().hasMessageNotContaining("access_token").hasMessageNotContaining("sensitive-upstream-body");
+                }
+            }
+            assertThat(destinationRequests).hasValue(0);
+        } finally { server.stop(0); }
+    }
+
+    @Test
     void shouldReadAndPromoteMetadataThroughTheOfficialProviderContract() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
