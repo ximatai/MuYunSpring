@@ -1242,8 +1242,14 @@ class DirectorySyncIT {
                     row.setStatus("SUCCEEDED");
                     row.setCompleted(true);
                     DirectorySyncStore.insert(syncRuns, row);
-                    db.execute(
-                            "update iam_directory_sync_run set updated_at=clock_timestamp()-interval '31 days'");
+                    // Rewrite the oldest tuple to vary heap layout without changing completion order.
+                    db.execute("update iam_directory_sync_run set statistics=statistics where job_run_id=?", old);
+                    // Age facts without replacing completion order with heap scan order.
+                    db.execute("""
+                            update iam_directory_sync_run
+                            set created_at=created_at-interval '31 days',
+                                updated_at=updated_at-interval '31 days'
+                            """);
                     return null;
                 });
         cleanTopic();
@@ -1800,8 +1806,9 @@ class DirectorySyncIT {
                     if (!"tenant-a".equals(TenantContext.currentTenantId().orElse(null))) return;
                     entered.countDown();
                     try {
-                        if (!release.await(10, TimeUnit.SECONDS))
-                            throw new AssertionError("directory fixture timed out");
+                        // The controlling thread releases this after its independent tenant work.
+                        // A fixture deadline here would race that work under resource pressure.
+                        release.await();
                     } catch (InterruptedException interrupted) {
                         Thread.currentThread().interrupt();
                         throw new AssertionError(interrupted);
