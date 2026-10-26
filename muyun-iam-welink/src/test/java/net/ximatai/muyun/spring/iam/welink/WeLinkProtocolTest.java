@@ -116,14 +116,14 @@ class WeLinkProtocolTest {
     @Test void paginatesSafelyAndMapsMembershipPrimaryAndStatuses() {
         var original = handler;
         handler = req -> req.path().endsWith("/user/list") ? ok("""
-                {"code":0,"hasMore":1,"data":[
+                {"code":0,"hasMore":0,"data":[
                   {"userId":"alice","employeeId":"001","userNameCn":"Alice","userStatus":3,
                    "mobileNumber":"sensitive-mobile","userEmail":"alice@example.test","mainDeptCode":"b","deptCodes":["a","b"]},
                   {"userId":"bob","userNameCn":"Bob","userStatus":6,"deptCodes":"a,b"}]}
                 """) : original.apply(req);
         var p = provider(Map.of("pageSize", "2", "departedStatuses", "6"));
         var first = directory().departmentPeople(p, "a", null, 200);
-        assertThat(first.nextCursor()).isEqualTo("2"); // Numeric 1 does not stop a full page by default.
+        assertThat(first.nextCursor()).isEqualTo("2"); // WeLink 0 means more, including full pages.
         assertThat(first.items()).first().satisfies(person -> {
             assertThat(person.primaryDepartmentId()).isEqualTo("b");
             assertThat(person.departmentIds()).containsExactly("a", "b");
@@ -141,10 +141,12 @@ class WeLinkProtocolTest {
     @Test void honorsExplicitNoMoreAndBoundsNonTerminatingPages() {
         var original = handler;
         handler = req -> req.path().endsWith("/user/list") ? ok("{\"code\":0,\"hasMore\":false,\"data\":[{\"userId\":\"x\",\"userNameCn\":\"X\"}]}") : original.apply(req);
-        assertThat(directory().departmentPeople(provider(), "a", null, 1).nextCursor()).isNull();
+        assertThat(directory().departmentPeople(provider(), "a", null, 1).nextCursor()).isEqualTo("2");
         handler = req -> req.path().endsWith("/user/list") ? ok("{\"code\":0,\"hasMore\":1,\"data\":[{\"userId\":\"x\",\"userNameCn\":\"X\"}]}") : original.apply(req);
-        assertThat(directory().departmentPeople(provider(Map.of("noMoreValue", "1")), "a", null, 1).nextCursor()).isNull();
-        assertThatThrownBy(() -> directory().departmentPeople(provider(Map.of("maxPages", "2")), "a", "3", 1)).isInstanceOf(ExternalIdentityVerificationException.class);
+        assertThat(directory().departmentPeople(provider(), "a", null, 1).nextCursor()).isNull();
+        handler = req -> req.path().endsWith("/user/list") ? ok("{\"code\":0,\"hasMore\":\"1\",\"data\":[{\"userId\":\"x\",\"userNameCn\":\"X\"}]}") : original.apply(req);
+        assertThat(directory().departmentPeople(provider(), "a", null, 1).nextCursor()).isNull();
+        assertThatThrownBy(() -> directory().departmentPeople(provider(Map.of("maxPages", "2")), "a", "3", 1)).isInstanceOf(ExternalDirectoryProtocol.ReadLimitExceededException.class);
     }
     @Test void normalizesUnorderedDepartmentTreeAndRejectsBrokenHierarchy() {
         var original = handler;
@@ -170,6 +172,66 @@ class WeLinkProtocolTest {
         assertThatThrownBy(() -> directory.departments(provider(), "root", first.nextCursor(), 1)).isInstanceOf(ExternalIdentityVerificationException.class);
         assertThatThrownBy(() -> directory().departments(provider(), "root", null, 100)).isInstanceOf(ExternalIdentityVerificationException.class);
     }
+    private void departmentTree(int children) {
+        var original = handler;
+        handler = req -> {
+            if (!req.path().endsWith("/department/list")) return original.apply(req);
+            var params = new HashMap<String, String>();
+            for (String part : req.query().split("&")) {
+                var pair = part.split("=", 2);
+                params.put(pair[0], pair[1]);
+            }
+            int page = Integer.parseInt(params.get("pageNo"));
+            int size = Integer.parseInt(params.get("pageSize"));
+            int end = Math.min(children, page * size);
+            var rows = new ArrayList<String>();
+            // Descendants deliberately precede their parents, across vendor page boundaries.
+            for (int offset = (page - 1) * size; offset < end; offset++) {
+                int i = children - offset - 1;
+                String parent = i == 0 ? "root" : "d" + (i < 6 ? i - 1 : i % 6);
+                rows.add("{\"deptCode\":\"d" + i + "\",\"parentCode\":\"" + parent + "\",\"deptNameCn\":\"D\"}");
+            }
+            return ok("{\"code\":\"0\",\"hasMore\":" + (end == children ? 1 : 0)
+                    + ",\"data\":[" + String.join(",", rows) + "]}");
+        };
+    }
+
+    @Test void readsMoreThanFiveThousandDepartmentsWithoutTruncation() {
+        departmentTree(5100);
+        var directory = new WeLinkDirectoryProtocol(client, clock);
+        var p = provider();
+        var seen = new HashSet<String>();
+        String cursor = null;
+        do {
+            var page = directory.departments(p, "root", cursor, 100);
+            for (var row : page.items()) {
+                if (row.parentId() != null) assertThat(seen).contains(row.parentId());
+                assertThat(seen.add(row.id())).isTrue();
+            }
+            cursor = page.nextCursor();
+        } while (cursor != null);
+        assertThat(seen).hasSize(5101);
+        assertThat(requests.stream().filter(r -> r.path().endsWith("/department/list"))).hasSize(51);
+    }
+
+    @Test void failsExplicitlyAtRowAndPageBoundsIncludingTheAddedRoot() {
+        departmentTree(4);
+        var directory = directory();
+        var p = provider(Map.of("maxSnapshotRows", "5"));
+        assertThat(directory.departments(p, "root", null, 100).items()).hasSize(5);
+        var original = handler;
+        departmentTree(5);
+        assertThatThrownBy(() -> directory.departments(p, "root", null, 100))
+                .isInstanceOf(ExternalDirectoryProtocol.ReadLimitExceededException.class)
+                .hasMessageContaining("narrower synchronization roots");
+        handler = original;
+        departmentTree(6);
+        assertThatThrownBy(() -> directory.departments(p, "root", null, 100))
+                .isInstanceOf(ExternalDirectoryProtocol.ReadLimitExceededException.class);
+        assertThatThrownBy(() -> directory.departments(provider(Map.of("pageSize", "2", "maxPages", "1")), "root", null, 100))
+                .isInstanceOf(ExternalDirectoryProtocol.ReadLimitExceededException.class);
+    }
+
     @Test void rootParentSentinelsAreExplicitAndConfigurable() {
         var original = handler;
         handler = req -> req.path().endsWith("/detail") ? ok("{\"code\":0,\"data\":{\"deptCode\":\"root\",\"parentCode\":\"0\",\"deptNameCn\":\"Root\"}}") : original.apply(req);

@@ -6,6 +6,13 @@ import java.util.Set;
 
 /** Read-only vendor boundary. Pages are stable and departments are returned parent before child. */
 public interface ExternalDirectoryProtocol {
+    /** A complete scope cannot be read within the adapter's configured bounds; never truncate it. */
+    final class ReadLimitExceededException extends IllegalArgumentException {
+        public ReadLimitExceededException() {
+            super("Directory read limit exceeded; select narrower synchronization roots");
+        }
+    }
+
     String providerType();
     default void validateConfiguration(Map<String, String> configuration) { }
 

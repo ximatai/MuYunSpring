@@ -571,6 +571,26 @@ class DirectorySyncIT {
     }
 
     @Test
+    void directoryLimitFailureIsVisibleAndCannotReclaimMissingPeople() {
+        enqueue(false);
+        execute();
+        String session = sessionFor("tenant-a");
+        departmentHook = () -> { throw new ExternalDirectoryProtocol.ReadLimitExceededException(); };
+        String id = enqueue(false);
+        execute();
+        assertThat(jobRuns.findById(id).getResultCode()).isEqualTo("DIRECTORY_PARTIAL");
+        assertThat(departmentReads).hasValue(4); // Two successful roots, then one permanent failure per root.
+        tenant("tenant-a", () -> {
+            var run = syncRuns.query(Criteria.of().eq("jobRunId", id), new PageRequest(0, 1)).getFirst();
+            assertThat(run.getCompleted()).isFalse();
+            assertThat(run.getFailedPages()).contains("departments-limit-select-narrower-roots");
+            assertThat(identityRows.query(Criteria.of(), new PageRequest(0, 10)).getFirst().getSourceStatus()).isEqualTo("active");
+            assertThat(sessionRows.findById(session).getRevokedAt()).isNull();
+            return null;
+        });
+    }
+
+    @Test
     void failedPageAndPreviewCannotInferMissing() {
         enqueue(false);
         execute();

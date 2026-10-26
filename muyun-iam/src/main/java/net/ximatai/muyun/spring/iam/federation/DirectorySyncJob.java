@@ -275,7 +275,9 @@ public class DirectorySyncJob implements JobHandler {
                 } catch (JobFailure failure) {
                     throw failure;
                 } catch (RuntimeException failure) {
-                    failure(stats, "departments", root.externalDepartmentId(), cursor.page);
+                    failure(stats, failure instanceof ExternalDirectoryProtocol.ReadLimitExceededException
+                            ? "departments-limit-select-narrower-roots" : "departments",
+                            root.externalDepartmentId(), cursor.page);
                     cursor.root++;
                     cursor.page = null;
                     commit(context, run, cursor, stats, () -> {});
@@ -372,7 +374,8 @@ public class DirectorySyncJob implements JobHandler {
                 } catch (JobFailure failure) {
                     throw failure;
                 } catch (RuntimeException failure) {
-                    failure(stats, "people", cursor.department, cursor.page);
+                    failure(stats, failure instanceof ExternalDirectoryProtocol.ReadLimitExceededException
+                            ? "people-limit-select-narrower-roots" : "people", cursor.department, cursor.page);
                     cursor.department = null;
                     cursor.page = null;
                     commit(context, run, cursor, stats, () -> {});

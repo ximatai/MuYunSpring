@@ -11,7 +11,7 @@ final class WeLinkConfiguration {
     static final String AUTHORIZE_PATH = "/sso/oauth2/sns_authorize";
     static final Set<String> AUTHORITY_KEYS = Set.of("apiBaseUrl", "loginBaseUrl");
     private static final Set<String> KEYS = Set.of("apiBaseUrl", "loginBaseUrl", "scope", "tokenParameterMode",
-            "timeoutMillis", "pageSize", "maxPages", "minRequestIntervalMillis", "refreshAheadSeconds",
+            "timeoutMillis", "pageSize", "maxPages", "maxSnapshotRows", "minRequestIntervalMillis", "refreshAheadSeconds",
             "backoffMillis", "rateLimitRetries", "rateLimitCodes", "authenticationFailureCodes",
             "noMoreValue", "rootParentCodes", "activeStatuses", "disabledStatuses", "departedStatuses");
     private final Map<String, String> values;
@@ -29,6 +29,7 @@ final class WeLinkConfiguration {
         number("timeoutMillis", 10000, 1, 120000);
         number("pageSize", 100, 1, 200);
         number("maxPages", 10000, 1, 100000);
+        maxSnapshotRows();
         number("minRequestIntervalMillis", 0, 0, 60000);
         number("refreshAheadSeconds", 300, 0, 3600);
         number("backoffMillis", 1000, 0, 60000);
@@ -43,7 +44,7 @@ final class WeLinkConfiguration {
                 if (!statuses.add(status)) throw invalid("overlapping status mapping");
             }
         }
-        if (value("noMoreValue", "0").isBlank()) throw invalid("noMoreValue");
+        if (value("noMoreValue", "1").isBlank()) throw invalid("noMoreValue");
     }
     String value(String key, String fallback) { return values.getOrDefault(key, fallback); }
     int number(String key, int fallback, int min, int max) {
@@ -56,6 +57,7 @@ final class WeLinkConfiguration {
     int timeout() { return number("timeoutMillis", 10000, 1, 120000); }
     int pageSize() { return number("pageSize", 100, 1, 200); }
     int maxPages() { return number("maxPages", 10000, 1, 100000); }
+    int maxSnapshotRows() { return number("maxSnapshotRows", 100000, 1, 100000); }
     String scope() { return value("scope", "snsapi_login"); }
     String tokenMode() { return value("tokenParameterMode", "query"); }
     Set<String> csv(String key, String fallback) {

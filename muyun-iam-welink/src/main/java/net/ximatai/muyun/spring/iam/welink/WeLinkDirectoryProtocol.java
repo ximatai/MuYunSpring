@@ -30,15 +30,16 @@ public final class WeLinkDirectoryProtocol implements ExternalDirectoryProtocol 
         if (cursor != null) return snapshotPage(provider, root, cursor, limit);
         // The vendor's cross-page ordering is unconfirmed. Read a bounded tree before exposing parent-first pages.
         var remaining = new LinkedHashMap<String, Department>();
+        int snapshotLimit = config.maxSnapshotRows();
         for (int page = 1; ; page++) {
-            if (page > config.maxPages()) throw WeLinkClient.unavailable();
+            if (page > config.maxPages()) throw new ReadLimitExceededException();
             var response = client.directory(provider, "/api/contact/v2/department/list", Map.of(
                     "deptCode", root, "recursiveflag", "1", "pageNo", Integer.toString(page),
                     "pageSize", Integer.toString(config.pageSize())));
             var data = rows(response);
             for (JsonNode row : data) {
                 var department = mapDepartment(row, config);
-                if (remaining.size() >= MAX_SNAPSHOT_ROWS) throw WeLinkClient.unavailable();
+                if (remaining.size() >= snapshotLimit) throw new ReadLimitExceededException();
                 if (remaining.putIfAbsent(department.id(), department) != null) throw WeLinkClient.unavailable();
             }
             if (finished(response, data.size(), config.pageSize(), config)) break;
@@ -61,7 +62,7 @@ public final class WeLinkDirectoryProtocol implements ExternalDirectoryProtocol 
             }
         }
         if (ordered.size() != remaining.size() + 1) throw WeLinkClient.unavailable();
-        if (ordered.size() > MAX_SNAPSHOT_ROWS) throw WeLinkClient.unavailable();
+        if (ordered.size() > config.maxSnapshotRows()) throw new ReadLimitExceededException();
         if (ordered.size() <= limit) return new Page<>(ordered, null);
         String snapshotId = UUID.randomUUID().toString();
         synchronized (snapshots) {
@@ -93,7 +94,8 @@ public final class WeLinkDirectoryProtocol implements ExternalDirectoryProtocol 
         var config = new WeLinkConfiguration(provider.configuration());
         checkLimit(limit);
         int page = cursor == null ? 1 : offset(cursor);
-        if (page < 1 || page > config.maxPages()) throw WeLinkClient.unavailable();
+        if (page < 1) throw WeLinkClient.unavailable();
+        if (page > config.maxPages()) throw new ReadLimitExceededException();
         int size = Math.min(limit, config.pageSize());
         var response = client.directory(provider, "/api/contact/v2/user/list", Map.of("deptCode", departmentId,
                 "pageNo", Integer.toString(page), "pageSize", Integer.toString(size)));
@@ -140,9 +142,8 @@ public final class WeLinkDirectoryProtocol implements ExternalDirectoryProtocol 
     private static boolean finished(JsonNode response, int count, int size, WeLinkConfiguration config) {
         if (count > size) throw WeLinkClient.unavailable();
         JsonNode hasMore = response.path("hasMore");
-        return count < size || (hasMore.isBoolean() && !hasMore.asBoolean())
-                || (hasMore.isValueNode() && !hasMore.isBoolean()
-                && config.value("noMoreValue", "0").equals(hasMore.asText()));
+        return count < size || (hasMore.isValueNode() && !hasMore.isBoolean()
+                && config.value("noMoreValue", "1").equals(hasMore.asText()));
     }
     private static String optional(JsonNode node, String key) {
         JsonNode value = node.path(key);
