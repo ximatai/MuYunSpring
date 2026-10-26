@@ -90,6 +90,7 @@ class ModuleActionInvokerTest {
         var contribution = mock(ScheduledModuleAction.class);
         when(contribution.moduleAlias()).thenReturn("test.target");
         when(contribution.actionCode()).thenReturn("execute");
+        when(contribution.parametersRequired()).thenReturn(true);
         beans.registerSingleton("static", contribution);
         when(actions.list(any(Criteria.class), any(PageRequest.class), any(Sort.class))).thenReturn(List.of());
         doAnswer(call -> {
@@ -100,6 +101,7 @@ class ModuleActionInvokerTest {
             assertThat(invoker.authorizedScheduledTargets()).containsExactly(
                     new ModuleActionInvoker.ScheduledTarget("test.target", "execute"));
             assertThat(TenantContext.currentTenantId()).contains("tenant-a");
+            assertThat(invoker.describeScheduledTarget("test.target", "execute").parametersRequired()).isTrue();
         }
         verify(contribution, never()).validate(anyMap());
         verify(contribution, never()).execute(anyMap());

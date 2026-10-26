@@ -97,11 +97,14 @@ public class ScheduledActionPlanService extends AbstractAbilityService<Scheduled
     }
     private void save(ScheduledActionPlan row) {
         var user = user();
-        if (!user.system() && (row.getTenantId() == null || !row.getTenantId().equals(user.tenantId())
-                || !row.getTenantId().equals(TenantContext.currentTenantId().orElse(null)))) throw rejection("account-tenant-required", "Plan must belong to current account tenant");
+        requireAccountScope(row, user);
         try (var businessScope = row.getTenantId() == null ? TenantContext.system("configure platform scheduled action") : TenantContext.use(row.getTenantId())) {
             saveInScope(row, user);
         }
+    }
+    private void requireAccountScope(ScheduledActionPlan row, CurrentUser user) {
+        if (!user.system() && (row.getTenantId() == null || !row.getTenantId().equals(user.tenantId())
+                || !row.getTenantId().equals(TenantContext.currentTenantId().orElse(null)))) throw rejection("account-tenant-required", "Plan must belong to current account tenant");
     }
     private void saveInScope(ScheduledActionPlan row, CurrentUser user) {
         if (!Set.of("INITIATOR", "SYSTEM").contains(row.getIdentityMode())) throw new IllegalArgumentException("Unsupported execution identity mode");
@@ -111,17 +114,10 @@ public class ScheduledActionPlanService extends AbstractAbilityService<Scheduled
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("moduleAlias", row.getModuleAlias()); input.put("actionCode", row.getActionCode());
         input.put("arguments", args); input.put("planKey", row.getId());
-        if ("SYSTEM".equals(row.getIdentityMode())) {
-            SystemActionWhitelistService.requirePlatformAdministrator();
-            if (!whitelist.allows(row.getModuleAlias(), row.getActionCode())) throw rejection("system-action-not-whitelisted", "System scheduled action is not whitelisted");
-            actions.requireAuthorized(row.getModuleAlias(), row.getActionCode(), args);
-            row.setExecutionUserId(null);
-        } else {
-            var resolver = identities.getIfAvailable();
-            var ref = resolver == null ? null : resolver.capture(row.getModuleAlias(), row.getActionCode()).orElse(null);
-            if (ref == null || !ref.userId().equals(user.userId()) || ref.accountTenantId() == null || !ref.accountTenantId().equals(row.getTenantId()))
-                throw rejection("initiator-required", "Initiator must be a tenant account in the execution scope");
-            actions.requireAuthorized(row.getModuleAlias(), row.getActionCode(), args);
+        var ref = requireExecutionIdentity(row, user);
+        actions.requireAuthorized(row.getModuleAlias(), row.getActionCode(), args);
+        if (ref == null) row.setExecutionUserId(null);
+        else {
             input.put("identity", json.convertValue(ref, new TypeReference<Map<String, Object>>() { }));
             row.setExecutionUserId(ref.userId());
         }
@@ -131,6 +127,46 @@ public class ScheduledActionPlanService extends AbstractAbilityService<Scheduled
         plan.setZoneId(row.getZoneId()); plan.setIntervalMillis(row.getIntervalMillis()); plan.setInitialDelayMillis(row.getInitialDelayMillis()); plan.setEnabled(row.getEnabled());
         row.setJobPlanId(jobs.registerManaged(MODULE_ALIAS, plan, input).getId());
     }
+    /** Read-only catalog in the exact execution scope used by save; parameter validation stays at save. */
+    public List<ModuleActionInvoker.ScheduledTargetDescriptor> scheduledTargets(String executionTenantId) {
+        var actor = user();
+        var scope = new ScheduledActionPlan();
+        scope.setExecutionTenantId(executionTenantId);
+        scope.setIdentityMode(actor.system() ? "SYSTEM" : "INITIATOR");
+        resolveExecutionTenant(scope);
+        requireAccountScope(scope, actor);
+        try (var tenant = scope.getTenantId() == null ? TenantContext.system("query scheduled action candidates")
+                : TenantContext.use(scope.getTenantId())) {
+            var result = new ArrayList<ModuleActionInvoker.ScheduledTargetDescriptor>();
+            for (var target : actions.authorizedScheduledTargets()) {
+                scope.setModuleAlias(target.moduleAlias()); scope.setActionCode(target.actionCode());
+                try {
+                    requireExecutionIdentity(scope, actor);
+                    result.add(actions.describeScheduledTarget(target.moduleAlias(), target.actionCode()));
+                } catch (PlatformAccessDeniedException unavailable) {
+                    // Unavailable execution identities and non-whitelisted system targets are not selectable.
+                }
+            }
+            return List.copyOf(result);
+        }
+    }
+
+    /** Shared candidate/save identity eligibility; does not validate a hypothetical parameter payload. */
+    private TrustedExecutionIdentityResolver.Reference requireExecutionIdentity(ScheduledActionPlan row, CurrentUser actor) {
+        if ("SYSTEM".equals(row.getIdentityMode())) {
+            SystemActionWhitelistService.requirePlatformAdministrator();
+            if (!whitelist.allows(row.getModuleAlias(), row.getActionCode()))
+                throw rejection("system-action-not-whitelisted", "System scheduled action is not whitelisted");
+            return null;
+        }
+        var resolver = identities.getIfAvailable();
+        var ref = resolver == null ? null : resolver.capture(row.getModuleAlias(), row.getActionCode()).orElse(null);
+        if (ref == null || !ref.userId().equals(actor.userId()) || ref.accountTenantId() == null
+                || !ref.accountTenantId().equals(row.getTenantId()))
+            throw rejection("initiator-required", "Initiator must be a tenant account in the execution scope");
+        return ref;
+    }
+
     private static PlatformAccessDeniedException rejection(String key, String original) {
         return new PlatformAccessDeniedException(TextReference.code("platform.rejection.scheduled-action." + key, original),
                 ErrorScope.module(MODULE_ALIAS));

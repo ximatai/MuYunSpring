@@ -1,5 +1,12 @@
 package net.ximatai.muyun.spring.platform.web.job;
 
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import net.ximatai.muyun.spring.common.i18n.TextResolver;
+import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.application.PlatformApplication;
 import net.ximatai.muyun.spring.platform.job.*;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
@@ -13,6 +20,29 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/platform.scheduled_action_plan")
 public class ScheduledActionPlanWebController extends StaticModuleWebControllerAdapter<ScheduledActionPlanService>
         implements CrudWeb<ScheduledActionPlan, ScheduledActionPlanService>, StaticModuleUiContributor {
+    private final TextResolver texts;
+
+    public ScheduledActionPlanWebController(TextResolver texts) {
+        this.texts = Objects.requireNonNull(texts);
+    }
+
+    public record TargetOption(String moduleAlias, String moduleTitle, String actionCode, String actionTitle,
+            ModuleKind source, Boolean parametersRequired) { }
+
+    @GetMapping("/scheduled-targets")
+    @ActionEndpoint(PlatformAction.REFERENCE)
+    public List<TargetOption> scheduledTargets(@RequestParam(required = false) String executionTenantId) {
+        return webScope(() -> {
+            var targets = service().scheduledTargets(executionTenantId);
+            var presentation = texts.prepare(targets.stream().flatMap(target ->
+                    java.util.stream.Stream.of(target.moduleTitle(), target.actionTitle())).toList());
+            return targets.stream().map(target -> new TargetOption(
+                    target.moduleAlias(), presentation.resolve(target.moduleTitle(), Map.of()).text(),
+                    target.actionCode(), presentation.resolve(target.actionTitle(), Map.of()).text(),
+                    target.source(), target.parametersRequired())).toList();
+        });
+    }
+
     @Override public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(ScheduledActionPlanService.MODULE_ALIAS)
                 .page(PageTemplates.flatManagement(page -> page.quickSearch("moduleAlias", "actionCode")

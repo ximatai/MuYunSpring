@@ -60,6 +60,19 @@ public class ModuleActionInvoker {
         return new Target(action, target.getModuleKind() == ModuleKind.DYNAMIC);
     }
 
+    public record ScheduledTargetDescriptor(String moduleAlias, TextReference moduleTitle,
+            String actionCode, TextReference actionTitle, ModuleKind source, Boolean parametersRequired) { }
+
+    /** Describes an already authorized candidate using the same target contract as invocation. */
+    public ScheduledTargetDescriptor describeScheduledTarget(String module, String code) {
+        var resolved = target(module, code);
+        PlatformModule row;
+        try (var global = TenantContext.system("describe scheduled action module")) { row = modules.select(module); }
+        return new ScheduledTargetDescriptor(module, row.titleSource(), code, resolved.action().titleSource(),
+                resolved.dynamic() ? ModuleKind.DYNAMIC : ModuleKind.STATIC,
+                resolved.dynamic() ? null : contribution(module, code).parametersRequired());
+    }
+
     public record ScheduledTarget(String moduleAlias, String actionCode) { }
     static final int VISIBILITY_BATCH_SIZE = 100;
     static final int VISIBILITY_TARGET_BUDGET = 256;

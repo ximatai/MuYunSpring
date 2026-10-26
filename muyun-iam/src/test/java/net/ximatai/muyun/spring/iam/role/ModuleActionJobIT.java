@@ -112,6 +112,8 @@ class ModuleActionJobIT {
         var modules = mock(PlatformModuleService.class); when(modules.select(anyString())).thenAnswer(call -> moduleRows.findById(call.getArgument(0)));
         var actions = mock(PlatformModuleActionService.class);
         when(actions.findByModuleAliasAndActionCode(anyString(), anyString())).thenAnswer(call -> lookup(call.getArgument(0), call.getArgument(1)));
+        when(actions.list(any(Criteria.class), any(PageRequest.class), any(Sort.class))).thenAnswer(call ->
+                global(() -> actionRows.query(call.getArgument(0), call.getArgument(1), call.getArgument(2, Sort.class))));
         when(actions.requireExecutionPolicy(anyString(), anyString())).thenAnswer(call -> lookup(call.getArgument(0), call.getArgument(1)).executionPolicy());
         beans.registerSingleton("static", new ScheduledModuleAction() {
             public String moduleAlias() { return "test.static"; } public String actionCode() { return "execute"; }
@@ -220,6 +222,61 @@ class ModuleActionJobIT {
         assertThat(global(() -> topicPlans.findById(plan.getId()).getEnabled())).isFalse();
         assertThat(events).anySatisfy(event -> { assertThat(event.moduleAlias()).isEqualTo("test.static"); assertThat(event.eventType()).isEqualTo(RuntimeEventType.ACTION_EXECUTED); });
     }
+    @Test void candidateCatalogUsesLiveAuthorizationIdentityAndSystemWhitelist() {
+        try (var user = CurrentUserContext.use(CurrentUser.tenantUser("initiator", "initiator", "tenant-a"));
+             var tenant = TenantContext.use("tenant-a")) {
+            assertThat(plans.scheduledTargets(null)).extracting(ModuleActionInvoker.ScheduledTargetDescriptor::moduleAlias)
+                    .containsExactlyInAnyOrder("test.static", "test.target");
+            assertThat(plans.scheduledTargets(null)).anySatisfy(target -> {
+                assertThat(target.moduleAlias()).isEqualTo("test.static");
+                assertThat(target.source()).isEqualTo(ModuleKind.STATIC);
+                assertThat(target.actionTitle().originalText()).isEqualTo("Execute");
+                assertThat(target.moduleTitle().originalText()).isEqualTo("test.static");
+                assertThat(target.parametersRequired()).isFalse();
+            });
+            when(roles.hasActionPermission(eq("initiator"), eq("test.target"), anyString())).thenReturn(false);
+            assertThat(plans.scheduledTargets(null)).extracting(ModuleActionInvoker.ScheduledTargetDescriptor::moduleAlias)
+                    .containsExactly("test.static");
+            assertThatThrownBy(() -> plans.scheduledTargets("tenant-b"))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            global(() -> { db.execute("update iam_user set enabled=false where id='initiator'"); return null; });
+            assertThat(plans.scheduledTargets(null)).isEmpty();
+        }
+        try (var admin = CurrentUserContext.use(CurrentUser.systemUser("admin", "admin")); var tenant = TenantContext.system("test")) {
+            assertThat(plans.scheduledTargets("tenant-a")).isEmpty();
+            whitelist("execute");
+            assertThat(plans.scheduledTargets("tenant-a"))
+                    .extracting(ModuleActionInvoker.ScheduledTargetDescriptor::moduleAlias).containsExactly("test.target");
+        }
+    }
+
+    @Test void candidatesShareSaveTargetRulesAndNeverExposeForeignTenantModules() {
+        try (var user = CurrentUserContext.use(CurrentUser.tenantUser("initiator", "initiator", "tenant-a"));
+             var tenant = TenantContext.use("tenant-a")) {
+            for (String mutation : List.of("schedulable=false", "form_supported=true", "action_level='RECORD'",
+                    "executor_type='DIALOG'", "enabled=false")) {
+                global(() -> { db.execute("update platform_module_action set " + mutation + " where module_alias='test.target'"); return null; });
+                assertThat(plans.scheduledTargets(null)).extracting(ModuleActionInvoker.ScheduledTargetDescriptor::moduleAlias)
+                        .doesNotContain("test.target");
+                assertThatThrownBy(() -> plans.insert(row("test.target")))
+                        .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+                global(() -> { db.execute("update platform_module_action set schedulable=true,form_supported=false,action_level='LIST',executor_type='SERVICE',enabled=true where module_alias='test.target'"); return null; });
+            }
+            global(() -> { db.execute("update platform_module set tenant_id='tenant-b' where id='test.target'"); return null; });
+            assertThat(plans.scheduledTargets(null)).extracting(ModuleActionInvoker.ScheduledTargetDescriptor::moduleAlias)
+                    .containsExactly("test.static");
+            assertThatThrownBy(() -> plans.insert(row("test.target")))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            global(() -> { db.execute("update platform_module_action set available_expression='true' where module_alias='test.static'"); return null; });
+            assertThat(plans.scheduledTargets(null)).isEmpty();
+        }
+        try (var user = CurrentUserContext.use(CurrentUser.tenantUser("other", "other", "tenant-b"));
+             var tenant = TenantContext.use("tenant-b")) {
+            // A valid target still requires a capturable account in the execution tenant.
+            assertThat(plans.scheduledTargets(null)).isEmpty();
+        }
+    }
+
     private ScheduledActionPlan initiatorPlan(String module) {
         try (var user = CurrentUserContext.use(CurrentUser.tenantUser("initiator", "initiator", "tenant-a")); var tenant = TenantContext.use("tenant-a")) {
             var plan = row(module); plans.insert(plan); return plan;
