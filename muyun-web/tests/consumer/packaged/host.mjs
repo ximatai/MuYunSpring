@@ -2,6 +2,13 @@
 export { default as TenantScopedOverviewExample } from './views/TenantScopedOverviewExample.vue';
 export { useRecordReadSession } from '@ximatai/muyun-web-app/record-read';
 export {
+  useExternalLoginHost,
+  LoginView,
+  CurrentUserProfileDialog,
+  ExternalIdentityBindings,
+  createExternalLoginClient,
+  createAuthClient,
+  createLoginContextClient,
   AppWorkbenchShell,
   BusinessNotificationPanel,
   ReadonlyRecordWorkspace,
