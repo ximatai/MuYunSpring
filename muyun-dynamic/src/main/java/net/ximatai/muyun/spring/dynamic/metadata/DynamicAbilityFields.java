@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 
@@ -25,7 +27,8 @@ public final class DynamicAbilityFields {
             var expected = canonical.get();
             if (!field.isPhysical() || !expected.fieldName().equals(field.fieldName())
                     || !expected.columnName().equals(field.columnName()) || expected.type() != field.type()) {
-                throw new ModuleDefinitionException("Field conflicts with platform capability storage: " + field.fieldName());
+                throw new ModuleDefinitionException(DiagnosticText.code("dynamic.declaration.diagnostic.field-conflicts-with-platform-capability-storage",
+                    "Field conflicts with platform capability storage: {fieldName}", Map.of("fieldName", String.valueOf(field.fieldName()))));
             }
             // Authoring metadata can materialize capability fields; the canonical shape owns storage.
         }
