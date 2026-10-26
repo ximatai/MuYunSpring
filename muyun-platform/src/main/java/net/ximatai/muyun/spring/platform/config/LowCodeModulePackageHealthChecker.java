@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.config;
 
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -26,27 +27,27 @@ public class LowCodeModulePackageHealthChecker implements LowCodeModuleHealthChe
             return List.of();
         }
         if (!Objects.equals(context.moduleAlias(), modulePackage.moduleAlias())) {
-            return List.of(LowCodeConfigHealthItem.error(
-                    LowCodeConfigHealthScope.PACKAGE,
-                    "PACKAGE_MODULE_MISMATCH",
-                    "package moduleAlias does not match health context",
-                    "module",
-                    modulePackage.moduleAlias(),
-                    "Check the target module before importing or archiving this package"
-            ));
+            return List.of(LowCodeConfigHealthItem.error(LowCodeConfigHealthScope.PACKAGE,
+                "PACKAGE_MODULE_MISMATCH",
+                DiagnosticText.code("platform.config.diagnostic.package-modulealias-does-not-match-health-context",
+                    "package moduleAlias does not match health context"),
+                "module",
+                modulePackage.moduleAlias(),
+                DiagnosticText.code("platform.config.diagnostic.check-the-target-module-before-importing-or-archiving-this-package",
+                    "Check the target module before importing or archiving this package")));
         }
         try {
             validator.validate(modulePackage);
             return List.of();
         } catch (IllegalArgumentException ex) {
-            return List.of(LowCodeConfigHealthItem.error(
-                    LowCodeConfigHealthScope.PACKAGE,
-                    "PACKAGE_INVALID",
-                    ex.getMessage(),
-                    "package",
-                    modulePackage.moduleAlias(),
-                    "Fix the package structure before running archive, migration or template operations"
-            ));
+            DiagnosticText suggestion = DiagnosticText.code("platform.config.diagnostic.fix-the-package-structure-before-running-archive-migration-or-template-operations",
+                    "Fix the package structure before running archive, migration or template operations");
+            var declared = ex instanceof net.ximatai.muyun.spring.common.i18n.TextSourceAware source ? source : null;
+            return List.of(new LowCodeConfigHealthItem(LowCodeConfigHealthScope.PACKAGE, "PACKAGE_INVALID",
+                    LowCodeConfigHealthSeverity.ERROR, ex.getMessage(), "package", modulePackage.moduleAlias(),
+                    suggestion.message(), declared == null ? null : declared.textSource(),
+                    declared == null ? java.util.Map.of() : declared.messageArgs(),
+                    suggestion.textSource(), suggestion.messageArgs()));
         }
     }
 }

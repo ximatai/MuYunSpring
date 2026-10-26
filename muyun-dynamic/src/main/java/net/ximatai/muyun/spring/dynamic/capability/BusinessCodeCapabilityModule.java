@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.dynamic.capability;
 
+import net.ximatai.muyun.spring.common.exception.DeclarationValidationException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import net.ximatai.muyun.spring.ability.code.CodeAbility;
 import net.ximatai.muyun.spring.ability.capability.*;
 import net.ximatai.muyun.spring.common.platform.*;
@@ -18,7 +21,8 @@ public final class BusinessCodeCapabilityModule implements CapabilityModule, Cap
     public Optional<StaticCapabilityFacet> staticFacet() { return Optional.of(service -> {
         if (!(service instanceof CodeAbility<?> code)) return false;
         if (net.ximatai.muyun.spring.ability.code.StaticCodeFields.declarations(code.modelClass()).isEmpty())
-            throw new IllegalArgumentException("CodeAbility requires at least one @BusinessCode field");
+            throw new DeclarationValidationException(DiagnosticText.code("dynamic.declaration.diagnostic.codeability-requires-at-least-one-businesscode-field",
+                    "CodeAbility requires at least one @BusinessCode field"));
         return true;
     }); }
     public Optional<DynamicCapabilityDefinitionFacet> dynamicDefinitionFacet() { return Optional.of(this); }
@@ -31,16 +35,20 @@ public final class BusinessCodeCapabilityModule implements CapabilityModule, Cap
                 && !field.protection().enabled() && !field.content().enabled() && field.dictionaryBinding() == null;
     }
     public void validateDefinition(EntityDefinition entity) {
-        if (entity.businessCodes().isEmpty()) throw new IllegalArgumentException("Business code capability requires field declarations");
+        if (entity.businessCodes().isEmpty()) throw new DeclarationValidationException(DiagnosticText.code("dynamic.declaration.diagnostic.business-code-capability-requires-field-declarations",
+                    "Business code capability requires field declarations"));
         for (String name : entity.businessCodes().keySet()) {
             var field = entity.fields().stream().filter(item -> item.fieldName().equals(name)).findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException("Unknown business code field: " + name));
+                    .orElseThrow(() -> new DeclarationValidationException(DiagnosticText.code("dynamic.declaration.diagnostic.unknown-business-code-field",
+                    "Unknown business code field: {name}", Map.of("name", String.valueOf(name)))));
             var write = field.resolvedWriteRules();
             if (entity.businessCodes().get(name).trigger() == net.ximatai.muyun.spring.ability.code.CodeTrigger.EXPLICIT
                     && (write.nonNull() || write.requiredOnInsert() || write.requiredOnUpdate()))
-                throw new IllegalArgumentException("EXPLICIT business code must allow unnumbered drafts: " + name);
+                throw new DeclarationValidationException(DiagnosticText.code("dynamic.declaration.diagnostic.explicit-business-code-must-allow-unnumbered-drafts",
+                    "EXPLICIT business code must allow unnumbered drafts: {name}", Map.of("name", String.valueOf(name))));
             if (!isEligible(field))
-                throw new IllegalArgumentException("Business code requires an unprotected physical string field: " + name);
+                throw new DeclarationValidationException(DiagnosticText.code("dynamic.declaration.diagnostic.business-code-requires-an-unprotected-physical-string-field",
+                    "Business code requires an unprotected physical string field: {name}", Map.of("name", String.valueOf(name))));
         }
     }
 }

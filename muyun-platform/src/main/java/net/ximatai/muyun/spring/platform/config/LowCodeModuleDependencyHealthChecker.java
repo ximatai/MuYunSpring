@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.config;
 
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -33,30 +34,19 @@ public class LowCodeModuleDependencyHealthChecker implements LowCodeModuleHealth
     }
 
     private LowCodeConfigHealthItem item(LowCodePackageDependencyDiagnostic diagnostic) {
-        if (diagnostic.blocking()) {
-            return LowCodeConfigHealthItem.error(
-                    LowCodeConfigHealthScope.DEPENDENCY,
-                    diagnostic.conflictType().name(),
-                    diagnostic.message(),
-                    diagnostic.dependency().type().name(),
-                    diagnostic.targetId(),
-                    suggestion(diagnostic)
-            );
-        }
-        return LowCodeConfigHealthItem.warn(
-                LowCodeConfigHealthScope.DEPENDENCY,
-                diagnostic.conflictType().name(),
-                diagnostic.message(),
-                diagnostic.dependency().type().name(),
-                diagnostic.targetId(),
-                suggestion(diagnostic)
-        );
+        DiagnosticText suggestion = suggestion(diagnostic);
+        return new LowCodeConfigHealthItem(LowCodeConfigHealthScope.DEPENDENCY, diagnostic.conflictType().name(),
+                diagnostic.blocking() ? LowCodeConfigHealthSeverity.ERROR : LowCodeConfigHealthSeverity.WARN,
+                diagnostic.message(), diagnostic.dependency().type().name(), diagnostic.targetId(), suggestion.message(),
+                diagnostic.textSource(), diagnostic.messageArgs(), suggestion.textSource(), suggestion.messageArgs());
     }
 
-    private String suggestion(LowCodePackageDependencyDiagnostic diagnostic) {
+    private DiagnosticText suggestion(LowCodePackageDependencyDiagnostic diagnostic) {
         if (diagnostic.conflictType() == LowCodePackageConflictType.DEPENDENCY_RESOLVER_MISSING) {
-            return "Add a resolver or mark this dependency as manifest-only for migration diagnostics";
+            return DiagnosticText.code("platform.config.diagnostic.add-a-resolver-or-mark-this-dependency-as-manifest-only-for-migration-diagnostics",
+                    "Add a resolver or mark this dependency as manifest-only for migration diagnostics");
         }
-        return "Create the dependency in the target environment or update dependencyManifest";
+        return DiagnosticText.code("platform.config.diagnostic.create-the-dependency-in-the-target-environment-or-update-dependencymanifest",
+                    "Create the dependency in the target environment or update dependencyManifest");
     }
 }

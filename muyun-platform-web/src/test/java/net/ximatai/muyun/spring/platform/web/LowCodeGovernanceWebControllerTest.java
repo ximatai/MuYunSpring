@@ -73,6 +73,38 @@ class LowCodeGovernanceWebControllerTest {
     }
 
     @Test
+    void healthEndpointDeliversBilingualResourcesAndRetainsOriginalDiagnostics() throws Exception {
+        var health = mock(LowCodeModuleHealthService.class);
+        var text = net.ximatai.muyun.spring.common.i18n.DiagnosticText.code(
+                "platform.config.diagnostic.package-dependency-is-missing", "Package dependency is missing: {type}",
+                Map.of("type", "custom {type}"));
+        var item = net.ximatai.muyun.spring.platform.config.LowCodeConfigHealthItem.error(
+                net.ximatai.muyun.spring.platform.config.LowCodeConfigHealthScope.DEPENDENCY, "REQUIRED_DEPENDENCY_MISSING",
+                text, "MODULE", "crm.customer", text);
+        when(health.check(any())).thenReturn(LowCodeConfigHealthReport.of("crm.contract", List.of(item)));
+        var loader = getClass().getClassLoader();
+        var languages = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(loader, "zh-CN");
+        var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        beans.registerSingleton("languages", languages);
+        beans.registerSingleton("texts", net.ximatai.muyun.spring.common.i18n.TextResources.load(loader, languages));
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var advice = new PlatformPresentationResponseAdvice(mapper,
+                beans.getBeanProvider(net.ximatai.muyun.spring.common.i18n.TextResolver.class),
+                beans.getBeanProvider(net.ximatai.muyun.spring.common.i18n.LanguageCatalog.class));
+        var mvc = MockMvcBuilders.standaloneSetup(controller(health)).setControllerAdvice(advice)
+                .setMessageConverters(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(mapper)).build();
+        mvc.perform(post("/platform.low_code_governance/packages/health").contentType(MediaType.APPLICATION_JSON).content(packageJson()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAIL"))
+                .andExpect(jsonPath("$.items[0].code").value("REQUIRED_DEPENDENCY_MISSING"))
+                .andExpect(jsonPath("$.items[0].targetId").value("crm.customer"))
+                .andExpect(jsonPath("$.items[0].message").value("Package dependency is missing: custom {type}"))
+                .andExpect(jsonPath("$.items[0].messageText.languages.en.text").value("Package dependency is missing: custom {type}"))
+                .andExpect(jsonPath("$.items[0].messageText.languages['zh-CN'].text").value("缺少配置包依赖：custom {type}"))
+                .andExpect(jsonPath("$.items[0].suggestionText.languages['zh-CN'].text").value("缺少配置包依赖：custom {type}"));
+    }
+
+    @Test
     void shouldArchivePackageThroughArchiveFacade() throws Exception {
         LowCodeModuleConfigArchiveFacade archiveFacade = mock(LowCodeModuleConfigArchiveFacade.class);
         LowCodeModuleConfigVersion version = version("version-1");

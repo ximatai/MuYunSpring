@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.dynamic.metadata;
 
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -122,27 +123,27 @@ public final class FieldCompanionRules {
                 FieldDefinition actual = fieldsByName.get(expected.fieldName());
                 if (group.kind() == FieldCompanionKind.FIELD_PROTECTION) {
                     if (actual != null) {
-                        throw new ModuleDefinitionException("field protection companion must not be declared manually: "
-                                + entity.alias() + "." + expected.fieldName());
+                        throw new ModuleDefinitionException(DiagnosticText.code("dynamic.declaration.diagnostic.field-protection-companion-must-not-be-declared-manually",
+                    "field protection companion must not be declared manually: {alias}.{fieldName}", Map.of("alias", String.valueOf(entity.alias()), "fieldName", String.valueOf(expected.fieldName()))));
                     }
                     continue;
                 }
                 if (actual == null) {
-                    throw new ModuleDefinitionException("field companion is missing: "
-                            + entity.alias() + "." + expected.fieldName());
+                    throw new ModuleDefinitionException(DiagnosticText.code("dynamic.declaration.diagnostic.field-companion-is-missing",
+                    "field companion is missing: {alias}.{fieldName}", Map.of("alias", String.valueOf(entity.alias()), "fieldName", String.valueOf(expected.fieldName()))));
                 }
                 if (actual.type() != expected.type()) {
-                    throw new ModuleDefinitionException("field companion type mismatch: "
-                            + entity.alias() + "." + expected.fieldName());
+                    throw new ModuleDefinitionException(DiagnosticText.code("dynamic.declaration.diagnostic.field-companion-type-mismatch",
+                    "field companion type mismatch: {alias}.{fieldName}", Map.of("alias", String.valueOf(entity.alias()), "fieldName", String.valueOf(expected.fieldName()))));
                 }
                 if (!expected.columnName().equals(actual.columnName())) {
-                    throw new ModuleDefinitionException("field companion column mismatch: "
-                            + entity.alias() + "." + expected.fieldName());
+                    throw new ModuleDefinitionException(DiagnosticText.code("dynamic.declaration.diagnostic.field-companion-column-mismatch",
+                    "field companion column mismatch: {alias}.{fieldName}", Map.of("alias", String.valueOf(entity.alias()), "fieldName", String.valueOf(expected.fieldName()))));
                 }
                 FieldDefinition owner = fieldsByName.get(group.ownerField());
                 if (owner != null && owner.isRequired() && !actual.isRequired()) {
-                    throw new ModuleDefinitionException("required field requires required companion: "
-                            + entity.alias() + "." + expected.fieldName());
+                    throw new ModuleDefinitionException(DiagnosticText.code("dynamic.declaration.diagnostic.required-field-requires-required-companion",
+                    "required field requires required companion: {alias}.{fieldName}", Map.of("alias", String.valueOf(entity.alias()), "fieldName", String.valueOf(expected.fieldName()))));
                 }
             }
         }

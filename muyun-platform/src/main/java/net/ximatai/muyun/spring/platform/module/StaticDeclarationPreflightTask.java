@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import net.ximatai.muyun.spring.common.exception.DeclarationStateException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import net.ximatai.muyun.spring.platform.application.StaticApplicationDefinitionCatalog;
 import net.ximatai.muyun.spring.platform.runtime.PlatformBootstrapTask;
 
@@ -38,8 +41,8 @@ public class StaticDeclarationPreflightTask implements PlatformBootstrapTask {
         }
         for (StaticModuleRegistration definition : definitions) {
             if (applicationCatalog.find(definition.applicationAlias()).isEmpty()) {
-                throw new IllegalStateException("static references undeclared static application: "
-                        + definition.moduleAlias() + " -> " + definition.applicationAlias());
+                throw new DeclarationStateException(DiagnosticText.code("platform.static.diagnostic.static-references-undeclared-static-application",
+                    "static references undeclared static application: {moduleAlias} -> {applicationAlias}", Map.of("moduleAlias", String.valueOf(definition.moduleAlias()), "applicationAlias", String.valueOf(definition.applicationAlias()))));
             }
         }
     }

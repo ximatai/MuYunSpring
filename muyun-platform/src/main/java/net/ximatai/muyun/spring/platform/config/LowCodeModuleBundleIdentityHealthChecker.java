@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.config;
 
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -34,14 +35,14 @@ public class LowCodeModuleBundleIdentityHealthChecker implements LowCodeModuleHe
         if (value == null || modulePackage.moduleAlias().equals(value)) {
             return;
         }
-        items.add(LowCodeConfigHealthItem.error(
-                scope(bundle.type()),
+        items.add(LowCodeConfigHealthItem.error(scope(bundle.type()),
                 "BUNDLE_MODULE_IDENTITY_MISMATCH",
-                "bundle " + key + " does not match package moduleAlias",
+                DiagnosticText.code("platform.config.diagnostic.bundle-does-not-match-package-modulealias",
+                    "bundle {key} does not match package moduleAlias", Map.of("key", String.valueOf(key))),
                 "bundle",
                 bundle.type().name(),
-                "Keep bundle top-level module identity aligned with package moduleAlias"
-        ));
+                DiagnosticText.code("platform.config.diagnostic.keep-bundle-top-level-module-identity-aligned-with-package-modulealias",
+                    "Keep bundle top-level module identity aligned with package moduleAlias")));
     }
 
     private LowCodeConfigHealthScope scope(LowCodePackageBundleType type) {

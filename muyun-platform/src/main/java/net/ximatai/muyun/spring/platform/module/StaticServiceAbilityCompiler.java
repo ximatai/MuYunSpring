@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import net.ximatai.muyun.spring.common.exception.DeclarationStateException;
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import net.ximatai.muyun.spring.ability.CacheAbility;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
@@ -92,8 +94,8 @@ public final class StaticServiceAbilityCompiler {
                 }
                 Method existing = methods.putIfAbsent(operation.value(), method);
                 if (existing != null && !existing.equals(method)) {
-                    throw new IllegalStateException("duplicate platform operation " + operation.value().code()
-                            + " on " + service.getClass().getName() + ": " + existing + " and " + method);
+                    throw new DeclarationStateException(DiagnosticText.code("platform.static.diagnostic.duplicate-platform-operation-on-and",
+                    "duplicate platform operation {code} on {typeName}: {existing} and {method}", Map.of("code", String.valueOf(operation.value().code()), "typeName", String.valueOf(service.getClass().getName()), "existing", String.valueOf(existing), "method", String.valueOf(method))));
                 }
             }
         }
@@ -123,9 +125,8 @@ public final class StaticServiceAbilityCompiler {
             }
             for (EntityCapability dependency : module.dependencies()) {
                 if (!capabilities.contains(dependency)) {
-                    throw new IllegalStateException("static capability " + module.capability()
-                            + " requires " + dependency + " capability: "
-                            + (service == null ? "<none>" : service.getClass().getName()));
+                    throw new DeclarationStateException(DiagnosticText.code("platform.static.diagnostic.static-capability-requires-capability",
+                    "static capability {capability} requires {dependency} capability: {typeName}", Map.of("capability", String.valueOf(module.capability()), "dependency", String.valueOf(dependency), "typeName", String.valueOf((service == null ? "<none>" : service.getClass().getName())))));
                 }
             }
         }

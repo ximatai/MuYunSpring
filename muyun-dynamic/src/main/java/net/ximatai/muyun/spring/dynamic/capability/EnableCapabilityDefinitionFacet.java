@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.capability;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
@@ -12,12 +14,14 @@ import java.util.function.Consumer;
 public final class EnableCapabilityDefinitionFacet {
     public void validate(EntityDefinition entity, FieldDefinition field) {
         if (field == null) {
-            throw new ModuleDefinitionException("ENABLE capability requires standard field enabled: " + entity.alias());
+            throw new ModuleDefinitionException(DiagnosticText.code("dynamic.declaration.diagnostic.enable-capability-requires-standard-field-enabled",
+                    "ENABLE capability requires standard field enabled: {alias}", Map.of("alias", String.valueOf(entity.alias()))));
         }
         if (!PlatformAbilityFields.ENABLED_FIELD.equals(field.fieldName())
                 || !PlatformAbilityFields.ENABLED_COLUMN.equals(field.columnName())
                 || field.type() != FieldType.BOOLEAN) {
-            throw new ModuleDefinitionException("ENABLE capability requires standard field enabled/enabled: " + entity.alias());
+            throw new ModuleDefinitionException(DiagnosticText.code("dynamic.declaration.diagnostic.enable-capability-requires-standard-field-enabled-enabled",
+                    "ENABLE capability requires standard field enabled/enabled: {alias}", Map.of("alias", String.valueOf(entity.alias()))));
         }
     }
 

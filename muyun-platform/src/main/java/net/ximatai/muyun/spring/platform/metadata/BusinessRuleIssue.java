@@ -1,7 +1,6 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
-import net.ximatai.muyun.spring.common.exception.DeclarationValidationException;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.i18n.TextSourceAware;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.i18n.TextResources;
 import java.util.Map;
@@ -24,9 +23,7 @@ public record BusinessRuleIssue(String code, String ruleCode, String field, Stri
     }
 
     public static BusinessRuleIssue failure(String code, String ruleCode, String field, RuntimeException failure) {
-        if (failure instanceof DeclarationValidationException declared)
-            return new BusinessRuleIssue(code, ruleCode, field, failure.getMessage(), declared.textSource(), declared.messageArgs());
-        if (failure instanceof PlatformException declared && declared.textSource() != null)
+        if (failure instanceof TextSourceAware declared && declared.textSource() != null)
             return new BusinessRuleIssue(code, ruleCode, field, failure.getMessage(), declared.textSource(), declared.messageArgs());
         return new BusinessRuleIssue(code, ruleCode, field, failure.getMessage());
     }

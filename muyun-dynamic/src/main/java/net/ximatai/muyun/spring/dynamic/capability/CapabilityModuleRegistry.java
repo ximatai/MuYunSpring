@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.dynamic.capability;
 
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityRegistry;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
@@ -115,8 +116,8 @@ public final class CapabilityModuleRegistry implements StaticCapabilityRegistry 
             }
             for (EntityCapability dependency : module.dependencies()) {
                 if (!entity.supports(dependency)) {
-                    throw new ModuleDefinitionException(module.capability() + " capability requires "
-                            + dependency + " capability: " + entity.alias());
+                    throw new ModuleDefinitionException(DiagnosticText.code("dynamic.declaration.diagnostic.capability-requires-capability",
+                    "{capability} capability requires {dependency} capability: {alias}", Map.of("capability", String.valueOf(module.capability()), "dependency", String.valueOf(dependency), "alias", String.valueOf(entity.alias()))));
                 }
             }
             module.dynamicDefinitionFacet().ifPresent(facet -> facet.validateDefinition(entity));
