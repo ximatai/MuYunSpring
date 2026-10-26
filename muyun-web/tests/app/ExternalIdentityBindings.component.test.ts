@@ -98,6 +98,7 @@ function externalLoginClient(overrides: Partial<ExternalLoginClient> = {}): Exte
       expiresAt: '2026-10-24T00:03:00Z',
     }),
     complete: vi.fn(),
+    confirm: vi.fn(),
     identities: vi.fn().mockResolvedValue({
       bindings: [
         {

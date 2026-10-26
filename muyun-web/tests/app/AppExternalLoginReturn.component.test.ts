@@ -7,6 +7,7 @@ import type { ExternalLoginClient } from '@/web-core/clients';
 
 const loadStartup = vi.hoisted(() => vi.fn());
 const complete = vi.hoisted(() => vi.fn());
+const confirm = vi.hoisted(() => vi.fn());
 
 vi.mock('@/app/appWorkbenchStartup', () => ({
   usesMockStartup: () => false,
@@ -19,6 +20,7 @@ vi.mock('@muyun/web-core', async (importOriginal) => ({
     startLogin: vi.fn(),
     startBind: vi.fn(),
     complete,
+    confirm,
     identities: vi.fn(),
     unbind: vi.fn(),
   }),
@@ -29,8 +31,40 @@ describe('App external login return', () => {
     window.sessionStorage.clear();
     window.localStorage.clear();
     complete.mockReset();
+    confirm.mockReset();
     loadStartup.mockReset();
     await router.replace('/');
+  });
+
+  it('requires an explicit confirmation and sends only this browser transaction proof', async () => {
+    remember({
+      providerId: 'welink',
+      state: 'join',
+      browserProof: 'proof',
+      purpose: 'login',
+      tenantId: 'tenant',
+    });
+    complete.mockResolvedValue({
+      status: 'confirmationRequired',
+      purpose: 'login',
+      confirmation: {
+        displayName: 'New Person',
+        tenantId: 'tenant',
+        departmentIds: ['sales-id'],
+        placements: ['Organization / Sales'],
+      },
+    });
+    const wrapper = await mountAt('/?state=join&code=provider-code');
+    expect(wrapper.text()).toContain('New Person');
+    expect(wrapper.text()).toContain('Organization / Sales');
+    expect(wrapper.text()).not.toContain('sales-id');
+    expect(confirm).not.toHaveBeenCalled();
+    confirm.mockResolvedValue({ status: 'denied', purpose: 'login', failure: 'admissionRejected' });
+    await wrapper.findComponent({ name: 'ExternalProvisioningConfirmation' }).vm.$emit('confirm');
+    await flushPromises();
+    expect(confirm).toHaveBeenCalledWith('welink', { state: 'join', browserProof: 'proof' });
+    expect(wrapper.text()).toContain('准入');
+    wrapper.unmount();
   });
 
   it('drops a provider return this browser did not start and clears it from the address', async () => {
