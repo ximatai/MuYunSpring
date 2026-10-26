@@ -18,10 +18,12 @@ import java.util.Set;
  * Internal PostgreSQL storage primitive for server-owned field commands, shared by static and runtime tables.
  * Equality conditions are ANDed; null means IS NULL. Always targets exactly the current account partition
  * (no tenant means tenant_id IS NULL, including system/bypass contexts). Returns only IDs actually changed.
+ * Requires at least one business predicate beyond tenant and soft-delete scope conditions.
  * Advances each row's version and update audit fields atomically. Does not run CRUD hooks, permissions,
  * field protection, cache invalidation or domain events: callers own those semantics, as for direct DAO writes.
  */
 public final class ConditionalBatchUpdate {
+    private static final Set<String> SCOPE_FIELDS = Set.of("tenantId", "deleted");
     private static final Set<String> MANAGED = Set.of("id", "tenantId", "version", "createdAt", "createdBy",
             "updatedAt", "updatedBy", "deleted", "deletedAt", "deletedBy");
 
@@ -32,7 +34,7 @@ public final class ConditionalBatchUpdate {
                                                   Instant now) {
         Objects.requireNonNull(database, "database");
         Objects.requireNonNull(now, "now");
-        if (patch.isEmpty() || conditions.isEmpty()) {
+        if (patch.isEmpty() || conditions.keySet().stream().noneMatch(field -> !SCOPE_FIELDS.contains(field))) {
             throw new IllegalArgumentException("batch update requires a patch and business conditions");
         }
         var values = new LinkedHashMap<String, Object>();

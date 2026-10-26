@@ -12,6 +12,9 @@ import net.ximatai.muyun.spring.common.schema.PlatformEntityManagers;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.iam.role.AccountRoleGrantDao;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -243,6 +246,32 @@ class UserSessionBatchRevocationIT {
         assertThatThrownBy(() -> ConditionalBatchUpdate.updateReturningIds(database, runtimeTable,
                 Map.of("revoked_reason = null --", "bad"), conditions, NOW)).isInstanceOf(IllegalArgumentException.class);
         assertThat(dao.findById("runtime").getVersion()).isOne();
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = "tenant-a")
+    void batchPrimitiveRejectsScopeOnlyConditions(String tenantId) throws Exception {
+        try (var scope = TenantContext.use(tenantId)) {
+            seed("scope-only");
+            var table = PlatformEntityManagers.entityMetaResolver().resolve(UserSession.class).asTableMeta();
+            var tenantOnly = new LinkedHashMap<String, Object>();
+            tenantOnly.put("tenantId", tenantId);
+            var tenantAndDeleted = new LinkedHashMap<>(tenantOnly);
+            tenantAndDeleted.put("deleted", false);
+            for (var conditions : List.of(tenantOnly, Map.<String, Object>of("deleted", false), tenantAndDeleted)) {
+                assertThatThrownBy(() -> ConditionalBatchUpdate.updateReturningIds(database, table,
+                        Map.of("revokedReason", "must not update partition"), conditions, NOW))
+                        .isInstanceOf(IllegalArgumentException.class)
+                        .hasMessage("batch update requires a patch and business conditions");
+                assertThat(dao.findById("scope-only").getRevokedReason()).isNull();
+                assertThat(dao.findById("scope-only").getVersion()).isZero();
+            }
+            tenantAndDeleted.put("id", "scope-only");
+            assertThat(ConditionalBatchUpdate.updateReturningIds(database, table,
+                    Map.of("revokedReason", "business condition"), tenantAndDeleted, NOW))
+                    .containsExactly("scope-only");
+        }
     }
 
     private UserAccount account() {
