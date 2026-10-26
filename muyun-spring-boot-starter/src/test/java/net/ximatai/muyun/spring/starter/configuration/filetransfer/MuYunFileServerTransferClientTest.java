@@ -25,6 +25,36 @@ class MuYunFileServerTransferClientTest {
     }
 
     @Test
+    void rejectsInvalidFileIdentifiersBeforeIssuingTicketsAndSanitizesTimestampErrors() {
+        try (var user = CurrentUserContext.use(CurrentUser.tenantUser("u", "u", "tenant"))) {
+            var access = accessService();
+            var client = new MuYunFileServerTransferConfiguration().fileTransferClient(access, new ObjectMapper());
+            for (String id : new String[]{"bad id", "../other", "id?access_token=secret", "id#fragment", "%2f", "x".repeat(65)}) {
+                for (Runnable request : java.util.List.<Runnable>of(() -> client.readMetadata(id),
+                        () -> client.promote(id), () -> client.delete(id), () -> client.openContent(id),
+                        () -> access.issuePreviewAccess(id))) {
+                    org.assertj.core.api.Assertions.assertThatThrownBy(request::run).hasMessage("file server file id is invalid").hasNoCause();
+                }
+            }
+            RestClient.Builder builder = RestClient.builder();
+            MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+            var metadataClient = new MuYunFileServerTransferClient(access, builder.build(), new ObjectMapper());
+            for (String operation : java.util.List.of("metadata", "promote")) {
+                String metadata = "{\"id\":\"file\",\"sizeBytes\":1,\"temporary\":true,\"uploadedAt\":\"sensitive-upstream-body\"}";
+                server.expect(requestTo(org.hamcrest.Matchers.containsString("/file")))
+                        .andRespond(withSuccess(operation.equals("metadata") ? "{\"data\":" + metadata + "}"
+                                : "{\"data\":{\"items\":[" + metadata + "]}}", org.springframework.http.MediaType.APPLICATION_JSON));
+            }
+            for (String operation : java.util.List.of("metadata", "promote")) {
+                org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
+                    if (operation.equals("metadata")) metadataClient.readMetadata("file"); else metadataClient.promote("file");
+                }).hasMessage("file server returned invalid timestamp").hasNoCause();
+            }
+            server.verify();
+        }
+    }
+
+    @Test
     void officialAssemblyNeverForwardsTicketsOnRedirectsOrLeaksUpstreamErrors() throws Exception {
         var destinationRequests = new java.util.concurrent.atomic.AtomicInteger();
         var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);

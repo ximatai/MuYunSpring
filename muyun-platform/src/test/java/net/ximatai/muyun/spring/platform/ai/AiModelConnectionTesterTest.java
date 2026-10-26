@@ -118,9 +118,10 @@ class AiModelConnectionTesterTest {
                 net.ximatai.muyun.spring.common.identity.CurrentUser.systemUser("root", "root"))) {
             for (String name : new String[]{"DATABASE_PASSWORD", "MUYUN_AI_TEST_API_KEY"}) {
                 draft.setApiKeyEnvironmentVariable(name);
-                assertThatThrownBy(() -> tester.testDraft(draft)).isInstanceOf(RuntimeException.class);
-                assertThatThrownBy(() -> tester.test("stored")).isInstanceOf(RuntimeException.class);
-                assertThatThrownBy(() -> routes.resolveCandidate(draft)).isInstanceOf(RuntimeException.class);
+                String expected = name.equals("DATABASE_PASSWORD") ? "环境变量名须" : "目标地址授权";
+                assertThatThrownBy(() -> tester.testDraft(draft)).hasMessageContaining(expected);
+                assertThatThrownBy(() -> tester.test("stored")).hasMessageContaining(expected);
+                assertThatThrownBy(() -> routes.resolveCandidate(draft)).hasMessageContaining(expected);
             }
         }
         org.mockito.Mockito.verifyNoInteractions(client);

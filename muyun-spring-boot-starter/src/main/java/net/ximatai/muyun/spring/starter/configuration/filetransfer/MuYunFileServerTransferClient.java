@@ -78,7 +78,7 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new PlatformException("file server download request was interrupted for file: " + access.fileId());
-        } catch (java.io.IOException exception) {
+        } catch (java.io.IOException | IllegalArgumentException exception) {
             throw new PlatformException("file server download request failed for file: " + access.fileId());
         }
     }
@@ -95,7 +95,7 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
             if (!access.fileId().equals(text(data, "fileId")) || !"DELETED".equals(text(data, "status"))) {
                 throw new PlatformException("file server delete response does not confirm requested file");
             }
-        } catch (RestClientException | java.io.IOException exception) {
+        } catch (RestClientException | java.io.IOException | IllegalArgumentException exception) {
             throw new PlatformException("file server delete request failed for file: " + access.fileId());
         }
     }
@@ -120,7 +120,7 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
                     ? requiredFirstItem(data)
                     : data;
             return metadata;
-        } catch (RestClientException | java.io.IOException exception) {
+        } catch (RestClientException | java.io.IOException | IllegalArgumentException exception) {
             throw new PlatformException("file server " + expectedOperation.name().toLowerCase()
                     + " request failed for file: " + access.fileId());
         }
@@ -181,6 +181,10 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
 
     private Instant instant(JsonNode source, String field) {
         String value = text(source, field);
-        return value == null || value.isBlank() ? null : Instant.parse(value);
+        try {
+            return value == null || value.isBlank() ? null : Instant.parse(value);
+        } catch (java.time.format.DateTimeParseException invalid) {
+            throw new PlatformException("file server returned invalid timestamp");
+        }
     }
 }
