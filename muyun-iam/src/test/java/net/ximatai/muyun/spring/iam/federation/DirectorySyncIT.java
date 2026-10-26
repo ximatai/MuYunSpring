@@ -76,6 +76,7 @@ class DirectorySyncIT {
     @Autowired IdentityProviderDao providerRows;
     @Autowired TenantIdentityPolicyDao policyRows;
     @Autowired ExternalIdentityDao identityRows;
+    @Autowired DirectoryRebindBlockDao rebindBlocks;
     @Autowired ExternalLoginTransactionDao loginTransactions;
     @Autowired DepartmentDao departmentRows;
     @Autowired EmployeeDao employeeRows;
@@ -121,6 +122,7 @@ class DirectorySyncIT {
                                     "platform_job_plan",
                                     "iam_user_session",
                                     "iam_external_identity",
+                                    "iam_directory_rebind_block",
                                     "iam_employment_role_grant",
                                     "iam_role",
                                     "iam_external_login_transaction",
@@ -224,10 +226,12 @@ class DirectorySyncIT {
                         accountRows, t -> {}, mock(PasswordHashingService.class));
         var employeeAccounts =
                 new EmployeeAccountService(employeeAccountRows, t -> {}, employees, accounts);
-        var identities = new ExternalIdentityService(identityRows, t -> {});
         var store =
                 new DirectorySyncStore(
                         syncRuns, scopes, mappings, seen, observedDepartments, db, policyRows);
+        var revocations = new UserSessionRevocationService(
+                new UserSessionRecordService(sessionRows), event -> {}, Clock.systemUTC());
+        var identities = new ExternalIdentityService(identityRows, t -> {}, revocations, rebindBlocks, store);
         var jobPositionService = new PositionService(jobPositionRows, t -> {});
         var roles =
                 new RoleService(
@@ -286,10 +290,7 @@ class DirectorySyncIT {
                                 employeeAccounts,
                                 positions,
                                 roles,
-                                new UserSessionRevocationService(
-                                        new UserSessionRecordService(sessionRows),
-                                        event -> {},
-                                        Clock.systemUTC())));
+                                revocations));
         handler = new DirectorySyncJob(store, providers, config, writer);
         beans.registerSingleton("access", (JobManagementAccess) t -> {});
         beans.registerSingleton(

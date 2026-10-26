@@ -1,17 +1,25 @@
 package net.ximatai.muyun.spring.boot;
 
 import com.fasterxml.jackson.databind.JsonNode;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.iam.federation.ExternalAuthorizationContext;
+import net.ximatai.muyun.spring.iam.federation.ExternalDirectoryProtocol;
+import net.ximatai.muyun.spring.iam.federation.ExternalIdentity;
+import net.ximatai.muyun.spring.iam.federation.ExternalIdentityBindingSource;
+import net.ximatai.muyun.spring.iam.federation.ExternalIdentityService;
+import net.ximatai.muyun.spring.iam.federation.ExternalLoginProtocol;
 import net.ximatai.muyun.spring.iam.federation.IdentityProvider;
 import net.ximatai.muyun.spring.iam.federation.IdentityProviderDescriptor;
 import net.ximatai.muyun.spring.iam.federation.IdentityProviderService;
 import net.ximatai.muyun.spring.iam.federation.MockExternalLoginProtocol;
 import net.ximatai.muyun.spring.iam.federation.TenantIdentityPolicy;
 import net.ximatai.muyun.spring.iam.federation.TenantIdentityPolicyService;
+import net.ximatai.muyun.spring.iam.federation.VerifiedExternalIdentity;
 import net.ximatai.muyun.spring.iam.tenant.Tenant;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import net.ximatai.muyun.spring.iam.user.PasswordStatus;
@@ -19,6 +27,8 @@ import net.ximatai.muyun.spring.iam.user.UserAccount;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.iam.user.UserSession;
 import net.ximatai.muyun.spring.iam.user.UserSessionDao;
+import net.ximatai.muyun.spring.iam.user.UserSessionService;
+
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,22 +37,21 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.restclient.RestTemplateBuilder;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.server.LocalServerPort;
-import net.ximatai.muyun.spring.iam.federation.ExternalAuthorizationContext;
-import net.ximatai.muyun.spring.iam.federation.ExternalLoginProtocol;
-import net.ximatai.muyun.spring.iam.federation.VerifiedExternalIdentity;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpEntity;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
-import org.springframework.context.ApplicationContext;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -53,8 +62,11 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -88,9 +100,9 @@ class ExternalIdentityFederationIT {
     @Autowired UserSessionDao userSessionDao;
     @Autowired ApplicationContext applicationContext;
     @Autowired JdbcTemplate jdbcTemplate;
-    @Autowired org.springframework.transaction.support.TransactionTemplate transactionTemplate;
-    @Autowired net.ximatai.muyun.spring.iam.federation.ExternalIdentityService externalIdentityService;
-    @Autowired net.ximatai.muyun.spring.iam.user.UserSessionService userSessionService;
+    @Autowired TransactionTemplate transactionTemplate;
+    @Autowired ExternalIdentityService externalIdentityService;
+    @Autowired UserSessionService userSessionService;
     @Autowired BlockingProtocol blockingProtocol;
     @Autowired StatusProtocol statusProtocol;
 
@@ -147,7 +159,7 @@ class ExternalIdentityFederationIT {
             blocking.setEnabled(true);
             identityProviderService.insert(blocking);
             try (var tenantScope = TenantContext.use(TENANT)) {
-                for (String providerId : java.util.List.of(PROVIDER, FOREIGN_PROVIDER, SECOND_PROVIDER, BlockingProtocol.TYPE)) {
+                for (String providerId : List.of(PROVIDER, FOREIGN_PROVIDER, SECOND_PROVIDER, BlockingProtocol.TYPE)) {
                     TenantIdentityPolicy policy = new TenantIdentityPolicy();
                     policy.setProviderId(providerId);
                     policy.setEnabled(true);
@@ -184,14 +196,14 @@ class ExternalIdentityFederationIT {
                 tenantIdentityPolicyService.insert(policy);
                 createUser("source-status-user");
                 userId = userAccountService.list(Criteria.of().eq("username", "source-status-user"), new PageRequest(0, 1)).getFirst().getId();
-                var binding = new net.ximatai.muyun.spring.iam.federation.ExternalIdentity();
+                var binding = new ExternalIdentity();
                 binding.setProviderId(providerId);
                 binding.setIdentityNamespace("status-test");
                 binding.setExternalEnterpriseId("status-corp");
                 binding.setExternalUserId("source-status-user");
                 binding.setUserId(userId);
-                binding.setBindingSource(net.ximatai.muyun.spring.iam.federation.ExternalIdentityBindingSource.DIRECTORY_SYNC);
-                binding.setBoundAt(java.time.Instant.now().minusSeconds(172800));
+                binding.setBindingSource(ExternalIdentityBindingSource.DIRECTORY_SYNC);
+                binding.setBoundAt(Instant.now().minusSeconds(172800));
                 binding.setSourceStatus("active");
                 externalIdentityService.insert(binding);
                 bindingId = binding.getId();
@@ -237,7 +249,7 @@ class ExternalIdentityFederationIT {
     @Test
     void oldSelfBindingsRemainUsableWithoutDirectoryManagement() throws Exception {
         blockingProtocol.disarm();
-        for (String providerId : java.util.List.of(BlockingProtocol.TYPE, PROVIDER)) {
+        for (String providerId : List.of(BlockingProtocol.TYPE, PROVIDER)) {
             String username = "old-self-" + providerId;
             try (var current = CurrentUserContext.use(CurrentUser.systemUser("self-it", "self-it"));
                  var tenant = TenantContext.use(TENANT)) {
@@ -254,7 +266,7 @@ class ExternalIdentityFederationIT {
             assertThat(result.path("status").asText()).isEqualTo("succeeded");
             try (var tenant = TenantContext.use(TENANT)) {
                 var binding = externalIdentityService.select(bindingId);
-                assertThat(binding.getBoundAt()).isBefore(java.time.Instant.now().minusSeconds(86400));
+                assertThat(binding.getBoundAt()).isBefore(Instant.now().minusSeconds(86400));
                 assertThat(binding.getSourceCheckedAt()).isNull();
             }
         }
@@ -431,7 +443,7 @@ class ExternalIdentityFederationIT {
     @Test
     void keepsTheLastBindingThatCanStillSignInWhenTheAccountHasNoPassword() throws Exception {
         String erinToken = passwordLogin("erin");
-        for (String providerId : java.util.List.of(PROVIDER, SECOND_PROVIDER)) {
+        for (String providerId : List.of(PROVIDER, SECOND_PROVIDER)) {
             JsonNode start = post("/iam.auth/external/" + providerId + "/bind", Map.of(), erinToken).getBody();
             JsonNode bound = post("/iam.auth/external/" + providerId + "/complete", Map.of(
                     "state", start.path("state").asText(), "browserProof", start.path("browserProof").asText(),
@@ -596,7 +608,7 @@ class ExternalIdentityFederationIT {
 
     @Test
     void finalAdmissionSerializesWithUnbindPolicyDisableSessionRevocationAndAccountDisable() throws Exception {
-        for (String mutation : java.util.List.of("unbind", "provider", "policy", "session", "account")) {
+        for (String mutation : List.of("unbind", "provider", "policy", "session", "account")) {
             String username = "race_" + mutation;
             String externalId = "external_" + mutation;
             try (var actor = CurrentUserContext.use(CurrentUser.systemUser("federation-it", "Test"));
@@ -801,26 +813,26 @@ class ExternalIdentityFederationIT {
         }
     }
 
-    static final class StatusProtocol implements ExternalLoginProtocol, net.ximatai.muyun.spring.iam.federation.ExternalDirectoryProtocol {
+    static final class StatusProtocol implements ExternalLoginProtocol, ExternalDirectoryProtocol {
         static final String TYPE = "status_idp";
         volatile String status = "active";
         volatile boolean fail;
         volatile int calls;
         @Override public void validateConfiguration(Map<String, String> configuration) { }
-        @Override public java.util.Set<String> identityScopeConfigurationKeys() { return java.util.Set.of(); }
+        @Override public Set<String> identityScopeConfigurationKeys() { return Set.of(); }
         @Override public String providerType() { return TYPE; }
         @Override public URI authorizationUri(IdentityProviderDescriptor provider, ExternalAuthorizationContext context) {
             return URI.create("https://idp.test/status?state=" + encode(context.state()));
         }
         @Override public VerifiedExternalIdentity verify(IdentityProviderDescriptor provider, Map<String, String> parameters,
                                                         ExternalAuthorizationContext context) {
-            return new VerifiedExternalIdentity("status-corp", parameters.get("code"), null, java.time.Instant.now());
+            return new VerifiedExternalIdentity("status-corp", parameters.get("code"), null, Instant.now());
         }
         @Override public Person person(IdentityProviderDescriptor provider, String id) {
-            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             calls++;
             if (fail) throw new IllegalStateException("status unavailable");
-            return new Person(id, id, null, "root", java.util.List.of("root"), status, null, null);
+            return new Person(id, id, null, "root", List.of("root"), status, null, null);
         }
         @Override public Department department(IdentityProviderDescriptor provider, String id) { throw new UnsupportedOperationException(); }
         @Override public Page<Department> departments(IdentityProviderDescriptor provider, String root, String cursor, int limit) { throw new UnsupportedOperationException(); }
@@ -839,10 +851,10 @@ class ExternalIdentityFederationIT {
         }
         @Override public VerifiedExternalIdentity verify(IdentityProviderDescriptor provider, Map<String, String> parameters,
                                                         ExternalAuthorizationContext context) {
-            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             var current = entered;
             if (current != null) { current.countDown(); await(release); }
-            return new VerifiedExternalIdentity("test-enterprise", parameters.get("code"), null, java.time.Instant.now());
+            return new VerifiedExternalIdentity("test-enterprise", parameters.get("code"), null, Instant.now());
         }
     }
 
@@ -863,7 +875,7 @@ class ExternalIdentityFederationIT {
         public VerifiedExternalIdentity verify(IdentityProviderDescriptor provider, Map<String, String> callbackParameters,
                                                ExternalAuthorizationContext context) {
             return new VerifiedExternalIdentity("foreign-corp", callbackParameters.get("code"), null,
-                    java.time.Instant.now());
+                    Instant.now());
         }
     }
 }

@@ -8,6 +8,8 @@ import net.ximatai.muyun.spring.iam.user.UserSessionRevocationService;
 
 import org.springframework.stereotype.Component;
 
+import java.util.Objects;
+
 /** Source retirement never changes local administrative enablement or manual facts. */
 @Component
 @ConditionalOnExternalIdentityFederation
@@ -53,9 +55,9 @@ public class DirectorySourceLifecycle {
 
     void retire(EmployeePosition position, String status, String runId) {
         roles.retireDirectoryEmploymentRoles(position.getId(), position.getSourceProviderId());
-        if (java.util.Objects.equals(position.getSourceStatus(), status)
+        if (Objects.equals(position.getSourceStatus(), status)
                 && !Boolean.TRUE.equals(position.getPrimaryPosition())
-                && (runId == null || java.util.Objects.equals(position.getLastSyncRunId(), runId))) return;
+                && (runId == null || Objects.equals(position.getLastSyncRunId(), runId))) return;
         VersionedRecordMutation.update(positions.getDao(), () -> positions.selectActiveRaw(position.getId()), row -> {
             row.setSourceStatus(status);
             row.setPrimaryPosition(false);

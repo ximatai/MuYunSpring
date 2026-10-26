@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.iam.federation;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.VersionedRecordMutation;
 import net.ximatai.muyun.spring.iam.department.*;
@@ -324,7 +325,7 @@ final class DirectorySyncWriter {
         var query = Criteria.of().eq("providerId", scope.getProviderId())
                 .eq("bindingSource", ExternalIdentityBindingSource.DIRECTORY_SYNC);
         if (cursor.bindingRow != null) query.gt("id", cursor.bindingRow);
-        var batch = identities.listRaw(query, new PageRequest(0, 1), net.ximatai.muyun.database.core.orm.Sort.asc("id"));
+        var batch = identities.listRaw(query, new PageRequest(0, 1), Sort.asc("id"));
         if (batch.isEmpty()) {
             cursor.phase = "FINISHED";
             return;

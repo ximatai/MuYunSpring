@@ -23,6 +23,7 @@ import net.ximatai.muyun.spring.iam.user.PasswordStatus;
 import net.ximatai.muyun.spring.iam.user.UserAccount;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Runs external sign-in and binding as server-side transactions.
@@ -74,14 +76,8 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
     private final ExternalIdentityFederationSettings settings;
     private final Clock clock;
     private final ExternalIdentityAdmissionLocks admissionLocks;
-    private DirectorySyncConfiguration directory;
-    private DirectorySourceLifecycle sourceLifecycle;
-
-    @Autowired
-    void configureSourceStatus(DirectorySyncConfiguration directory, DirectorySourceLifecycle sourceLifecycle) {
-        this.directory = directory;
-        this.sourceLifecycle = sourceLifecycle;
-    }
+    private final DirectorySyncConfiguration directory;
+    private final DirectorySourceLifecycle sourceLifecycle;
 
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -94,9 +90,11 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                                 UserSessionService userSessionService,
                                 ActiveTenantVerifier activeTenantVerifier,
                                 ExternalIdentityFederationSettings settings,
-                                ExternalIdentityAdmissionLocks admissionLocks) {
+                                ExternalIdentityAdmissionLocks admissionLocks,
+                                DirectorySyncConfiguration directory,
+                                DirectorySourceLifecycle sourceLifecycle) {
         this(providers, policies, identities, transactionDao, userAccountService, userSessionService,
-                activeTenantVerifier, settings, Clock.systemUTC(), admissionLocks);
+                activeTenantVerifier, settings, Clock.systemUTC(), admissionLocks, directory, sourceLifecycle);
     }
 
     ExternalLoginService(IdentityProviderService providers,
@@ -108,7 +106,9 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                          ActiveTenantVerifier activeTenantVerifier,
                          ExternalIdentityFederationSettings settings,
                          Clock clock,
-                         ExternalIdentityAdmissionLocks admissionLocks) {
+                         ExternalIdentityAdmissionLocks admissionLocks,
+                         DirectorySyncConfiguration directory,
+                         DirectorySourceLifecycle sourceLifecycle) {
         this.providers = Objects.requireNonNull(providers, "providers");
         this.policies = Objects.requireNonNull(policies, "policies");
         this.identities = Objects.requireNonNull(identities, "identities");
@@ -121,6 +121,8 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         Objects.requireNonNull(settings.workbenchUrl(), "muyun.iam.federation.workbench-url is required");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.admissionLocks = Objects.requireNonNull(admissionLocks, "admissionLocks");
+        this.directory = Objects.requireNonNull(directory, "directory");
+        this.sourceLifecycle = Objects.requireNonNull(sourceLifecycle, "sourceLifecycle");
     }
 
     /** Providers a tenant's sign-in entry offers; empty for an unknown or inactive tenant. */
@@ -352,7 +354,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
             try {
                 refreshed = directory.protocol(descriptor).person(descriptor, identity.externalUserId());
                 if (!identity.externalUserId().equals(refreshed.id())
-                        || !java.util.Set.of("active", "disabled", "departed").contains(refreshed.status()))
+                        || !Set.of("active", "disabled", "departed").contains(refreshed.status()))
                     return Outcome.denied(ExternalLoginFailure.PROVIDER_REJECTED);
             } catch (RuntimeException unavailable) {
                 return Outcome.denied(ExternalLoginFailure.PROVIDER_UNAVAILABLE);
