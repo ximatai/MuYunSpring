@@ -68,6 +68,17 @@ public final class IdentityProviderDescriptor {
                 && Objects.equals(clientSecret, other.clientSecret) && configuration.equals(other.configuration);
     }
 
+    /** Nonreversible authority stamp for directory facts; credential values are never persisted. */
+    String authorityFingerprint() {
+        try {
+            var values = new java.util.ArrayList<Object>();
+            values.add(id); values.add(providerType); values.add(externalEnterpriseId); values.add(identityNamespace);
+            values.add(clientId); values.add(clientSecret); values.add(new java.util.TreeMap<>(configuration));
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(DirectorySyncStore.encode(values).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
+    }
+
     @Override
     public String toString() {
         return "IdentityProviderDescriptor[id=" + id + ", providerType=" + providerType

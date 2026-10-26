@@ -295,7 +295,7 @@ class DirectorySyncIT {
                         identities,
                         roles,
                         config,
-                        lifecycle));
+                        lifecycle, org.mockito.Mockito.mock(JoinApplicationDao.class)));
         handler = new DirectorySyncJob(store, providers, config, writer);
         beans.registerSingleton("access", (JobManagementAccess) t -> {});
         beans.registerSingleton(

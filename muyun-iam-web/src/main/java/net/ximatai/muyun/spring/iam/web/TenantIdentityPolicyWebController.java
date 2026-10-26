@@ -112,6 +112,7 @@ public class TenantIdentityPolicyWebController
                                                                                                                         "未绑定时处理")
                                                                                                                 .select())
                                                                                         .field("sourceStatusMaxAgeSeconds", field -> field.label("来源状态最大年龄（秒）"))
+                                                                                        .field("admissionRoots", field -> field.label("准入部门子树（JSON）"))
                                                                                         .field(
                                                                                                 "syncRoots",
                                                                                                 field ->

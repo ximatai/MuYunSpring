@@ -26,7 +26,7 @@ public interface ExternalDirectoryProtocol {
     Page<Department> departments(IdentityProviderDescriptor provider, String rootId, String cursor, int limit);
     /** Each item observes membership in the requested department; main/all departments are optional. */
     Page<Person> departmentPeople(IdentityProviderDescriptor provider, String departmentId, String cursor, int limit);
-    /** Optional authoritative lookup used only for stale-source login verification. */
+    /** Optional authoritative lookup for stale-source login and on-demand admission verification. */
     default boolean supportsPersonLookup(IdentityProviderDescriptor provider) { return false; }
     default Person person(IdentityProviderDescriptor provider, String id) {
         throw new UnsupportedOperationException("Person lookup unavailable");

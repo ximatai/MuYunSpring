@@ -8,6 +8,9 @@ import net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum;
  */
 public enum ExternalLoginStatus implements CodeTitleEnum {
     PENDING("pending", "等待授权"),
+    CONFIRMATION_REQUIRED("confirmationRequired", "请确认加入"),
+    REVIEW_PENDING("reviewPending", "等待审核"),
+    REVIEW_REJECTED("reviewRejected", "申请已拒绝"),
     SUCCEEDED("succeeded", "已完成"),
     DENIED("denied", "已拒绝"),
     EXPIRED("expired", "已过期");

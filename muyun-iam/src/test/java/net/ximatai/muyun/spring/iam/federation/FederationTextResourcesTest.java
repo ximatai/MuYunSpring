@@ -40,7 +40,7 @@ class FederationTextResourcesTest {
         Properties english = messages("en");
         for (Class<? extends Enum<?>> type : java.util.List.<Class<? extends Enum<?>>>of(ProvisioningMode.class,
                 ExternalIdentityBindingSource.class, ExternalLoginStatus.class, ExternalLoginPurpose.class,
-                ExternalLoginFailure.class)) {
+                ExternalLoginFailure.class, JoinApplicationStatus.class)) {
             Arrays.stream(type.getEnumConstants()).forEach(constant -> assertThat(english.getProperty(
                     "enum/" + type.getName() + "/"
                             + ((net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum) constant).getCode()

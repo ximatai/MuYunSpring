@@ -78,6 +78,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
     private final ExternalIdentityAdmissionLocks admissionLocks;
     private final DirectorySyncConfiguration directory;
     private final DirectorySourceLifecycle sourceLifecycle;
+    private final ExternalProvisioningService provisioning;
 
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -92,9 +93,9 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                                 ExternalIdentityFederationSettings settings,
                                 ExternalIdentityAdmissionLocks admissionLocks,
                                 DirectorySyncConfiguration directory,
-                                DirectorySourceLifecycle sourceLifecycle) {
+                                DirectorySourceLifecycle sourceLifecycle, ExternalProvisioningService provisioning) {
         this(providers, policies, identities, transactionDao, userAccountService, userSessionService,
-                activeTenantVerifier, settings, Clock.systemUTC(), admissionLocks, directory, sourceLifecycle);
+                activeTenantVerifier, settings, Clock.systemUTC(), admissionLocks, directory, sourceLifecycle, provisioning);
     }
 
     ExternalLoginService(IdentityProviderService providers,
@@ -108,7 +109,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                          Clock clock,
                          ExternalIdentityAdmissionLocks admissionLocks,
                          DirectorySyncConfiguration directory,
-                         DirectorySourceLifecycle sourceLifecycle) {
+                         DirectorySourceLifecycle sourceLifecycle, ExternalProvisioningService provisioning) {
         this.providers = Objects.requireNonNull(providers, "providers");
         this.policies = Objects.requireNonNull(policies, "policies");
         this.identities = Objects.requireNonNull(identities, "identities");
@@ -123,6 +124,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         this.admissionLocks = Objects.requireNonNull(admissionLocks, "admissionLocks");
         this.directory = Objects.requireNonNull(directory, "directory");
         this.sourceLifecycle = Objects.requireNonNull(sourceLifecycle, "sourceLifecycle");
+        this.provisioning = Objects.requireNonNull(provisioning);
     }
 
     /** Providers a tenant's sign-in entry offers; empty for an unknown or inactive tenant. */
@@ -208,6 +210,8 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                     ? resolve(claimed, state, parameters, ip, userAgent)
                     : Outcome.of(ExternalLoginStatus.EXPIRED, null);
             login = outcome.login();
+        } catch (BusinessException exception) {
+            outcome = Outcome.denied(ExternalLoginFailure.ADMISSION_REJECTED);
         } catch (RuntimeException exception) {
             // A claimed transaction must always reach a final state; platform faults are not provider faults.
             log.warn("External login transaction {} failed during completion", claimed.getId(), exception);
@@ -227,7 +231,59 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                 ? identityView(claimed.getTenantId(), resolved.identityId())
                 : null;
         return new ExternalLoginResults.Completion(resolved.status(), claimed.getPurpose(), resolved.failure(),
-                login, binding);
+                login, binding, resolved.status() == ExternalLoginStatus.CONFIRMATION_REQUIRED
+                    ? DirectorySyncStore.decode(transactionDao.findById(claimed.getId()).getVerifiedProfile(), ExternalLoginResults.Confirmation.class) : null);
+    }
+
+    /** Only the initiating browser may confirm the server-verified identity; request fields carry no identity. */
+    public ExternalLoginResults.Completion confirm(String providerId, String state, String proof, String ip, String userAgent) {
+        var selected = requireProof(providerId, state, proof);
+        var provider = providers.findUsable(providerId).orElseThrow(ExternalProvisioningService::rejected);
+        var descriptor = providers.descriptorOf(provider);
+        var observation = provisioning.observe(descriptor, selected.getVerifiedExternalUserId());
+        return identities.inAdmissionTransaction(() -> {
+            identities.lockSource(selected.getTenantId(), providerId);
+            if (!admissionLocks.configuration(selected.getTenantId(), providerId)) throw ExternalProvisioningService.rejected();
+            admissionLocks.transaction(selected.getId());
+            var transaction = requireProof(providerId, state, proof);
+            var latest = providers.findUsable(providerId).orElseThrow(ExternalProvisioningService::rejected);
+            var policy = policies.enabledPolicy(transaction.getTenantId(), providerId).orElseThrow(ExternalProvisioningService::rejected);
+            if (!tenantActive(transaction.getTenantId()) || !Boolean.TRUE.equals(policy.getLoginEnabled())
+                    || policy.getProvisioningMode() != ProvisioningMode.AUTO
+                    || !Objects.equals(transaction.getVerifiedAuthorityFingerprint(), providers.descriptorOf(latest).authorityFingerprint())
+                    || !descriptor.sameAuthority(providers.descriptorOf(latest))) throw ExternalProvisioningService.rejected();
+            try (var tenant = TenantContext.use(transaction.getTenantId())) {
+                // Repeated confirmation returns no second session. A fresh scan can sign in normally.
+                if (transaction.getStatus() == ExternalLoginStatus.SUCCEEDED)
+                    return new ExternalLoginResults.Completion(ExternalLoginStatus.SUCCEEDED, ExternalLoginPurpose.LOGIN, null, null, null);
+                if (transaction.getStatus() != ExternalLoginStatus.CONFIRMATION_REQUIRED) throw stateInvalid();
+                var admission = provisioning.admit(policy, descriptor, transaction.getVerifiedExternalUserId(), transaction.getVerifiedEnterpriseId(), observation);
+                admissionLocks.identity(transaction.getTenantId(), descriptor.identityNamespace(),
+                        new VerifiedExternalIdentity(transaction.getVerifiedEnterpriseId(), transaction.getVerifiedExternalUserId(), null, clock.instant()));
+                var binding = identities.findByExternalIdentity(descriptor.identityNamespace(), transaction.getVerifiedEnterpriseId(),
+                        transaction.getVerifiedExternalUserId()).orElseGet(() -> provisioning.provision(policy,
+                                provisioning.authorityEnterprise(descriptor, transaction.getVerifiedEnterpriseId()), admission));
+                if (!sourceAllowsLogin(binding) || sourceExpired(binding, policy, descriptor, clock.instant())
+                        || !admissionLocks.employeeAvailable(transaction.getTenantId(), binding.getUserId())) throw ExternalProvisioningService.rejected();
+                transaction.setStatus(ExternalLoginStatus.SUCCEEDED);
+                transaction.setResultUserId(binding.getUserId()); transaction.setResultIdentityId(binding.getId());
+                DirectorySyncStore.save(transactionDao, transaction);
+                var login = signIn(transaction, new Outcome(ExternalLoginStatus.SUCCEEDED, null, binding.getUserId(), binding.getId()),
+                        ip, userAgent, clock.instant());
+                if (login == null) throw ExternalProvisioningService.rejected();
+                return new ExternalLoginResults.Completion(ExternalLoginStatus.SUCCEEDED, ExternalLoginPurpose.LOGIN, null, login, null);
+            }
+        });
+    }
+
+    private ExternalLoginTransaction requireProof(String providerId, String state, String proof) {
+        var transaction = state == null || state.isBlank() ? null : findByState(state);
+        if (transaction == null || proof == null || !Objects.equals(providerId, transaction.getProviderId())
+                || transaction.getPurpose() != ExternalLoginPurpose.LOGIN || !clock.instant().isBefore(transaction.getExpiresAt())
+                || transaction.getVerifiedExternalUserId() == null
+                || !MessageDigest.isEqual(hash(proof).getBytes(StandardCharsets.UTF_8),
+                    transaction.getBrowserProofHash().getBytes(StandardCharsets.UTF_8))) throw stateInvalid();
+        return transaction;
     }
 
     public ExternalLoginResults.OwnIdentities ownIdentities(CurrentUser currentUser) {
@@ -376,6 +432,9 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                 return Outcome.denied(ExternalLoginFailure.PROVIDER_UNAVAILABLE);
             }
         }
+        var provisioningObservation = transaction.getPurpose() == ExternalLoginPurpose.LOGIN && observed == null
+                && policy.get().getProvisioningMode() != ProvisioningMode.DISABLED
+                ? provisioning.observe(descriptor, identity.externalUserId()) : null;
         var authoritative = refreshed;
         // All final facts below are re-read under locks, with no external calls inside this transaction.
         return identities.inAdmissionTransaction(() -> {
@@ -393,6 +452,11 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                     : Boolean.TRUE.equals(latestPolicy.get().getBindingEnabled()))) {
                 return Outcome.denied(ExternalLoginFailure.POLICY_DISABLED);
             }
+            admissionLocks.transaction(transaction.getId());
+            var retainedTransaction = transactionDao.findById(transaction.getId());
+            if (retainedTransaction == null || retainedTransaction.getStatus() != ExternalLoginStatus.PENDING
+                    || !clock.instant().isBefore(retainedTransaction.getExpiresAt()))
+                return Outcome.of(ExternalLoginStatus.EXPIRED, null);
             try (TenantContext.Scope ignored = TenantContext.use(transaction.getTenantId())) {
                 boolean lockedBinding = admissionLocks.identity(transaction.getTenantId(), descriptor.identityNamespace(), identity);
                 Optional<ExternalIdentity> existing = lockedBinding ? identities.findByExternalIdentity(descriptor.identityNamespace(),
@@ -422,6 +486,23 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                             || !admissionLocks.employeeAvailable(transaction.getTenantId(), binding.getUserId()))
                         return Outcome.denied(ExternalLoginFailure.ACCOUNT_UNAVAILABLE);
                 }
+                if (existing.isEmpty() && latestPolicy.get().getProvisioningMode() != ProvisioningMode.DISABLED) {
+                    var prior = provisioning.application(transaction.getTenantId(), descriptor.id(), identity.externalEnterpriseId(), identity.externalUserId());
+                    if (prior != null && prior.getStatus() == JoinApplicationStatus.REJECTED)
+                        return Outcome.of(ExternalLoginStatus.REVIEW_REJECTED, null);
+                    var admission = provisioning.admit(latestPolicy.get(), descriptor, identity.externalUserId(), identity.externalEnterpriseId(), provisioningObservation);
+                    transaction.setVerifiedProfile(DirectorySyncStore.encode(provisioning.confirmation(latestPolicy.get(), admission)));
+                    transaction.setVerifiedExternalUserId(identity.externalUserId());
+                    transaction.setVerifiedEnterpriseId(identity.externalEnterpriseId());
+                    transaction.setVerifiedAuthorityFingerprint(providers.descriptorOf(latestProvider.get()).authorityFingerprint());
+                    var status = ExternalLoginStatus.CONFIRMATION_REQUIRED;
+                    if (latestPolicy.get().getProvisioningMode() == ProvisioningMode.REVIEW) {
+                        var application = provisioning.request(latestPolicy.get(), latestProvider.get(), identity.externalEnterpriseId(), admission);
+                        status = application.getStatus() == JoinApplicationStatus.REJECTED ? ExternalLoginStatus.REVIEW_REJECTED : ExternalLoginStatus.REVIEW_PENDING;
+                    }
+                    DirectorySyncStore.save(transactionDao, transaction);
+                    return Outcome.of(status, null);
+                }
                 Outcome outcome = resolveLogin(existing);
                 if (outcome.status() != ExternalLoginStatus.SUCCEEDED) return outcome;
                 LoginResult login = signIn(transaction, outcome, ip, userAgent, clock.instant());
@@ -449,7 +530,6 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
     }
 
     private Outcome resolveLogin(Optional<ExternalIdentity> existing) {
-        // Provisioning other than DISABLED is not supported yet, so an unbound identity cannot sign in.
         return existing
                 .map(binding -> new Outcome(ExternalLoginStatus.SUCCEEDED, null, binding.getUserId(), binding.getId()))
                 .orElseGet(() -> Outcome.denied(ExternalLoginFailure.IDENTITY_NOT_BOUND));

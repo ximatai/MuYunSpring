@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum;
 
 /** Stable reasons an external sign-in or bind was denied; clients map codes to messages. */
 public enum ExternalLoginFailure implements CodeTitleEnum {
+    ADMISSION_REJECTED("admissionRejected", "无法确认有效的准入资料"),
     IDENTITY_NOT_BOUND("identityNotBound", "外部账号未绑定"),
     IDENTITY_CONFLICT("identityConflict", "外部账号已绑定其他账号"),
     ALREADY_BOUND("alreadyBound", "当前账号已绑定该身份源"),

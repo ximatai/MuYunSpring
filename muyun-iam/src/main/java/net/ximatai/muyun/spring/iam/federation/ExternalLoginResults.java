@@ -24,7 +24,12 @@ public final class ExternalLoginResults {
      * {@code binding} for a successful bind; {@code failure} explains a denial.
      */
     public record Completion(ExternalLoginStatus status, ExternalLoginPurpose purpose, ExternalLoginFailure failure,
-                             LoginResult login, IdentityView binding) {
+                             LoginResult login, IdentityView binding, Confirmation confirmation) {
+        public Completion(ExternalLoginStatus status, ExternalLoginPurpose purpose, ExternalLoginFailure failure,
+                LoginResult login, IdentityView binding) { this(status, purpose, failure, login, binding, null); }
+    }
+
+    public record Confirmation(String displayName, String tenantId, List<String> departmentIds, List<String> placements) {
     }
 
     /** A binding as shown to its owner; never carries provider secrets. */
