@@ -287,6 +287,30 @@ class WeLinkProtocolTest {
                 .isInstanceOf(ExternalIdentityVerificationException.class).hasNoCause();
         assertThat(output.getAll()).doesNotContain("sensitive-secret", "sensitive-code", "sensitive-token", "sensitive-mobile");
     }
+    @Test void restrictsBothEndpointsBeforeAnyCredentialBearingRequest() {
+        for (String key : List.of("apiBaseUrl", "loginBaseUrl")) {
+            String official = key.equals("apiBaseUrl") ? WeLinkConfiguration.API : WeLinkConfiguration.LOGIN;
+            for (String origin : List.of(official, official + "/", "http://127.0.0.1:12345",
+                    "http://localhost:12345", "http://[::1]:12345")) {
+                new WeLinkLoginProtocol(client).validateConfiguration(Map.of(key, origin));
+                directory().validateConfiguration(Map.of(key, origin));
+            }
+            for (String origin : List.of("https://attacker.test", official + ".attacker.test",
+                    official + ":444", official + "@attacker.test", official + "/api",
+                    official + "?secret=value", official + "#fragment", "http://127.0.0.2:12345",
+                    "http://localhost.attacker.test", "https://127.0.0.1:12345")) {
+                var config = Map.of(key, origin);
+                assertThatThrownBy(() -> new WeLinkLoginProtocol(client).validateConfiguration(config))
+                        .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("official origin");
+                assertThatThrownBy(() -> directory().validateConfiguration(config)).isInstanceOf(IllegalArgumentException.class);
+                var unsafe = new IdentityProviderDescriptor("unsafe", "welink", "corp", "app", "client",
+                        "sensitive-secret", config);
+                assertThatThrownBy(() -> directory().department(unsafe, "root"))
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
+        }
+        assertThat(requests).isEmpty();
+    }
     @Test void validatesConfigAndRequiresBothOptInSwitches() {
         for (var config : List.of(Map.of("apiBaseUrl", "http://unsafe.test"), Map.of("scope", "admin"),
                 Map.of("pageSize", "0"), Map.of("activeStatuses", "3", "departedStatuses", "3"),

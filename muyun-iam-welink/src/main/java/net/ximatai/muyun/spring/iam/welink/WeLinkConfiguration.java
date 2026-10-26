@@ -20,10 +20,7 @@ final class WeLinkConfiguration {
         this.values = Map.copyOf(values);
         if (!KEYS.containsAll(values.keySet())) throw invalid("unknown setting");
         base("apiBaseUrl", API);
-        String login = base("loginBaseUrl", LOGIN);
-        if (!login.equals(LOGIN) && !"http".equals(URI.create(login).getScheme())) {
-            throw invalid("loginBaseUrl must use the official origin (HTTP loopback is for protocol tests only)");
-        }
+        base("loginBaseUrl", LOGIN);
         if (!scope().equals("snsapi_login")) throw invalid("scope must be snsapi_login");
         if (!Set.of("query", "form").contains(tokenMode())) throw invalid("tokenParameterMode");
         number("timeoutMillis", 10000, 1, 120000);
@@ -84,8 +81,12 @@ final class WeLinkConfiguration {
             if (uri.getHost() == null || uri.getRawUserInfo() != null || uri.getRawQuery() != null
                     || uri.getRawFragment() != null || !(uri.getPath().isEmpty() || uri.getPath().equals("/"))
                     || !("https".equals(uri.getScheme()) || (loopback && "http".equals(uri.getScheme())))) throw invalid(key);
-            return uri.toString().replaceAll("/$", "");
-        } catch (IllegalArgumentException bad) { throw invalid(key); }
+            String origin = uri.toString().replaceAll("/$", "");
+            if (!origin.equals(fallback) && !(loopback && "http".equals(uri.getScheme()))) {
+                throw invalid(key);
+            }
+            return origin;
+        } catch (IllegalArgumentException bad) { throw invalid(key + " must use the official origin (HTTP loopback is for protocol tests only)"); }
     }
     private static IllegalArgumentException invalid(String key) {
         return new IllegalArgumentException("Invalid WeLink configuration: " + key);

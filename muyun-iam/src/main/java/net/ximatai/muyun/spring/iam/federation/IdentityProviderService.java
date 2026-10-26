@@ -49,7 +49,7 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
     public static final String MODULE_ALIAS = "iam.identity_provider";
     /** The provider code is embedded in session login methods ("external:" + code), which hold 64 characters. */
     static final int MAX_ID_LENGTH = 48;
-    private static final Pattern ENVIRONMENT_VARIABLE = Pattern.compile("[A-Za-z_][A-Za-z0-9_]{0,127}");
+    private static final Pattern CLIENT_SECRET_VARIABLE = Pattern.compile("MUYUN_[A-Z0-9_]+_CLIENT_SECRET");
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() {
     };
@@ -146,6 +146,7 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
     /** Read-only view handed to the provider's protocol, with the client secret resolved at call time. */
     IdentityProviderDescriptor descriptorOf(IdentityProvider provider) {
         String variable = provider.getClientSecretEnvironmentVariable();
+        requireClientSecretVariable(variable);
         String secret = variable == null ? null : environment.apply(variable);
         return new IdentityProviderDescriptor(provider.getId(), provider.getProviderType(),
                 provider.getExternalEnterpriseId(), provider.effectiveIdentityNamespace(), provider.getClientId(),
@@ -187,12 +188,7 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
                     "identity provider type is not installed: {value1}"),
                     Map.of("value1", String.valueOf(provider.getProviderType())));
         }
-        String variable = provider.getClientSecretEnvironmentVariable();
-        if (variable != null && !ENVIRONMENT_VARIABLE.matcher(variable).matches()) {
-            throw PlatformErrors.badRequestText(TextReference.code(
-                    "iam.rejection.identity-provider.client-secret-environment-variable-is-invalid",
-                    "client secret environment variable name is invalid"), Map.of());
-        }
+        requireClientSecretVariable(provider.getClientSecretEnvironmentVariable());
         try {
             if (protocol != null) protocol.validateConfiguration(configurationOf(provider.getConfiguration()));
             var directory = directories.get(provider.getProviderType());
@@ -202,6 +198,14 @@ public class IdentityProviderService extends StandardBusinessService<IdentityPro
                     "iam.rejection.identity-provider.configuration-is-invalid",
                     "identity provider configuration is invalid: {value1}"),
                     Map.of("value1", String.valueOf(exception.getMessage())));
+        }
+    }
+
+    private static void requireClientSecretVariable(String variable) {
+        if (variable != null && (variable.length() > 128 || !CLIENT_SECRET_VARIABLE.matcher(variable).matches())) {
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "iam.rejection.identity-provider.client-secret-environment-variable-is-invalid",
+                    "client secret environment variable must match MUYUN_[A-Z0-9_]+_CLIENT_SECRET (max 128 characters)"), Map.of());
         }
     }
 
