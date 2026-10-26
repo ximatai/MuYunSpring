@@ -220,6 +220,10 @@ class ExternalIdentityFederationIT {
         assertThat(statusCompletion().path("failure").asText()).isEqualTo("enterpriseMismatch");
         jdbcTemplate.update("update iam_identity_provider set external_enterprise_id = 'status-corp' where id = ?", providerId);
         statusProtocol.lookupSupported = false;
+        // The platform default allows a missed daily sync: a 48-hour source is still fresh.
+        assertThat(statusCompletion().path("status").asText()).isEqualTo("succeeded");
+        assertThat(statusProtocol.calls).isEqualTo(initialCalls);
+        jdbcTemplate.update("update iam_external_identity set bound_at = current_timestamp - interval '4 days' where id = ?", bindingId);
         assertThat(statusCompletion().path("failure").asText()).isEqualTo("providerUnavailable");
         assertThat(statusProtocol.calls).isEqualTo(initialCalls);
         statusProtocol.lookupSupported = true;
@@ -230,10 +234,19 @@ class ExternalIdentityFederationIT {
             assertThat(userSessionDao.query(Criteria.of().eq("userId", userId), new PageRequest(0, 20)))
                     .anyMatch(session -> session.getRevokedAt() == null);
         }
-        jdbcTemplate.update("update iam_external_identity set source_checked_at = current_timestamp - interval '2 days' where id = ?", bindingId);
+        jdbcTemplate.update("update iam_external_identity set source_checked_at = current_timestamp - interval '4 days' where id = ?", bindingId);
         statusProtocol.fail = true;
         assertThat(statusCompletion().path("failure").asText()).isEqualTo("providerUnavailable");
         statusProtocol.fail = false;
+        statusProtocol.status = "unknown";
+        assertThat(statusCompletion().path("failure").asText()).isEqualTo("providerRejected");
+        try (var tenant = TenantContext.use(TENANT)) {
+            var unchanged = externalIdentityService.select(bindingId);
+            assertThat(unchanged.getSourceStatus()).isEqualTo("active");
+            assertThat(unchanged.getSourceCheckedAt()).isBefore(Instant.now().minusSeconds(259200));
+            assertThat(userSessionDao.query(Criteria.of().eq("userId", userId), new PageRequest(0, 20)))
+                    .anyMatch(session -> session.getRevokedAt() == null);
+        }
         statusProtocol.status = "departed";
         assertThat(statusCompletion().path("status").asText()).isEqualTo("denied");
         try (var tenant = TenantContext.use(TENANT)) {
