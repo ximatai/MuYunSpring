@@ -52,15 +52,11 @@ public class UserSessionRevocationService {
         if (validUserId == null) {
             return 0;
         }
-        Instant now = now();
-        List<UserSession> sessions = userSessionRecordService.listByUserId(validUserId);
-        int count = 0;
-        for (UserSession session : sessions) {
-            if (session.getRevokedAt() == null && revoke(session, now, reason)) {
-                count += 1;
-            }
+        List<String> sessionIds = userSessionRecordService.revokeActiveByUserId(validUserId, now(), reason);
+        for (String sessionId : sessionIds) {
+            userSessionLifecycleEventPublisher.get().publish(UserSessionLifecycleEvent.revoked(validUserId, sessionId));
         }
-        return count;
+        return sessionIds.size();
     }
 
     public boolean revoke(UserSession session, Instant now, String reason) {

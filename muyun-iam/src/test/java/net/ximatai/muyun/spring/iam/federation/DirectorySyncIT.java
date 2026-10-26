@@ -238,7 +238,7 @@ class DirectorySyncIT {
                 new DirectorySyncStore(
                         syncRuns, scopes, mappings, seen, observedDepartments, db, policyRows);
         var revocations = new UserSessionRevocationService(
-                new UserSessionRecordService(sessionRows), event -> {}, Clock.systemUTC());
+                new UserSessionRecordService(sessionRows, db), event -> {}, Clock.systemUTC());
         var jobPositionService = new PositionService(jobPositionRows, t -> {});
         var roles =
                 new RoleService(

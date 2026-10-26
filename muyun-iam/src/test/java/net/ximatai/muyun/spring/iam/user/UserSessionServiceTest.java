@@ -842,29 +842,21 @@ class UserSessionServiceTest {
         UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
-        UserSession web = activeSession("session-web", "user-1");
-        UserSession mobile = activeSession("session-mobile", "user-1");
-        UserSession revoked = activeSession("session-old", "user-1");
-        revoked.setRevokedAt(clock.instant().minusSeconds(60));
-        revoked.setRevokedReason("logout");
-        when(sessionDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(web, mobile, revoked));
-        when(sessionDao.updateByIdAndVersion(any(UserSession.class), any())).thenReturn(1);
+        var records = mock(UserSessionRecordService.class);
+        when(records.revokeActiveByUserId("user-1", clock.instant(), "user sessions revoked"))
+                .thenReturn(List.of("session-web", "session-mobile"));
         RecordingUserSessionLifecycleEventPublisher lifecycleEventPublisher =
                 new RecordingUserSessionLifecycleEventPublisher();
-        UserSessionService sessionService = sessionService(userService, sessionDao,
-                UserSecurityEventPublisher.NOOP, lifecycleEventPublisher, clock);
+        UserSessionService sessionService = sessionService(userService, records, userService, null,
+                () -> UserSecurityEventPublisher.NOOP, () -> lifecycleEventPublisher, clock, null,
+                () -> UserSessionPresenceLookup.NONE);
 
-        sessionService.revokeUserSessions("user-1");
-
-        assertThat(web.getRevokedReason()).isEqualTo("user sessions revoked");
-        assertThat(mobile.getRevokedReason()).isEqualTo("user sessions revoked");
-        assertThat(revoked.getRevokedReason()).isEqualTo("logout");
+        assertThat(sessionService.revokeUserSessions("user-1")).isEqualTo(2);
         assertThat(lifecycleEventPublisher.events).containsExactly(
                 UserSessionLifecycleEvent.revoked("user-1", "session-web"),
                 UserSessionLifecycleEvent.revoked("user-1", "session-mobile")
         );
-        verify(sessionDao).updateByIdAndVersion(web, 0);
-        verify(sessionDao).updateByIdAndVersion(mobile, 0);
+        org.mockito.Mockito.verifyNoInteractions(sessionDao);
     }
 
     @Test
@@ -927,7 +919,7 @@ class UserSessionServiceTest {
         UserSessionPresenceLookup presenceLookup = sessionId -> "session-active".equals(sessionId)
                 ? new UserSessionPresence(sessionId, true, 2, connectedAt, observedAt)
                 : UserSessionPresence.absent(sessionId);
-        UserSessionService sessionService = sessionService(userService, new UserSessionRecordService(sessionDao),
+        UserSessionService sessionService = sessionService(userService, new UserSessionRecordService(sessionDao, mock(net.ximatai.muyun.database.core.IDatabaseOperations.class)),
                 userService, null, () -> UserSecurityEventPublisher.NOOP,
                 () -> UserSessionLifecycleEventPublisher.NOOP, clock,
                 null, () -> presenceLookup);
@@ -1112,7 +1104,7 @@ class UserSessionServiceTest {
                                               UserSessionDao userSessionDao,
                                               Clock clock,
                                               CurrentUserTimeZoneResolver timeZoneResolver) {
-        return sessionService(userAccountService, new UserSessionRecordService(userSessionDao), userAccountService,
+        return sessionService(userAccountService, new UserSessionRecordService(userSessionDao, mock(net.ximatai.muyun.database.core.IDatabaseOperations.class)), userAccountService,
                 null, () -> UserSecurityEventPublisher.NOOP, () -> UserSessionLifecycleEventPublisher.NOOP,
                 clock, timeZoneResolver, () -> UserSessionPresenceLookup.NONE);
     }
@@ -1130,7 +1122,7 @@ class UserSessionServiceTest {
                                               UserSecurityEventPublisher securityEventPublisher,
                                               UserSessionLifecycleEventPublisher lifecycleEventPublisher,
                                               Clock clock) {
-        return sessionService(userAccountService, new UserSessionRecordService(userSessionDao), userAccountService,
+        return sessionService(userAccountService, new UserSessionRecordService(userSessionDao, mock(net.ximatai.muyun.database.core.IDatabaseOperations.class)), userAccountService,
                 null, () -> securityEventPublisher, () -> lifecycleEventPublisher, clock, null,
                 () -> UserSessionPresenceLookup.NONE);
     }
@@ -1181,7 +1173,7 @@ class UserSessionServiceTest {
                 organizationResolver,
                 () -> UserSessionPresenceLookup.NONE,
                 () -> loginAuditLogger);
-        return new UserSessionService(userAccountService, new UserSessionRecordService(userSessionDao),
+        return new UserSessionService(userAccountService, new UserSessionRecordService(userSessionDao, mock(net.ximatai.muyun.database.core.IDatabaseOperations.class)),
                 userAccountService, collaborators, clock);
     }
 

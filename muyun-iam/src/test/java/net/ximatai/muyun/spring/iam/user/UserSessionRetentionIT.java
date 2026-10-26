@@ -46,6 +46,7 @@ class UserSessionRetentionIT {
     @Autowired JobPlanDao plans;
     @Autowired JobRunDao runs;
     @Autowired UserSessionDao sessions;
+    @Autowired IDatabaseOperations<?> database;
     @Autowired DataSource source;
     @Autowired ApplicationEvents events;
     private JdbcTemplate jdbc;
@@ -87,7 +88,7 @@ class UserSessionRetentionIT {
         assertThat(count()).isEqualTo(12);
         for (String tenant : new String[]{"tenant-a", "tenant-b"}) {
             try (var scope = TenantContext.use(tenant)) {
-                assertThat(new UserSessionRecordService(sessions).listByUserId("user"))
+                assertThat(new UserSessionRecordService(sessions, database).listByUserId("user"))
                         .hasSize(4).allSatisfy(row -> assertThat(row.getTenantId()).isEqualTo(tenant));
             }
         }
