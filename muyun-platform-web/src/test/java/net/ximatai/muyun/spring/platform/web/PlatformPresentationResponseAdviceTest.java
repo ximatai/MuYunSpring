@@ -28,6 +28,34 @@ class PlatformPresentationResponseAdviceTest {
                 TextResources.format(translations.getOrDefault(tag, Map.of()).getOrDefault(source, source.originalText()), arguments), tag, tag, false, false));
         return new PlatformPresentationResponseAdvice(mapper, beans.getBeanProvider(TextResolver.class), beans.getBeanProvider(LanguageCatalog.class));
     }
+    @Test
+    void projectsRulePreflightAndTrialResourcesWhilePreservingRawEngineAndUserMessages() {
+        var source = TextReference.code("test.rule.input", "输入字段不合法: {field}");
+        var issue = BusinessRuleIssue.declared("INVALID_RULE_INPUT", "calculate1", "lines.cost", source,
+                Map.of("field", "lines.cost {field}"));
+        var raw = new BusinessRuleIssue("FORMULA_VALIDATION", "customRule", "amount", "User message {amount}");
+        var preview = new BusinessRulePreview(null, "fingerprint", List.of(), List.of(issue, raw));
+        var trial = new BusinessRuleTrialResult(preview, Map.of(), List.of(), List.of(issue, raw));
+        var projection = advice(Map.of(source, "Invalid input field: {field}"));
+        for (String tag : List.of("en", "zh-CN")) {
+            try (var ignored = LanguageContext.use(tag)) {
+                var output = mapper.valueToTree(projection.project(trial));
+                for (String path : List.of("/errors/0", "/preview/errors/0")) {
+                    assertThat(output.at(path + "/message").asText()).isEqualTo(issue.message());
+                    assertThat(output.at(path + "/messageText/languages/en/text").asText())
+                            .isEqualTo("Invalid input field: lines.cost {field}");
+                    assertThat(output.at(path + "/field").asText()).isEqualTo("lines.cost");
+                    assertThat(output.at(path + "/ruleCode").asText()).isEqualTo("calculate1");
+                    assertThat(output.at(path + "/code").asText()).isEqualTo("INVALID_RULE_INPUT");
+                }
+                assertThat(output.at("/errors/1/message").asText()).isEqualTo(raw.message());
+                assertThat(output.at("/errors/1/messageText").isMissingNode()).isTrue();
+            }
+        }
+        var stale = new BusinessRuleIssue(issue.code(), issue.ruleCode(), issue.field(), "changed raw message", source, issue.messageArgs());
+        assertThat(mapper.valueToTree(projection.project(List.of(stale))).at("/0/messageText").isMissingNode()).isTrue();
+    }
+
     @Test void projectsCodeSourceLabelsUsingSharedResourcesWithoutChangingTheirIdentity() throws Exception {
         var source = net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy.titleSource("createdAt");
         var target = new net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Target(

@@ -155,9 +155,14 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
                     slots.add(new Slot(path, property, source, Map.of(), false, true)));
         } else if (value instanceof BusinessRuleGovernanceSnapshot snapshot) {
             collect(snapshot.functions(), path + "/functions", slots);
+        } else if (value instanceof BusinessRuleIssue issue) {
+            if (issue.textSource() != null && issue.textSource().sourceKind() == TextReference.SourceKind.CODE)
+                slots.add(new Slot(path, "message", issue.textSource(), issue.messageArgs(), false, true));
         } else if (value instanceof BusinessRulePreview preview) {
+            collect(preview.errors(), path + "/errors", slots);
             collect(preview.snapshot(), path + "/snapshot", slots);
         } else if (value instanceof BusinessRuleTrialResult trial) {
+            collect(trial.errors(), path + "/errors", slots);
             collect(trial.preview(), path + "/preview", slots);
         } else if (value instanceof BusinessRuleApplyResult applied) {
             collect(applied.snapshot(), path + "/snapshot", slots);

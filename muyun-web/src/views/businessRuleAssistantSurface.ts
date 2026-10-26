@@ -13,11 +13,17 @@ import {
   type AssistantTurnRequester,
 } from '@muyun/web-core';
 import type {
+  BusinessRuleIssue,
   BusinessRuleProposal,
   BusinessRuleTrialResult,
   BusinessRuleSnapshotRule,
 } from './businessRuleGovernance';
-import { toProposal, businessRuleTrialValue, businessRuleValidationHelpText } from './businessRuleGovernance';
+import {
+  toProposal,
+  businessRuleTrialValue,
+  businessRuleValidationHelpText,
+  businessRuleIssueMessage,
+} from './businessRuleGovernance';
 
 import type {
   BusinessRuleTrialInput,
@@ -470,7 +476,7 @@ export function createBusinessRuleAssistantSurface(
               ),
               parseInput: parseEmptyAssistantCapabilityInput,
               present(output) {
-                const result = output as { valid: boolean; errors: { message: string }[] };
+                const result = output as { valid: boolean; errors: BusinessRuleIssue[] };
                 return {
                   title: result.valid
                     ? language.t(
@@ -482,7 +488,7 @@ export function createBusinessRuleAssistantSurface(
                         '计算与保存校验检查未通过',
                       ),
                   lines: [
-                    ...result.errors.map((error) => error.message),
+                    ...result.errors.map((error) => businessRuleIssueMessage(error, language)),
                     language.t(
                       'platform.screen.businessRuleAssistantSurface.these-checks-did-not-apply-any-changes-ui-controls-still',
                       '本次检查没有应用任何更改；界面控制仍需在应用时校验。',
@@ -576,7 +582,7 @@ export function createBusinessRuleAssistantSurface(
                       ),
                     ),
                     ...(result.errors.length
-                      ? result.errors.map((error) => error.message)
+                      ? result.errors.map((error) => businessRuleIssueMessage(error, language))
                       : [
                           language.t(
                             'platform.screen.businessRuleAssistantSurface.this-sample-produced-no-validation-errors-it-does-not-mean',

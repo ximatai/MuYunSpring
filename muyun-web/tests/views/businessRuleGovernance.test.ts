@@ -351,3 +351,47 @@ it('retains local issue facts and changes only their display language', () => {
     '客户校验提示',
   );
 });
+
+it('uses verified preflight resources across language switches and keeps raw diagnostics intact', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const source = codeOperationErrorMessage(
+    language,
+    'platform.rules.diagnostic.invalid-rule-input',
+    '业务规则输入必须来自字段目录: {field}',
+    { field: 'lines.cost' },
+  ).source;
+  const messageText: TextPresentation = {
+    source,
+    languages: {
+      en: {
+        text: 'Business rule inputs must come from the field catalog: lines.cost',
+        requestedTag: 'en',
+        resourceTag: 'en',
+        missing: false,
+        fallback: false,
+      },
+      'zh-CN': {
+        text: '业务规则输入必须来自字段目录: lines.cost',
+        requestedTag: 'zh-CN',
+        resourceTag: 'zh-CN',
+        missing: false,
+        fallback: false,
+      },
+    },
+  };
+  const issue = {
+    code: 'INVALID_RULE_INPUT',
+    ruleCode: 'calculate',
+    field: 'lines.cost',
+    message: '业务规则输入必须来自字段目录: lines.cost',
+    messageText,
+  };
+  expect(businessRuleIssueMessage(issue, language)).toBe(messageText.languages.en.text);
+  language.setLanguage('zh-CN');
+  expect(businessRuleIssueMessage(issue, language)).toBe(issue.message);
+  expect(issue.field).toBe('lines.cost');
+  expect(issue.ruleCode).toBe('calculate');
+  expect(businessRuleIssueMessage({ ...issue, messageText: null, message: 'external {raw}' }, language)).toBe(
+    'external {raw}',
+  );
+});
