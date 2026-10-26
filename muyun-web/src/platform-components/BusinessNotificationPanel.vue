@@ -61,7 +61,8 @@ const floating = computed(() =>
   display.value.filter(
     (notice) =>
       (!overlayOpen.value || !hasPersistent.value || notice.displayPolicy === 'persistent') &&
-      (!recordHandled(notice.id) ||
+      (display.value.length === 1 ||
+        !recordHandled(notice.id) ||
         notice.actions.some((action) => action.kind === 'navigate') ||
         !notice.actions.length),
   ),
@@ -113,7 +114,11 @@ watch(
 watch(
   () => active.value.length,
   (count) => {
-    if (!count) expanded.value = false;
+    if (count <= 1) {
+      deckMotion.stop();
+      restoredTopId.value = top.value?.id;
+      expanded.value = false;
+    }
   },
 );
 let disposed = false;
@@ -194,6 +199,7 @@ async function closePanel() {
       v-if="active.length"
       :hidden="overlayOpen && !hasPersistent"
       class="business-notification-panel"
+      :class="{ 'business-notification-panel--single': active.length === 1 }"
       :aria-label="language.t('platform.screen.BusinessNotificationPanel.business-reminders', '业务提醒')"
       aria-live="polite"
       @keydown.esc.stop="closePanel"
@@ -255,6 +261,7 @@ async function closePanel() {
         </div>
       </section>
       <button
+        v-if="active.length > 1"
         ref="bell"
         type="button"
         class="business-notification-bell"
@@ -327,6 +334,10 @@ async function closePanel() {
   width: 100%;
   padding: 16px 16px calc(16px + var(--notification-stack-depth) * 10px);
   pointer-events: auto;
+}
+.business-notification-panel--single .business-notification-stack {
+  bottom: 0;
+  padding: 0 16px;
 }
 .business-notification-stack .business-notification-deck-card--top {
   position: relative;

@@ -731,14 +731,20 @@ it('consumes session-only reminders from the public package without treating clo
   const wrapper = mount(sdk.BusinessNotificationPanel, {
     props: { notifications: [notice, { ...notice }], executeAction },
   });
-  expect(wrapper.get('.business-notification-badge').text()).toBe('1');
+  expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
+  expect(wrapper.findAll('.business-notification-card')).toHaveLength(1);
   await wrapper.get('.business-notification-close').trigger('click');
   expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
   expect(wrapper.emitted('dismiss')).toEqual([['session-one']]);
   expect(executeAction).not.toHaveBeenCalled();
-  await wrapper.setProps({ notifications: [{ ...notice, id: 'session-two' }] });
+  await wrapper.setProps({
+    notifications: [
+      { ...notice, id: 'session-two' },
+      { ...notice, id: 'session-three' },
+    ],
+  });
   await wrapper.get('.business-notification-bell').trigger('click');
-  expect(wrapper.findAll('.business-notification-current .business-notification-card')).toHaveLength(1);
+  expect(wrapper.findAll('.business-notification-current .business-notification-card')).toHaveLength(2);
   expect(wrapper.find('.business-notification-current-header').exists()).toBe(false);
   expect(wrapper.get('.business-notification-bell').attributes('title')).toContain('刷新或退出后清空');
   expect(wrapper.find('.business-notification-stack').exists()).toBe(false);

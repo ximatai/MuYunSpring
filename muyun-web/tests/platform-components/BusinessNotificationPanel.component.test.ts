@@ -108,7 +108,8 @@ describe('BusinessNotificationPanel', () => {
       expect(wrapper.get('.test-accessory').text()).toBe('附件');
       expect(wrapper.get('time').attributes('datetime')).toBe('2026-09-11T06:57:39.000Z');
       expect(wrapper.find('.business-notification-controls').exists()).toBe(false);
-      expect(wrapper.get('.business-notification-badge').text()).toBe('1');
+      expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
+      expect(wrapper.findAll('.business-notification-card')).toHaveLength(1);
     },
   );
 
@@ -140,7 +141,8 @@ describe('BusinessNotificationPanel', () => {
     expect(wrapper.find('.business-notification-card').exists()).toBe(false);
     await wrapper.setProps({ notifications: [...notices, notification('new')] });
     expect(wrapper.get('.business-notification-card h2').text()).toBe('new');
-    expect(wrapper.get('.business-notification-badge').text()).toBe('1');
+    expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
+    expect(wrapper.findAll('.business-notification-card')).toHaveLength(1);
     wrapper.unmount();
     const reopened = mountPanel(notices);
     expect(reopened.get('.business-notification-badge').text()).toBe('3');
@@ -181,7 +183,8 @@ describe('BusinessNotificationPanel', () => {
     expect(execute).toHaveBeenCalledTimes(1);
     finish(false);
     await flushPromises();
-    expect(wrapper.get('.business-notification-badge').text()).toBe('1');
+    expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
+    expect(wrapper.findAll('.business-notification-card')).toHaveLength(1);
     await wrapper.get('.business-notification-actions button').trigger('click');
     await wrapper.setProps({ notifications: [{ ...notice }] });
     await wrapper.get('.business-notification-actions button').trigger('click');
@@ -206,11 +209,36 @@ describe('BusinessNotificationPanel', () => {
     await wrapper.get('.business-notification-bell').trigger('click');
     await vi.advanceTimersByTimeAsync(1000);
     expect(wrapper.findAll('.business-notification-card h2').map((el) => el.text())).toEqual(['withdraw']);
-    expect(wrapper.get('.business-notification-badge').text()).toBe('1');
+    expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
+    expect(wrapper.findAll('.business-notification-card')).toHaveLength(1);
     await wrapper.setProps({ notifications: [] });
     expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
     expect(wrapper.find('.business-notification-current').exists()).toBe(false);
   });
+
+  it.each(['close', 'complete', 'withdraw'])(
+    'restores a single card after %s and starts new multiple reminders collapsed',
+    async (change) => {
+      const one = notification('one', true, { actions: [command] });
+      const two = notification('two', true, { actions: [command] });
+      const wrapper = mountPanel(
+        [one, two],
+        vi.fn(async () => true),
+      );
+      await wrapper.get('.business-notification-bell').trigger('click');
+      if (change === 'close') await wrapper.findAll('.business-notification-close')[0]!.trigger('click');
+      if (change === 'complete') {
+        await wrapper.findAll('.business-notification-actions button')[0]!.trigger('click');
+        await flushPromises();
+      }
+      if (change === 'withdraw') await wrapper.setProps({ notifications: [one] });
+      expect(wrapper.find('.business-notification-current').exists()).toBe(false);
+      expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
+      expect(wrapper.get('.business-notification-card h2').text()).toBe('one');
+      await wrapper.setProps({ notifications: [one, notification('new')] });
+      expect(wrapper.get('.business-notification-bell').attributes('aria-expanded')).toBe('false');
+    },
+  );
 
   it('does not retire a replacement reminder when a stale action finishes', async () => {
     let finish!: (value: boolean) => void;
@@ -294,7 +322,27 @@ describe('BusinessNotificationPanel', () => {
     await flushPromises();
     expect(buttons().map((button) => button.disabled)).toEqual([true, false]);
     expect(wrapper.emitted('dismiss')).toBeUndefined();
-    expect(document.querySelector('.business-notification-badge')?.textContent).toBe('1');
+    expect(document.querySelector('.business-notification-bell')).toBeNull();
+    wrapper.unmount();
+  });
+
+  it('keeps a single persistent card visible after a non-dismissing command disables repeated processing', async () => {
+    const wrapper = mountPanel(
+      [
+        notification('single', false, {
+          displayPolicy: 'persistent',
+          actions: [{ ...command, dismissOnSuccess: false }],
+        }),
+      ],
+      vi.fn(async () => true),
+    );
+    const button = document.querySelector<HTMLButtonElement>('.business-notification-actions button')!;
+    button.click();
+    await flushPromises();
+    expect(button.disabled).toBe(true);
+    expect(document.querySelector('.business-notification-card h2')?.textContent).toBe('single');
+    expect(document.querySelector('.business-notification-bell')).toBeNull();
+    expect(wrapper.emitted('dismiss')).toBeUndefined();
     wrapper.unmount();
   });
 
