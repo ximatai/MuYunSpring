@@ -4,6 +4,11 @@ import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.orm.*;
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.platform.*;
+import net.ximatai.muyun.spring.common.identity.*;
+import net.ximatai.muyun.spring.common.model.EntityLifecycle;
+import net.ximatai.muyun.spring.platform.module.*;
+import net.ximatai.muyun.spring.dynamic.metadata.*;
 import net.ximatai.muyun.spring.platform.notification.*;
 import net.ximatai.muyun.spring.platform.workflow.*;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -35,6 +40,8 @@ class JobRepositoryIT extends PlatformPostgresIntegrationTest {
     @Autowired JobPlanDao plans;
     @Autowired JobRunDao runs;
     @Autowired ScheduledActionPlanDao actionPlans;
+    @Autowired PlatformModuleDao moduleRows;
+    @Autowired PlatformModuleActionDao moduleActionRows;
     @Autowired WorkflowNodeInstanceDao nodes;
     @Autowired WorkflowInstanceDao instances;
     @Autowired WorkflowEventDao events;
@@ -79,6 +86,90 @@ class JobRepositoryIT extends PlatformPostgresIntegrationTest {
             }
         };
     }
+    @Test void smallScheduledActionPagePushesVisibilityAndFiltersIntoPostgres() {
+        String tenantId = "visibility-it";
+        var beans = new DefaultListableBeanFactory();
+        var modules = mock(PlatformModuleService.class);
+        when(modules.select(anyString())).thenAnswer(call -> moduleRows.findById(call.getArgument(0)));
+        beans.registerSingleton("dataAuth", mock(ModuleActionDataAuthResolver.class));
+        var catalog = spy(new PlatformModuleActionService(moduleActionRows, modules, Optional.empty(), Optional.empty(),
+                beans.getBeanProvider(ModuleActionDataAuthResolver.class)));
+        var permissions = mock(ActionExecutionPolicyService.class);
+        when(permissions.authorize(any())).thenAnswer(call -> {
+            var context = call.getArgument(0, ActionExecutionContext.class);
+            assertThat(context.moduleAlias()).isEqualTo("test.target");
+            assertThat(TenantContext.currentTenantId()).contains(tenantId);
+            if (!context.actionCode().equals("allowed"))
+                throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException("denied target");
+            return ActionAuthorizationResult.allowed(context, "ROLE_GRANTED");
+        });
+        var invoker = spy(new ModuleActionInvoker(modules, catalog, permissions,
+                beans.getBeanProvider(net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService.class),
+                beans.getBeanProvider(ScheduledModuleAction.class), event -> {}));
+        var dao = spy(actionPlans);
+        var topic = new ScheduledActionPlanService(dao, first, invoker,
+                beans.getBeanProvider(net.ximatai.muyun.spring.common.identity.TrustedExecutionIdentityResolver.class),
+                (module, action) -> false,
+                tenant -> { throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException("ordinary"); },
+                new com.fasterxml.jackson.databind.ObjectMapper(), tenant -> {});
+        global(() -> {
+            db.execute("delete from platform_scheduled_action_plan");
+            db.execute("delete from platform_module_action");
+            db.execute("delete from platform_module");
+            for (String moduleAlias : List.of("test.target", "test.foreign")) {
+                var module = new PlatformModule(); module.setAlias(moduleAlias); module.setApplicationAlias("test");
+                module.setTitle(moduleAlias); module.setModuleKind(ModuleKind.DYNAMIC);
+                module.setTenantId(moduleAlias.equals("test.target") ? tenantId : "other-tenant");
+                EntityLifecycle.prepareInsert(module, Instant.now()); moduleRows.insert(module);
+            }
+            for (String code : List.of("allowed", "denied")) insertScheduledCatalogAction("test.target", code);
+            // Another tenant cannot exhaust this tenant's visibility budget.
+            for (int index = 0; index < 300; index++) insertScheduledCatalogAction("test.foreign", "action" + index);
+            // Only two of these 3000 plans should be visible and match the requested filter.
+            db.execute("""
+                    insert into platform_scheduled_action_plan
+                    (id, tenant_id, module_alias, action_code, job_plan_id, enabled, arguments_json, identity_mode, schedule_kind, created_at, updated_at, version)
+                    select 'visibility-' || n, ?, 'test.target',
+                           case when n<=2 then 'allowed' else 'denied' end, 'job-' || n, true, '{}', 'INITIATOR', 'FIXED_DELAY',
+                           current_timestamp, current_timestamp, 0 from generate_series(1,3000) n
+                    """, tenantId);
+            db.execute("update platform_scheduled_action_plan set arguments_json='invalid frozen parameters' where id='visibility-1'");
+            db.execute("""
+                    insert into platform_scheduled_action_plan
+                    (id, tenant_id, module_alias, action_code, job_plan_id, enabled, arguments_json, identity_mode, schedule_kind, created_at, updated_at, version)
+                    values ('foreign-visible','other-tenant','test.target','allowed','foreign-job',true,'{}','INITIATOR','FIXED_DELAY',current_timestamp,current_timestamp,0),
+                           ('disabled-visible',?,'test.target','allowed','disabled-job',false,'{}','INITIATOR','FIXED_DELAY',current_timestamp,current_timestamp,0)
+                    """, tenantId);
+            return null;
+        });
+        try (var user = net.ximatai.muyun.spring.common.identity.CurrentUserContext.use(
+                net.ximatai.muyun.spring.common.identity.CurrentUser.tenantUser("reader", "reader", tenantId));
+             var tenant = TenantContext.use(tenantId)) {
+            var firstPage = topic.pageQuery(Criteria.of().eq("enabled", true), new PageRequest(0, 1), Sort.asc("id"));
+            assertThat(firstPage.getTotal()).isEqualTo(2);
+            assertThat(firstPage.getRecords()).extracting(ScheduledActionPlan::getId).containsExactly("visibility-1");
+            var secondPage = topic.pageQuery(Criteria.of().eq("enabled", true), new PageRequest(1, 1), Sort.asc("id"));
+            assertThat(secondPage.getTotal()).isEqualTo(2);
+            assertThat(secondPage.getRecords()).extracting(ScheduledActionPlan::getId).containsExactly("visibility-2");
+            doThrow(new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException("all targets denied"))
+                    .when(permissions).authorize(any());
+            var empty = topic.pageQuery(Criteria.of(), new PageRequest(0, 1));
+            assertThat(empty.getTotal()).isZero();
+            assertThat(empty.getRecords()).isEmpty();
+        }
+        verify(dao, never()).query(any(Criteria.class), org.mockito.ArgumentMatchers.<PageRequest>argThat(page -> page.getLimit() > 1), any(Sort[].class));
+        verify(invoker, times(3)).authorizedScheduledTargets();
+        verify(catalog, atLeastOnce()).list(any(Criteria.class), org.mockito.ArgumentMatchers.<PageRequest>argThat(page -> page.getLimit() <= 100), any(Sort.class));
+        verify(invoker, never()).requireAuthorized(anyString(), anyString(), anyMap());
+    }
+
+    private void insertScheduledCatalogAction(String module, String code) {
+        var action = new PlatformModuleAction(); action.setModuleAlias(module); action.setActionCode(code);
+        action.setTitle(code); action.setActionLevel(EntityActionLevel.LIST);
+        action.setExecutorType(EntityActionExecutorType.SERVICE); action.setExecutorKey("fixture");
+        action.setSchedulable(true); EntityLifecycle.prepareInsert(action, Instant.now()); moduleActionRows.insert(action);
+    }
+
     @Test void standardPagePayloadSchedulesAndExecutesInSelectedTenant() throws Exception {
         var json = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
         // recordMutationPayload strips tenantId; only the business execution scope crosses the wire.
@@ -435,7 +526,7 @@ class JobRepositoryIT extends PlatformPostgresIntegrationTest {
         catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new IllegalStateException(interrupted); }
     }
     @SpringBootConfiguration @EnableAutoConfiguration
-    @EnableMuYunRepositories(basePackageClasses = {JobPlanDao.class, WorkflowNodeInstanceDao.class})
+    @EnableMuYunRepositories(basePackageClasses = {JobPlanDao.class, WorkflowNodeInstanceDao.class, PlatformModuleDao.class})
     static class Application {
         @Bean net.ximatai.muyun.database.spring.boot.JdbiConfigurer bigIntegerJdbiConfigurer() {
             // Production registers this in the starter; repository tests assemble the platform without it.
