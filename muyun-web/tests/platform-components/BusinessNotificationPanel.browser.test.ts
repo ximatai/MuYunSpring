@@ -267,7 +267,7 @@ it('does not pull focus back to the list when the user moves it while the deck i
 
 it('dismisses cards from this page session and labels the remaining list as temporary without reflowing business content', async () => {
   await page.viewport(1280, 900);
-  const notifications = ref([notice('one'), notice('two')]);
+  const notifications = ref([notice('zero'), notice('one'), notice('two')]);
   const wrapper = mount(host(notifications), {
     attachTo: document.body,
     global: { stubs: { transition: false, transitionGroup: false } },
@@ -282,11 +282,11 @@ it('dismisses cards from this page session and labels the remaining list as temp
     const bell = wrapper.get<HTMLElement>('.business-notification-bell').element;
     expect(getComputedStyle(bell.parentElement!).position).toBe('fixed');
     expect(bell.getBoundingClientRect().bottom).toBeGreaterThan(840);
-    await page.getByRole('button', { name: '本次提醒（1 条）', exact: true }).click();
+    await page.getByRole('button', { name: '本次提醒（2 条）', exact: true }).click();
     await settlePresentation();
     const panel = wrapper.get('.business-notification-current').element.getBoundingClientRect();
     expect(panel.right).toBeLessThanOrEqual(1281);
-    expect(wrapper.findAll('.business-notification-card')).toHaveLength(1);
+    expect(wrapper.findAll('.business-notification-card')).toHaveLength(2);
     expect(wrapper.get('.business-notification-bell').attributes('title')).toContain('刷新或退出后清空');
     expect(wrapper.get('.notification-test-main').element.getBoundingClientRect().toJSON()).toEqual(main);
     expect(wrapper.get('input').element).toBe(input);
@@ -298,6 +298,8 @@ it('dismisses cards from this page session and labels the remaining list as temp
     await page.getByRole('button', { name: '查看 one', exact: true }).hover();
     await page.getByRole('button', { name: '关闭提醒', exact: true }).click();
     expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
+    await page.getByRole('button', { name: '查看 zero', exact: true }).hover();
+    await page.getByRole('button', { name: '关闭提醒', exact: true }).click();
     notifications.value = [];
     await wrapper.vm.$nextTick();
     notifications.value = [notice('one'), notice('two')];
@@ -480,6 +482,44 @@ it('finishes collapse on the same front surface, destination edges and shadows a
   }
 });
 
+it.each([
+  [1280, false],
+  [1280, true],
+  [520, false],
+  [520, true],
+] as const)(
+  'keeps one card without a bell after the queue shrinks at %spx (in flight=%s)',
+  async (width, inFlight) => {
+    await page.viewport(width, 700);
+    const notifications = ref([notice('one'), notice('two')]);
+    const wrapper = mount(host(notifications), {
+      attachTo: document.body,
+      global: { stubs: { transition: false, transitionGroup: false } },
+    });
+    try {
+      await wrapper.get('.business-notification-bell').trigger('click');
+      if (!inFlight) await settlePresentation();
+      notifications.value = [notice('one')];
+      await nextTick();
+      await settlePresentation();
+      expect(wrapper.find('.business-notification-current').exists()).toBe(false);
+      expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
+      const card = wrapper.get('.business-notification-card').element;
+      const bounds = card.getBoundingClientRect();
+      expect(bounds.left).toBeGreaterThanOrEqual(0);
+      expect(bounds.right).toBeLessThanOrEqual(width);
+      expect(bounds.bottom).toBeGreaterThan(650);
+      expect(card.getAnimations({ subtree: true })).toHaveLength(0);
+      await page.getByRole('button', { name: '查看 one', exact: true }).click();
+      notifications.value.push(notice('three'));
+      await nextTick();
+      expect(wrapper.get('.business-notification-bell').attributes('aria-expanded')).toBe('false');
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);
+
 it('defers ordinary reminders during drawer and modal handling without losing pending reminders or drafts', async () => {
   await page.viewport(1280, 900);
   const drawer = ref(false),
@@ -570,6 +610,7 @@ it('keeps the latest persistent reminder actionable above dialogs and retires co
     await settlePresentation();
     await expect.element(page.getByRole('button', { name: '接听 one', exact: true })).toBeVisible();
     for (const id of ['one', 'two']) {
+      await settlePresentation();
       await page.getByRole('button', { name: `接听 ${id}`, exact: true }).click();
       await page
         .getByRole('button', { name: /确.*认/ })
