@@ -327,6 +327,16 @@ export interface ExternalLoginStart {
   authorizationUrl: string;
   browserProof: string;
   expiresAt: string;
+  qrCode?: {
+    providerType: string;
+    scriptUrl: string;
+    authorizationUrl: string;
+    clientId: string;
+    redirectUri: string;
+    state: string;
+    scope: string;
+    messageOrigin: string;
+  } | null;
 }
 
 export type ExternalLoginStatus = 'succeeded' | 'denied' | 'expired';

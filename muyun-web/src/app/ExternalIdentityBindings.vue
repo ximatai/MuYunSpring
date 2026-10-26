@@ -4,7 +4,13 @@ import type { ExternalLoginClient } from '@muyun/web-core';
 import type { ExternalIdentityView, ExternalLoginMethod, OwnExternalIdentities } from '@muyun/web-contracts';
 import { UiButton, confirmAction } from '@muyun/vue-ui-antdv';
 import { onMounted, ref } from 'vue';
-import { navigateToExternalAuthorization, rememberExternalLogin } from './externalLoginReturn';
+import WeLinkQrCode from './WeLinkQrCode.vue';
+import type { ExternalLoginStart } from '@muyun/web-contracts';
+import {
+  forgetExternalLogin,
+  navigateToExternalAuthorization,
+  rememberExternalLogin,
+} from './externalLoginReturn';
 
 defineOptions({ name: 'ExternalIdentityBindings' });
 
@@ -14,6 +20,11 @@ const props = defineProps<{
 }>();
 
 const language = useLanguageContext();
+const qrStart = ref<ExternalLoginStart>();
+function closeQrCode() {
+  if (qrStart.value) forgetExternalLogin(qrStart.value.state);
+  qrStart.value = undefined;
+}
 const identities = ref<OwnExternalIdentities>();
 /** Federation disabled on the server: the section stays hidden instead of showing an error. */
 const unavailable = ref(false);
@@ -39,9 +50,15 @@ async function bind(method: ExternalLoginMethod) {
   busy.value = true;
   error.value = undefined;
   try {
+    closeQrCode();
     const start = await props.client.startBind(method.providerId, props.token);
     rememberExternalLogin(start, { providerId: method.providerId, purpose: 'bind' });
-    navigateToExternalAuthorization(start.authorizationUrl);
+    if (start.qrCode) {
+      qrStart.value = start;
+      busy.value = false;
+    } else {
+      navigateToExternalAuthorization(start.authorizationUrl);
+    }
   } catch (cause) {
     error.value = () => userFacingErrorMessage(normalizeError(cause), language);
     busy.value = false;
@@ -82,6 +99,7 @@ async function unbind(binding: ExternalIdentityView) {
     v-if="!unavailable && (identities?.bindings.length || identities?.bindableProviders.length || error)"
     class="external-bindings"
   >
+    <WeLinkQrCode v-if="qrStart" :key="qrStart.state" :start="qrStart" @close="closeQrCode" />
     <h3>{{ language.t('platform.screen.ExternalIdentityBindings.title', '外部账号绑定') }}</h3>
     <p v-if="error" class="external-bindings-error">{{ error() }}</p>
     <ul v-if="identities" class="external-bindings-list">

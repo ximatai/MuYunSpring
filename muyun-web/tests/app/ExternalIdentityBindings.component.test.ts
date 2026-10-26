@@ -15,6 +15,50 @@ describe('ExternalIdentityBindings', () => {
     window.sessionStorage.clear();
   });
 
+  it('presents a QR transaction locally and discards its browser proof on close', async () => {
+    vi.mocked(navigateToExternalAuthorization).mockClear();
+    const start = {
+      transactionId: 'qr-tx',
+      state: 'qr-state',
+      browserProof: 'private-proof',
+      authorizationUrl: 'https://login.welink.huaweicloud.com/sso/oauth2/sns_authorize',
+      expiresAt: new Date(Date.now() + 180000).toISOString(),
+      qrCode: {
+        providerType: 'welink',
+        scriptUrl: 'official',
+        authorizationUrl: 'official',
+        clientId: 'client',
+        redirectUri: 'callback',
+        state: 'qr-state',
+        scope: 'snsapi_login',
+        messageOrigin: 'official',
+      },
+    };
+    const client = externalLoginClient({ startBind: vi.fn().mockResolvedValue(start) });
+    const wrapper = mount(ExternalIdentityBindings, {
+      props: { client, token: 'token-1' },
+      global: {
+        stubs: {
+          WeLinkQrCode: {
+            props: ['start'],
+            emits: ['close'],
+            template: '<button class="qr-close" @click="$emit(\'close\')">Close QR</button>',
+          },
+        },
+      },
+    });
+    await flushPromises();
+    const button = wrapper.findAll('button').find((candidate) => candidate.text().includes('去绑定'));
+    await button!.trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.qr-close').exists()).toBe(true);
+    expect(navigateToExternalAuthorization).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem('muyun.externalLogin.pending')).toContain('private-proof');
+    await wrapper.get('.qr-close').trigger('click');
+    expect(window.sessionStorage.getItem('muyun.externalLogin.pending')).toBeNull();
+    wrapper.unmount();
+  });
+
   it('stays hidden when the deployment does not enable federation', async () => {
     const client = externalLoginClient({
       identities: vi
