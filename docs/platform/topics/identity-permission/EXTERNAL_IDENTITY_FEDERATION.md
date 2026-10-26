@@ -1,6 +1,6 @@
 # 外部身份联邦设计
 
-本文固化外部身份源接入登录体系的目标设计，首个身份源为 WeLink 扫码登录与通讯录同步。当前已实现“安全前置”、机构类型字段，以及基于模拟身份源的外部登录与绑定闭环（身份源、租户接入策略、外部身份绑定、登录事务）；通讯录同步已交付阶段 A/B（模拟通讯录、预览、作业接入、缺失与离职处理、调岗回收、范围变更确认及来源新鲜度）；`AUTO`/`REVIEW` 开户与 WeLink 协议插件尚未实现。实现按本文收口，未上线阶段不保留旧模型兼容路线。
+本文固化外部身份源接入登录体系的目标设计，首个身份源为 WeLink 扫码登录与通讯录同步。当前已实现“安全前置”、机构类型字段，以及基于模拟身份源的外部登录与绑定闭环（身份源、租户接入策略、外部身份绑定、登录事务）；通讯录同步已交付阶段 A/B（模拟通讯录、预览、作业接入、缺失与离职处理、调岗回收、范围变更确认及来源新鲜度）；`AUTO`/`REVIEW` 开户尚未实现；WeLink 插件已交付扫码登录与只读通讯录适配，本地模拟 HTTP/真实平台链路已覆盖，真实厂商联调待完成。实现按本文收口，未上线阶段不保留旧模型兼容路线。
 
 ## 定位
 
@@ -66,6 +66,81 @@ muyun-iam-<vendor>（厂商插件，例如 muyun-iam-welink）
 state、浏览器绑定、防重放、准入、账号关联、开户、同步写入和会话签发都由平台完成，插件不创建账号、不写 IAM 数据、不签发会话。会话签发入口 `UserSessionService.loginWithVerifiedIdentity` 只允许 `federation` 包调用，由契约测试约束。插件以自身自动装配与开关接入，进入 BOM，不进入 Starter 默认依赖。
 
 模拟身份源（协议类型 `mock`）需同时开启 `muyun.iam.federation.mock.enabled`，只在开发运行模式下可用，生产运行模式下启动即失败。它提供一个开发用授权页，由开发者填写外部用户 ID 后按真实流程回到工作台，前后端链路与真实身份源一致。
+
+## WeLink 插件
+
+消费应用在 BOM 管理下显式依赖 `net.ximatai.muyun.spring:muyun-iam-welink`；Starter 不默认携带插件。插件仅证明外部身份与读取通讯录，不创建账号、不维护 state、不签发会话。部署开关默认均关闭：
+
+```yaml
+muyun:
+  iam:
+    federation:
+      enabled: true
+      welink:
+        enabled: true
+      workbench-url: https://workbench.example.com/app/
+      api-base-url: https://platform.example.com/api/
+```
+
+由系统管理员创建类型为 `welink` 的身份源，填写 Client ID、`clientSecretEnvironmentVariable`（仅填写环境变量名；密钥由部署环境注入）、`externalEnterpriseId` 和包含应用范围的 `identityNamespace`。无企业标识返回值，协议声明内部单企业应用，企业仅由平台按已配置值补齐；不能用浏览器参数补齐。已有绑定后，端点基址属于锁定的身份范围配置。租户管理员建立接入策略，配置同步根到本地机构的映射、默认岗位和周期；先预览后正式同步，再开放已有账号扫码登录/主动绑定。同步更新既有来源部门、职员与账号时，在已确认的来源映射/绑定、`SYNC` 模式与租约事务内建立私有来源写入命令作用域，继续调用标准 service 的更新入口；不为普通后台作业或通用定时动作授予宽泛权限。该内部作用域不作为对外公开的记录授权凭证，同模块嵌套 hook 仍须遵守来源写入边界。插件不支持按 userId 查询详情，来源状态最大年龄必须覆盖同步周期、分页、调度和重试余量；超龄未同步时拒绝登录。
+
+身份源 `configuration` 为字符串键值 JSON，例如：
+
+```json
+{
+  "scope": "snsapi_login",
+  "tokenParameterMode": "query",
+  "pageSize": "100",
+  "timeoutMillis": "10000",
+  "minRequestIntervalMillis": "100",
+  "activeStatuses": "3",
+  "departedStatuses": "",
+  "authenticationFailureCodes": "401,403",
+  "rateLimitCodes": ""
+}
+```
+
+| 配置键 | 默认值及边界 |
+| --- | --- |
+| `apiBaseUrl` | `https://open.welink.huaweicloud.com`；只接受无路径、查询、片段或用户凭据的 HTTPS origin；HTTP 仅允许 loopback 模拟服务 |
+| `loginBaseUrl` | `https://login.welink.huaweicloud.com`；网页只信任这一官方 origin。HTTP loopback 覆盖仅用于后端协议测试，不能用于浏览器扫码；其他登录域名暂不支持 |
+| `scope` | 仅接受 `snsapi_login`，不使用管理后台 scope |
+| `tokenParameterMode` | `query` 或 `form`；默认沿用已对接项目的查询参数、空正文；`form` 使用标准表单正文。不会失败后换模式重兑同一码。真实环境确认表单兼容后优先使用 `form`，默认查询模式须对出站代理日志脱敏 |
+| `timeoutMillis` | 每次 HTTP 请求 10000ms，范围 1–120000；连接另有 10s 上限，整体仍受请求超时约束 |
+| `pageSize` / `maxPages` | 100 / 10000；范围分别为 1–200 / 1–100000；达到页数上限后失败，不能视为完整通讯录 |
+| `refreshAheadSeconds` | 应用 Token 提前 300s 刷新，范围 0–3600；提前量最多为实际有效期的一半 |
+| `minRequestIntervalMillis` | 同身份源及凭据配置内请求最小间隔 0ms，范围 0–60000；本地进程内限速 |
+| `backoffMillis` / `rateLimitRetries` | 1000ms / 2，范围 0–60000 / 0–5；HTTP 429 或配置的业务限流码指数退避，最多等待 60s，数值型 Retry-After 在上限内被尊重 |
+| `rateLimitCodes` / `authenticationFailureCodes` | 空 / `401,403`；逗号分隔业务码，不允许成功码 `0`、空项或重复。HTTP 401/403 及配置鉴权码清除应用 Token 后仅重试一次；应用票据获取失败不递归重试鉴权 |
+| `rootParentCodes` | 空；逗号分隔且经厂商确认的根父节点哨兵（如部署返回的 `0`），映射为无父节点；空值本身已视为无父节点，不预设某个真实部门编码是哨兵 |
+| `noMoreValue` | `0`；明确代表无更多的非布尔 hasMore 值。布尔 false 或返回条数小于请求 pageSize 也结束；满页的数字 1 默认继续，不能据存量代码直接判断结束 |
+| `activeStatuses` / `disabledStatuses` / `departedStatuses` | `3` / 空 / 空；逗号分隔且互不重叠；未知、缺失及未配置状态均为 disabled。离职值仅在厂商确认后配置，不能直接假定 `6` 为离职 |
+
+HTTP 使用项目已有 JDK HttpClient 与 Jackson，不引入新库。应用 Token 缓存仅在插件进程内，按身份源、Client ID、密钥及协议配置摘要隔离，最多 256 项，并发刷新合并；重启自然丢弃，不记录请求、响应、授权码、Token、密钥或手机号。网络及解析异常不携带可能包含敏感内容的底层 cause；上游 message 用于判断登录兑换成功，但不向平台/日志透传。授权码兑换与登录身份读取不自动重试，避免一次性授权结果重复消费。状态限流退避只应用于应用票据和通讯录。
+
+部门列表用 `recursiveflag=1` 收齐有界树、校验重复/缺失父节点/环并按父先子后返回（列表不含同步根时读取详情补入根，保证平台先建立根映射）。平台续页使用绑定身份源、凭据配置和同步根的随机快照游标，5 分钟有效；最多 64 个快照、合计 100000 部门行，读取单树同样不超过 100000 行。续页不重读变动后的树，重放游标结果相同。快照失效、淘汰或进程重启均明确失败，须新建整轮同步；不能跨节点恢复旧快照。快照只稳定插件续页，厂商本身分页期间的增删仍需真实联调确认。人员列表保留 mainDeptCode 主部门、deptCodes 全部部门与当前列表观察到的部门，手机号和邮箱只作为资料，不参与身份关联。
+
+### 扫码交互与登记项
+
+后端通过可选 `qrCode` 展示描述返回非敏感的脚本地址、Client ID、redirect_uri、state、scope、授权地址和消息 origin；原有授权 URL 及回调完成流程保持统一。登录和主动绑定入口均支持该展示方式。工作台只认可官方脚本与 origin，并校验消息 source 必须是当前二维码 iframe；消息重复、格式不符或事务过期时忽略。脚本失败显示网络/其他登录方式提示，可关闭后重新发起；不会自行伪造“已扫码”状态。
+
+核对的公开资源：[wlQrcodeLogin.js](https://login.welink.huaweicloud.com/sso-proxy-front/public/qrcode/0.0.1/wlQrcodeLogin.js) 暴露 `window.wlQrcodeLogin(options)`，支持 id、client_id、redirect_uri、response_type、scope、state、self_redirect、lang、width/height；它只创建 iframe。[qrcode.html](https://login.welink.huaweicloud.com/sso-proxy-front/public/qrcode/0.0.1/qrcode.html) 在获得 login_code 后向 parent 发送字符串消息（目标为 `*`，因此接收方必须校验 origin/source）。组件收到字符串后以固定参数构造 `/sso/oauth2/sns_authorize`，将该值作为 code；最终 code/state 回到已登记工作台，再由原有浏览器凭证完成事务。以上是当前公开脚本观察结果，不替代厂商协议保证。
+
+开放平台需登记：普通员工内部应用的 Client ID/密钥、工作台精确回调 URL（与兑换 redirect_uri 一致）、扫码可信域名、服务器出站 IP 白名单、通讯录权限和应用可见人员范围。部署 CSP 需允许官方 login origin 的 script-src/frame-src；工作台声明 no-referrer，并在入口访问日志及出站代理日志中移除授权参数。公网 API 与工作台地址分别填写，不能把 API 回调当成工作台。
+
+### 已确认与待厂商确认
+
+已按提供的运行事实及本地 HTTP 契约实现：应用票据 JSON 请求、提前缓存刷新、业务 code=0；登录 query/form 参数模式、message=success、x-wlk-Authorization 身份读取；页码从 1；内部单企业配置补齐；无员工详情接口。这里的“已确认”指提供的对接证据，不表示本插件已经真实厂商联调。
+
+待厂商确认：
+
+- userStatus 各值含义，特别是 `3`/`6`、禁用与离职区分；离职是否仍出现在列表，以及何时从列表消失。
+- hasMore 的数字语义（存量代码按 1 结束存在疑点）、递归部门页的顺序/稳定性、根部门 parentCode 的空值语义、deptCodes 的数组或逗号分隔形态。
+- 限流配额、业务限流/鉴权失败错误码、Retry-After 行为；当前限速/缓存为进程本地，多节点配额需部署侧统一控制。
+- PKCE 或其他把授权码绑定到发起事务的厂商机制、授权码有效期/一次兑换保证、表单兑换支持。
+- 内部单企业应用约束、配置的企业标识权威来源、不同应用间 userId 稳定性与普通员工 scope 可用范围。
+
+授权请求不发送未经证实支持的 PKCE 参数。目前采用 state 一次性事务、浏览器绑定、服务端 client_secret 兑换及厂商授权码一次兑换作为补偿约束；它们**尚不能证明授权码绑定当前事务**，不宣称通过下文验收第 10 条的授权码移植防护。启用真实环境前必须让厂商确认等价绑定机制；本地模拟成功不能替代该安全确认。单企业能力只允许平台配置补齐，不接受浏览器提供企业字段。
 
 ## 领域模型
 
