@@ -91,6 +91,7 @@ public class EmployeePositionService extends TenantActiveScopedService<EmployeeP
             relation.setSource(existing.getSource()); relation.setSourceProviderId(existing.getSourceProviderId());
             relation.setExternalDepartmentId(existing.getExternalDepartmentId());
             relation.setSourceStatus(existing.getSourceStatus());
+            relation.setPrimaryDepartmentSource(existing.getPrimaryDepartmentSource());
             relation.setLastSyncRunId(existing.getLastSyncRunId());
         }
         if (existing != null

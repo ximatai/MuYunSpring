@@ -90,6 +90,8 @@ public class DirectorySyncJob implements JobHandler {
         public String page;
         public String departmentRow;
         public String department;
+        public String personRow;
+        public boolean incompleteObservations;
         public String bindingRow;
         public String bindingPositionRow;
         public String processingBindingRow;
@@ -181,6 +183,49 @@ public class DirectorySyncJob implements JobHandler {
                                 stats.failedPages),
                         stats.failedPages > 0 || stats.conflicts > 0);
             }
+            if ("WRITING_PEOPLE".equals(cursor.phase)) {
+                var query = Criteria.of().eq("tenantId", run.getTenantId()).eq("runId", run.getId());
+                if (cursor.personRow != null) query.gt("id", cursor.personRow);
+                var batch = store.seen.query(query, new PageRequest(0, 1), Sort.asc("id"));
+                if (batch.isEmpty()) {
+                    run.setCompleted(stats.failedPages == 0 && stats.conflicts == 0);
+                    cursor.phase = Boolean.TRUE.equals(run.getCompleted()) && "SYNC".equals(run.getMode())
+                            ? "FINALIZING" : "FINISHED";
+                    commit(context, run, cursor, stats, () -> configuration.completeScopePreview(run));
+                } else {
+                    // One person is the atomic IAM aggregate; the durable keyset cursor fences replay.
+                    var seen = batch.getFirst();
+                    try {
+                        commit(context, run, cursor, stats, () -> {
+                            providers.requireDirectoryAuthority(context.tenantId(), provider);
+                            var person = DirectorySyncStore.decode(seen.getPerson(), ExternalDirectoryProtocol.Person.class)
+                                    .withMemberships(seen.getPrimaryDepartmentId(),
+                                            List.of(DirectorySyncStore.decode(seen.getDepartmentIds(), String[].class)));
+                            var resolved = writer.resolvePrimary(run, provider, person);
+                            seen.setPrimaryDepartmentId(resolved.primaryDepartmentId());
+                            seen.setPrimaryDepartmentSource(person.primaryDepartmentId() != null
+                                    && person.primaryDepartmentId().equals(resolved.primaryDepartmentId()) ? "vendor" : "inferred");
+                            DirectorySyncStore.save(store.seen, seen);
+                            // Partial membership collection cannot authorize active placement changes.
+                            // Confirmed inactive observations still revoke the source and its sessions.
+                            if ((!cursor.incompleteObservations || !"active".equals(person.status()))
+                                    && !writer.person(run, scope, provider, resolved, seen.getPrimaryDepartmentSource()))
+                                stats.conflicts++;
+                            cursor.personRow = seen.getId();
+                        });
+                    } catch (JobFailure failure) {
+                        throw failure;
+                    } catch (RuntimeException failure) {
+                        var recovered = reload(run);
+                        var recoveredCursor = DirectorySyncStore.decode(recovered.getCursor(), Cursor.class);
+                        var recoveredStats = DirectorySyncStore.decode(recovered.getStatistics(), Statistics.class);
+                        failure(recoveredStats, "person-write", seen.getExternalUserId(), seen.getId());
+                        recoveredCursor.personRow = seen.getId();
+                        commit(context, recovered, recoveredCursor, recoveredStats, () -> {});
+                    }
+                }
+                continue;
+            }
             if ("FINALIZING".equals(cursor.phase)) {
                 commit(context, run, cursor, stats, () -> {
                     if (!configuration.canFinalize(scope)) {
@@ -216,6 +261,15 @@ public class DirectorySyncJob implements JobHandler {
                                                     root.externalDepartmentId(),
                                                     cursor.page,
                                                     PAGE_SIZE));
+                    for (var department : page.items()) {
+                        var ancestors = read(() -> DirectorySyncConfiguration.ancestors(protocol, provider, department.id()));
+                        if (!department.id().equals(root.externalDepartmentId())
+                                && !ancestors.contains(root.externalDepartmentId()))
+                            throw new IllegalArgumentException("OUTSIDE_DIRECTORY_SCOPE");
+                        var detail = read(() -> protocol.department(provider, department.id()));
+                        if (!Objects.equals(detail.parentId(), department.parentId()))
+                            throw new IllegalArgumentException("DIRECTORY_DEPARTMENT_MISMATCH");
+                    }
                 } catch (JobFailure failure) {
                     throw failure;
                 } catch (RuntimeException failure) {
@@ -241,12 +295,6 @@ public class DirectorySyncJob implements JobHandler {
                             () -> {
                                 providers.requireDirectoryAuthority(context.tenantId(), provider);
                                 for (var department : page.items()) {
-                                    if (!department.id().equals(root.externalDepartmentId())
-                                            && !department
-                                                    .ancestorIds()
-                                                    .contains(root.externalDepartmentId()))
-                                        throw new IllegalArgumentException(
-                                                "OUTSIDE_DIRECTORY_SCOPE");
                                     if (!store.departments
                                             .query(
                                                     Criteria.of()
@@ -298,10 +346,9 @@ public class DirectorySyncJob implements JobHandler {
                     var next =
                             store.departments.query(query, new PageRequest(0, 1), Sort.asc("id"));
                     if (next.isEmpty()) {
-                        run.setCompleted(stats.failedPages == 0 && stats.conflicts == 0);
-                        cursor.phase = Boolean.TRUE.equals(run.getCompleted()) && "SYNC".equals(run.getMode())
-                                ? "FINALIZING" : "FINISHED";
-                        commit(context, run, cursor, stats, () -> configuration.completeScopePreview(run));
+                        cursor.phase = "WRITING_PEOPLE";
+                        cursor.incompleteObservations = stats.failedPages > 0;
+                        commit(context, run, cursor, stats, () -> {});
                         continue;
                     }
                     cursor.departmentRow = next.getFirst().getId();
@@ -310,8 +357,7 @@ public class DirectorySyncJob implements JobHandler {
                     commit(context, run, cursor, stats, () -> {});
                     continue;
                 }
-                ExternalDirectoryProtocol.Page<String> page;
-                Map<String, ExternalDirectoryProtocol.Person> people = new LinkedHashMap<>();
+                ExternalDirectoryProtocol.Page<ExternalDirectoryProtocol.Person> page;
                 try {
                     page =
                             read(
@@ -321,12 +367,6 @@ public class DirectorySyncJob implements JobHandler {
                                                     cursor.department,
                                                     cursor.page,
                                                     PAGE_SIZE));
-                    for (String id : page.items()) {
-                        var person = read(() -> protocol.person(provider, id));
-                        if (!id.equals(person.id()))
-                            throw new IllegalArgumentException("DIRECTORY_IDENTITY_MISMATCH");
-                        people.put(id, person);
-                    }
                 } catch (JobFailure failure) {
                     throw failure;
                 } catch (RuntimeException failure) {
@@ -352,31 +392,38 @@ public class DirectorySyncJob implements JobHandler {
                             stats,
                             () -> {
                                 providers.requireDirectoryAuthority(context.tenantId(), provider);
-                                for (String id : page.items()) {
-                                    if (!store.seen
-                                            .query(
-                                                    Criteria.of()
-                                                            .eq(
-                                                                    "tenantId",
-                                                                    currentRun.getTenantId())
-                                                            .eq("runId", currentRun.getId())
-                                                            .eq("externalUserId", id),
-                                                    new PageRequest(0, 1))
-                                            .isEmpty()) {
+                                for (var person : page.items()) {
+                                    if (person.id() == null || person.id().isBlank() || person.title() == null
+                                            || !Set.of("active", "disabled", "departed").contains(person.status()))
+                                        throw new IllegalArgumentException("DIRECTORY_INVALID_PERSON");
+                                    var rows = store.seen.query(Criteria.of()
+                                            .eq("tenantId", currentRun.getTenantId()).eq("runId", currentRun.getId())
+                                            .eq("externalUserId", person.id()), new PageRequest(0, 1));
+                                    boolean fresh = rows.isEmpty();
+                                    var seen = fresh ? new DirectorySyncSeen() : rows.getFirst();
+                                    var memberships = new LinkedHashSet<String>();
+                                    if (!fresh) {
+                                        memberships.addAll(List.of(DirectorySyncStore.decode(seen.getDepartmentIds(), String[].class)));
+                                        if (!Objects.equals(seen.getSourceStatus(), person.status())
+                                                || seen.getPrimaryDepartmentId() != null && person.primaryDepartmentId() != null
+                                                && !seen.getPrimaryDepartmentId().equals(person.primaryDepartmentId()))
+                                            throw new IllegalArgumentException("DIRECTORY_INCONSISTENT_PERSON");
                                         currentStats.duplicates++;
-                                        continue;
+                                    } else {
+                                        seen.setTenantId(currentRun.getTenantId());
+                                        seen.setRunId(currentRun.getId());
+                                        seen.setExternalUserId(person.id());
+                                        seen.setPerson(DirectorySyncStore.encode(person.withMemberships(null, List.of())));
+                                        seen.setSourceStatus(person.status());
+                                        currentStats.people++;
                                     }
-                                    var seen = new DirectorySyncSeen();
-                                    seen.setTenantId(currentRun.getTenantId());
-                                    seen.setRunId(currentRun.getId());
-                                    seen.setExternalUserId(id);
-                                    seen.setDepartmentIds(DirectorySyncStore.encode(people.get(id).departmentIds()));
-                                    seen.setSourceStatus(people.get(id).status());
-                                    seen.setPrimaryDepartmentId(people.get(id).primaryDepartmentId());
-                                    DirectorySyncStore.insert(store.seen, seen);
-                                    currentStats.people++;
-                                    if (!writer.person(currentRun, scope, provider, people.get(id)))
-                                        currentStats.conflicts++;
+                                    // The page department is authoritative even when the vendor omits all memberships.
+                                    memberships.add(cursor.department);
+                                    memberships.addAll(person.departmentIds());
+                                    seen.setDepartmentIds(DirectorySyncStore.encode(memberships));
+                                    if (person.primaryDepartmentId() != null) seen.setPrimaryDepartmentId(person.primaryDepartmentId());
+                                    if (fresh) DirectorySyncStore.insert(store.seen, seen);
+                                    else DirectorySyncStore.save(store.seen, seen);
                                 }
                             });
                 } catch (JobFailure failure) {

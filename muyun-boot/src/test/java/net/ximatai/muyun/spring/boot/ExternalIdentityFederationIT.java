@@ -211,6 +211,18 @@ class ExternalIdentityFederationIT {
         }
         statusProtocol.fail = false;
         statusProtocol.status = "active";
+        statusProtocol.omitEnterprise = true;
+        statusProtocol.singleEnterprise = false;
+        int initialCalls = statusProtocol.calls;
+        assertThat(statusCompletion().path("failure").asText()).isEqualTo("enterpriseMismatch");
+        statusProtocol.singleEnterprise = true;
+        jdbcTemplate.update("update iam_identity_provider set external_enterprise_id = null where id = ?", providerId);
+        assertThat(statusCompletion().path("failure").asText()).isEqualTo("enterpriseMismatch");
+        jdbcTemplate.update("update iam_identity_provider set external_enterprise_id = 'status-corp' where id = ?", providerId);
+        statusProtocol.lookupSupported = false;
+        assertThat(statusCompletion().path("failure").asText()).isEqualTo("providerUnavailable");
+        assertThat(statusProtocol.calls).isEqualTo(initialCalls);
+        statusProtocol.lookupSupported = true;
         var success = statusCompletion();
         assertThat(success.path("status").asText()).isEqualTo("succeeded");
         try (var tenant = TenantContext.use(TENANT)) {
@@ -230,6 +242,8 @@ class ExternalIdentityFederationIT {
             assertThat(userSessionDao.query(Criteria.of().eq("userId", userId), new PageRequest(0, 20)))
                     .allMatch(session -> session.getRevokedAt() != null);
         }
+        statusProtocol.omitEnterprise = false;
+        statusProtocol.singleEnterprise = false;
         // A fresh inactive status must be rejected without refreshing it back to active.
         statusProtocol.status = "active";
         int calls = statusProtocol.calls;
@@ -817,6 +831,9 @@ class ExternalIdentityFederationIT {
         static final String TYPE = "status_idp";
         volatile String status = "active";
         volatile boolean fail;
+        volatile boolean lookupSupported = true;
+        volatile boolean omitEnterprise;
+        volatile boolean singleEnterprise;
         volatile int calls;
         @Override public void validateConfiguration(Map<String, String> configuration) { }
         @Override public Set<String> identityScopeConfigurationKeys() { return Set.of(); }
@@ -826,8 +843,10 @@ class ExternalIdentityFederationIT {
         }
         @Override public VerifiedExternalIdentity verify(IdentityProviderDescriptor provider, Map<String, String> parameters,
                                                         ExternalAuthorizationContext context) {
-            return new VerifiedExternalIdentity("status-corp", parameters.get("code"), null, Instant.now());
+            return new VerifiedExternalIdentity(omitEnterprise ? null : "status-corp", parameters.get("code"), null, Instant.now());
         }
+        @Override public boolean supportsPersonLookup(IdentityProviderDescriptor provider) { return lookupSupported; }
+        @Override public boolean singleEnterpriseApplication(IdentityProviderDescriptor provider) { return singleEnterprise; }
         @Override public Person person(IdentityProviderDescriptor provider, String id) {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             calls++;
@@ -836,7 +855,7 @@ class ExternalIdentityFederationIT {
         }
         @Override public Department department(IdentityProviderDescriptor provider, String id) { throw new UnsupportedOperationException(); }
         @Override public Page<Department> departments(IdentityProviderDescriptor provider, String root, String cursor, int limit) { throw new UnsupportedOperationException(); }
-        @Override public Page<String> departmentPeople(IdentityProviderDescriptor provider, String department, String cursor, int limit) { throw new UnsupportedOperationException(); }
+        @Override public Page<Person> departmentPeople(IdentityProviderDescriptor provider, String department, String cursor, int limit) { throw new UnsupportedOperationException(); }
     }
 
     static final class BlockingProtocol implements ExternalLoginProtocol {

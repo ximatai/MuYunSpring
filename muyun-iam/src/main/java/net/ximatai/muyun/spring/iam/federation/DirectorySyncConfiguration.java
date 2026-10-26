@@ -74,16 +74,16 @@ public class DirectorySyncConfiguration {
         if (requested.size() > 100)
             throw new IllegalArgumentException("At most 100 directory roots");
         Map<String, Root> unique = new LinkedHashMap<>();
-        Map<String, ExternalDirectoryProtocol.Department> details = new HashMap<>();
+        Map<String, List<String>> details = new HashMap<>();
         for (var root : requested) {
             if (root.externalDepartmentId() == null || root.organizationId() == null)
                 throw new IllegalArgumentException("Root and organization required");
             var previous = unique.putIfAbsent(root.externalDepartmentId(), root);
             if (previous != null && !previous.organizationId().equals(root.organizationId()))
                 throw new IllegalArgumentException("Same root maps to different organizations");
-            var department = protocol.department(provider, root.externalDepartmentId());
-            details.put(root.externalDepartmentId(), department);
-            if (department.ancestorIds().isEmpty()
+            var ancestors = ancestors(protocol, provider, root.externalDepartmentId());
+            details.put(root.externalDepartmentId(), ancestors);
+            if (ancestors.isEmpty()
                     && !Boolean.TRUE.equals(policy.getSyncScopeConfirmed()))
                 throw new IllegalArgumentException(
                         "Whole enterprise root requires explicit confirmation");
@@ -96,12 +96,29 @@ public class DirectorySyncConfiguration {
                                 root ->
                                         details
                                                 .get(root.externalDepartmentId())
-                                                .ancestorIds()
                                                 .stream()
                                                 .noneMatch(unique::containsKey))
                         .sorted(Comparator.comparing(Root::externalDepartmentId))
                         .toList();
         policy.setSyncRoots(DirectorySyncStore.encode(normalized));
+    }
+
+    /** Bounded, cycle-safe parent traversal; always called outside a mutation transaction. */
+    static List<String> ancestors(ExternalDirectoryProtocol protocol,
+            IdentityProviderDescriptor provider, String id) {
+        var ancestors = new ArrayList<String>();
+        var visited = new HashSet<String>();
+        String current = id;
+        while (current != null) {
+            if (visited.size() >= 256 || !visited.add(current))
+                throw new IllegalArgumentException("Invalid directory hierarchy: cycle or depth limit");
+            var department = protocol.department(provider, current);
+            if (!current.equals(department.id()))
+                throw new IllegalArgumentException("DIRECTORY_DEPARTMENT_MISMATCH");
+            current = department.parentId();
+            if (current != null) ancestors.add(current);
+        }
+        return List.copyOf(ancestors);
     }
 
     void maintain(TenantIdentityPolicy policy, TenantIdentityPolicy old) {

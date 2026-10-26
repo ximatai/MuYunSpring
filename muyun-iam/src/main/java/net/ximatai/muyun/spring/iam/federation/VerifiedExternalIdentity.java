@@ -5,7 +5,7 @@ import java.time.Instant;
 /**
  * An identity the provider confirmed during server-side verification.
  *
- * @param externalEnterpriseId enterprise the identity belongs to at the provider
+ * @param externalEnterpriseId enterprise confirmed by the provider; nullable only for a declared single-enterprise app
  * @param externalUserId       stable user id within the provider's identity namespace
  * @param displayName          optional name for confirmation screens; never used to match accounts
  * @param authenticatedAt      when the provider authenticated the user
@@ -15,7 +15,8 @@ public record VerifiedExternalIdentity(String externalEnterpriseId,
                                        String displayName,
                                        Instant authenticatedAt) {
     public VerifiedExternalIdentity {
-        externalEnterpriseId = requireText(externalEnterpriseId, "externalEnterpriseId");
+        externalEnterpriseId = externalEnterpriseId == null || externalEnterpriseId.isBlank()
+                ? null : externalEnterpriseId.trim();
         externalUserId = requireText(externalUserId, "externalUserId");
         displayName = displayName == null || displayName.isBlank() ? null : displayName.trim();
         if (authenticatedAt == null) {

@@ -61,6 +61,7 @@ public class DirectorySourceLifecycle {
         VersionedRecordMutation.update(positions.getDao(), () -> positions.selectActiveRaw(position.getId()), row -> {
             row.setSourceStatus(status);
             row.setPrimaryPosition(false);
+            row.setPrimaryDepartmentSource(null);
             if (runId != null) row.setLastSyncRunId(runId);
         });
     }
