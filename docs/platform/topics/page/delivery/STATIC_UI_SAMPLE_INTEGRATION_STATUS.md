@@ -1,6 +1,6 @@
 # 静态 UI 样板接入收口记录
 
-本文记录静态业务前后端打通样板的阶段性收口结果。稳定路线已回收到 [UI 声明与读投影设计](../../../architecture/UI_DECLARATION_AND_READ_PROJECTION.md)，本文只保留样板现状、仍需专项治理的边界和删除条件。
+本文记录静态业务前后端打通样板的阶段性收口结果。稳定路线已回收到 [UI 声明与读投影设计](../../../../architecture/UI_DECLARATION_AND_READ_PROJECTION.md)，本文只保留样板现状、仍需专项治理的边界和删除条件。
 
 ## 当前阶段状态
 
@@ -32,21 +32,19 @@
 4. `executeStaticRecordAction` 已承接启停和删除动作的重复提交保护、权限提示、确认后的 loading、成功反馈和异常反馈。
 5. 职员管理使用标准模块宿主；租户列表由平台执行作用域提供，业务 descriptor 仅声明机构导航、职员字段和任职聚合等业务事实。
 6. 部门管理使用标准模块运行器：租户列表由平台执行作用域提供，机构树、部门树和父部门选择器 scope 由页面 descriptor 的导航与 `PICKER_QUERY` 上下文绑定声明。
-7. `DictionaryManagementView` 已复用静态树资源上下文门面承接应用 scope 下的字典类目树和类目 scope 下的字典项树，并复用 `RecordFormFields` 承接类目表单和后端 `item_default_form` 条目表单；页面仍保留应用选择、类目/条目状态编排和保存 payload 归一。
+7. 字典管理已由 `platform.dictionary_category` 标准树管理宿主承载：DSL 声明应用/类目导航、`item` 树资源、类目表单与条目表单；类目父级策略通过已注册的 `dictionaryCategoryPageEnhancement` 补充，不再保留 `DictionaryManagementView` 页面编排。
 8. 岗位管理使用标准模块运行器：租户列表由平台执行作用域提供，岗位分类树、岗位列表和所属分类候选由页面 descriptor 的 navigator/context binding 声明。
 9. `RecordQueryListPanel` 在 descriptor 加载失败时进入明确失败态，不把声明加载失败伪装成空列表。
 
 ## 仍属业务编排
 
-以下内容继续留在具体业务页，不应为了“完全配置化”提前下沉：
+标准宿主承担查询、保存、权限和会话状态，业务事实由 DSL 或受控扩展提供，不再要求各管理页自行加载 scope、归一保存 payload 或同步 CRUD 状态。
 
-1. 机构树选择、组织作用域和外部查询值。
-2. `recordPicker` 的候选来源、作用域、标题函数和刷新 key。
-3. 保存 payload 归一化，例如组织 ID 注入、字符串 trim、空字符串归一为 `undefined`。
-4. 启停动作的 enable / disable 分支选择。
-5. 删除确认文案和删除后的页面状态同步。
-6. 职员账号、职员任岗、业务代办和受托代办子面板。
-7. 具体业务页选择哪个 scope、scope 值来自哪里、父子选择约束、树节点行内动作和排序交互。
+1. 职员的机构导航和任职聚合、岗位分类导航、字典应用/类目导航及条目树均由后端页面声明交付。
+2. 职员账号、用户密码与会话状态通过已注册的页面增强交付；角色授权矩阵、账号和任职绑定保留专用业务面板。
+3. 角色主入口已接入标准宿主，但 `iam.role.detail` 恢复视图仍调用旧 `RoleManagementView`；TD-046 仅保留这条重复标准会话的收敛项。
+
+完整页面口径及保留理由见 [静态管理页组件边界](../../../../frontend/STATIC_MANAGEMENT_PAGE_COMPONENTS.md#当前页面口径)。
 
 ## 后续专项
 
@@ -63,13 +61,13 @@
 3. 后端测试覆盖动态配置最小样例可归一到同一套 `ModuleUiDefinition`，并锁定动态 viewCode 与 `uiConfigId` 的身份边界。
 4. 后端测试覆盖 `/form/schema` 兼容出口只读取当前模块静态 UI 定义，子资源 UI 贡献不会污染当前 controller 表单 schema。
 5. 后端测试覆盖动态模块 runtime context 可从发布快照输出 `ResolvedModuleUiDescriptor`。
-6. 前端测试覆盖 `RecordQueryListPanel`、`RecordFormFields`、表单字段解析模型、scope/tree 组合门面、静态树资源上下文门面、标准 CRUD 动作、保存动作执行器、记录动作执行器、动态 host 与 `DictionaryManagementView` 接入契约。
+6. 前端测试覆盖 `RecordQueryListPanel`、`RecordFormFields`、表单字段解析模型、scope/tree 组合门面、静态树资源上下文门面、标准 CRUD 动作、保存动作执行器、记录动作执行器、动态 host 接入契约；字典当前接入以标准树资源及页面增强契约为准。
 7. 阶段验证命令：`npm test --prefix muyun-web`、`npm run build --prefix muyun-web`、`./gradlew verifyAll`、`git diff --check`；后端统一入口已包含所有子模块的单元测试和 `*IT` 集成测试。
 
 ## 删除条件
 
 当后续专项治理入口全部迁移到长期架构文档、页面交付专题或独立 issue 后，本文可以删除。删除前确认：
 
-1. [UI 声明与读投影设计](../../../architecture/UI_DECLARATION_AND_READ_PROJECTION.md) 已覆盖目标协议、分层边界、读投影和运行器路线。
+1. [UI 声明与读投影设计](../../../../architecture/UI_DECLARATION_AND_READ_PROJECTION.md) 已覆盖目标协议、分层边界、读投影和运行器路线。
 2. 页面交付专题已覆盖动态发布快照接入共用 descriptor 和运行器的真实链路。
 3. 静态样板相关契约均有测试覆盖，不依赖本文解释才能维护。

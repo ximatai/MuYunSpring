@@ -6,7 +6,7 @@
 
 静态管理页优先复用平台组件，但不为了统一形状强行封装。组件边界按职责拆分：
 
-1. 页面负责业务编排、表单字段、动作含义和跨区联动。
+1. 标准管理入口由 Web DSL 声明字段、导航和动作事实，标准模块宿主负责 CRUD、权限、查询和详情会话；业务只通过受控扩展补充领域表达。专用工作区自行维护确属其职责的业务编排。
 2. `RecordExplorerPanel` 负责 explorer 外壳，包括标题、刷新、搜索入口、动作区和内容槽。
 3. `RecordListExplorer` 负责纯平铺列表展示，只消费已加载记录。
 4. `CrudRecordListExplorer` 负责标准 CRUD 平铺列表的数据加载适配，内部复用 `RecordListExplorer`。
@@ -225,26 +225,36 @@ RecordDetailPanel
 
 ## 当前页面口径
 
-| 页面     | Explorer 组合                                                                                 | 状态口径                                                                                                         |
-| -------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 应用管理 | 标准模块运行器 → `StaticManagementLayout` → `CrudRecordListExplorer` / `RecordDetailPanel`    | 通过标准模块页面描述交付，复用统一 CRUD、权限、查询与详情会话。                                                  |
-| 审批流程 | `StaticManagementLayout` → `RecordListExplorer` / `RecordDetailPanel`                         | 自有流程定义、版本与发布会话；复用公共搜索、列表项、导航锁、详情卡片和固定操作区。                               |
-| 租户管理 | `StaticManagementLayout -> CrudRecordListExplorer -> RecordListExplorer -> RecordDetailPanel` | 平铺 CRUD 状态复用 `useFlatCrudManagementState`，不内置特殊租户保护规则，详情区复用标准详情外壳。                |
-| 组织管理 | `StaticManagementLayout -> TreeRecordExplorer -> RecordDetailPanel`                           | 页面直接依赖树能力，避免在主业务页套业务语义树封装，详情区复用标准详情外壳。                                     |
-| 部门管理 | `RecordExplorerPanel -> TreeRecordExplorer` 和 `RecordExplorerPanel -> TreeRecordExplorer`    | 左侧机构树只作为 scope 选择，不承载机构管理动作；部门树按机构 scope 加载和维护。                                 |
-| 岗位管理 | `RecordExplorerPanel -> TreeRecordExplorer` 和 `RecordExplorerPanel -> RecordListExplorer`    | 分类树和岗位列表由页面统一编排，岗位列表加载依赖选中分类。                                                       |
-| 字典管理 | `RecordExplorerPanel -> TreeRecordExplorer` 和 `RecordExplorerPanel -> TreeRecordExplorer`    | 应用 scope 由页面控制，类目树和字典项树由页面统一编排；字典项父级使用 `RecordPicker + parentRecordConstraints`。 |
+标准管理入口通过通用模块路由进入 `ModulePageHost`；静态 Java 声明与动态发布页面共用宿主。“静态模块”不表示仍有手写管理页。下表按实际交付边界区分主入口、受控扩展和独立工作区。
+
+| 页面 | 当前交付 | 业务声明或保留扩展 |
+| --- | --- | --- |
+| 应用、模块管理 | `platform.application` 平铺管理、`platform.module` 树管理，均使用标准宿主 | 模块的菜单入口、编码、流程、动作和低代码治理通过详情扩展或专用工作区交付。 |
+| 租户管理 | `iam.tenant` 标准平铺管理 | 租户应用开通与配置通过 `tenantModulePageEnhancement` 的表单/详情扩展交付。 |
+| 组织、部门管理 | `iam.organization`、`iam.department` 标准树管理 | 部门的机构导航、树范围及父部门候选由 DSL 声明。 |
+| 岗位管理 | `iam.position` 标准列表详情 | 岗位分类导航、列表范围及所属分类候选由 DSL 声明。 |
+| 字典管理 | `platform.dictionary_category` 标准树管理 | 应用 → 类目导航及 `item` 树资源由 DSL 声明；`dictionaryCategoryPageEnhancement` 只补类目父级必须为目录的策略。 |
+| 字段 UI 控件 | `platform.field_ui_control` 标准平铺管理 | `properties`、`bindings` 为受管聚合子表，随父记录草稿编辑与保存；绑定仅对复合控件开放。 |
+| 用户、系统用户视角 | 同一 `iam.user` 标准列表详情 | 租户导航由 DSL 声明；系统用户未选租户时按 `tenantId IS NULL` 查询。在线状态列、会话展开及密码动作通过 `userModulePageEnhancement` 交付，不存在独立系统用户管理页迁移项。 |
+| 职员管理 | `iam.employee` 标准列表详情 | 机构导航及任职聚合由 DSL 声明；账号设置通过 `employeeModulePageEnhancement` 的受控抽屉交付。 |
+| 角色管理主入口 | `iam.role` 标准列表详情 | `roleModulePageEnhancement` 补归属范围导航、枚举展示、角色组成员字段，以及绑定和授权动作面板。 |
+| 角色详情恢复视图 | 已注册的 `iam.role.detail` → `RoleDetailWorkspaceView` → `RoleManagementView` | 仍有独立详情/编辑/保存/删除会话，是 TD-046 唯一剩余收敛项；主入口已迁移不代表这条恢复链路已收口。 |
+| 角色授权、账号/任职绑定 | `iam.role.authorization` 工作区及角色增强动作抽屉 | 授权包含模块动作矩阵、数据授权范围和跨模块草稿；绑定包含候选选择及授权生效上下文，均保留专用业务面板，不能用角色普通 CRUD 替代。授权抽屉支持提升为页签及会话恢复，路由 `/iam/role/authorization` 不替换角色菜单主入口。 |
+| 审批流程 | 专用流程管理工作区 | 维护流程定义、版本和发布会话，继续复用公共列表、导航锁、详情及操作区，不属于本轮普通管理页迁移核销范围。 |
+
+前端事实入口为 [通用模块路由](../../muyun-web/src/app/router.ts)、[专用路由](../../muyun-web/src/platform-admin-runtime/platformAdminRoutes.ts)、[页面增强注册](../../muyun-web/src/platform-admin-runtime/workspaceViews.ts) 和 [工作区注册](../../muyun-web/src/platform-admin-runtime/workspaceViewContributions.ts)。页面 DSL 位于 `muyun-platform-web` 的应用、模块、字典类目/字典项、菜单管理/菜单方案、字段 UI 控件 Controller，以及 `muyun-iam-web` 的租户、组织、部门、岗位、用户、职员和角色 Controller；领域服务和模块身份不因此迁入前端或宿主层。
+
+TD-046 只跟踪角色详情恢复视图的重复标准会话；不要求将已有专用业务工作区强行配置化。后续新增多层嵌套、批量或组合范围导航时，按真实场景判断公共契约缺口，不把这些能力预列为本次迁移债务。
 
 ## 新页面判断
 
 新增静态管理页时按顺序判断：
 
-1. 是否是独立平铺 CRUD 列表。是则优先使用 `CrudRecordListExplorer`。
-2. 是否是标准树模型。是则优先使用 `TreeRecordExplorer`。
-3. 是否是树模型的 `parentId` 字段。是则优先使用 `RecordPicker + parentRecordConstraints`。
-4. 列表数据是否依赖其他区域选择或复杂权限组合。是则页面 state 自己加载，body 使用 `RecordListExplorer`。
-5. 是否需要业务语义封装。只有跨页面真实复用后再沉淀，不为单一页面提前封装。
-6. 是否需要新的平台组件。只有它能降低重复、稳定边界并减少接入成本时再新增。
+1. 能否通过标准模块 DSL 表达平铺、列表详情或树管理，以及导航、字段、动作和受管 relation。能则接入标准宿主。
+2. 是否只有局部业务表达需要补充。优先使用 `ModulePageEnhancement` 的字段、详情、列表或动作扩展，标准会话仍由宿主拥有。
+3. 是否包含授权矩阵、发布治理等独立业务会话。明确工作区身份、输入、权限、草稿和恢复边界，再复用公共组件组合专用工作区。
+4. 独立工作区内的列表或树复用 `RecordListExplorer`、`TreeRecordExplorer` 等组件；树模型的父级选择使用 `RecordPicker + parentRecordConstraints`。
+5. 只有真实复用需求且能降低接入成本时，才增加业务封装或平台组件，不另建平行 CRUD 状态机。
 
 ## 状态机约束
 
