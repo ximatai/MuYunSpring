@@ -19,6 +19,7 @@ public final class WeLinkClient {
     private static final ObjectMapper JSON = new ObjectMapper();
     private final HttpClient http;
     private final Clock clock;
+    private final boolean allowHttpLoopback;
     private final Map<String, Slot> slots = new LinkedHashMap<>(16, .75f, true);
     private static final class Slot {
         final ReentrantLock lock = new ReentrantLock();
@@ -26,11 +27,17 @@ public final class WeLinkClient {
         Instant refreshAt = Instant.MIN;
         long nextRequestNanos;
     }
-    public WeLinkClient() {
+    public WeLinkClient() { this(false); }
+    public WeLinkClient(boolean allowHttpLoopback) {
         this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
-                .followRedirects(HttpClient.Redirect.NEVER).build(), Clock.systemUTC());
+                .followRedirects(HttpClient.Redirect.NEVER).build(), Clock.systemUTC(), allowHttpLoopback);
     }
-    WeLinkClient(HttpClient http, Clock clock) { this.http = http; this.clock = clock; }
+    WeLinkClient(HttpClient http, Clock clock, boolean allowHttpLoopback) {
+        this.http = http; this.clock = clock; this.allowHttpLoopback = allowHttpLoopback;
+    }
+    WeLinkConfiguration configuration(Map<String, String> values) {
+        return new WeLinkConfiguration(values, allowHttpLoopback);
+    }
 
     private synchronized Slot slot(IdentityProviderDescriptor provider) {
         // A changed credential or authority must never reuse a former application's ticket.
@@ -47,7 +54,7 @@ public final class WeLinkClient {
         } catch (Exception failure) { throw unavailable(); }
     }
     JsonNode exchange(IdentityProviderDescriptor provider, Map<String, String> parameters) {
-        var config = new WeLinkConfiguration(provider.configuration());
+        var config = configuration(provider.configuration());
         String encoded = form(parameters);
         boolean query = config.tokenMode().equals("query");
         URI uri = config.api("/api/oauth2/v1/token");
@@ -57,12 +64,12 @@ public final class WeLinkClient {
                 "application/x-www-form-urlencoded", null, false);
     }
     JsonNode identity(IdentityProviderDescriptor provider, String token) {
-        var config = new WeLinkConfiguration(provider.configuration());
+        var config = configuration(provider.configuration());
         return request(provider, config, slot(provider), config.api("/api/auth/v1/userid"),
                 "POST", "", "application/json", token, false);
     }
     JsonNode directory(IdentityProviderDescriptor provider, String path, Map<String, String> parameters) {
-        var config = new WeLinkConfiguration(provider.configuration());
+        var config = configuration(provider.configuration());
         Slot slot = slot(provider);
         for (int attempt = 0; attempt < 2; attempt++) {
             String token = ticket(provider, config, slot);

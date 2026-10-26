@@ -37,7 +37,7 @@ class WeLinkProtocolTest {
     @BeforeEach void setup() throws Exception {
         tickets.set(0);
         clock = new MutableClock();
-        client = new WeLinkClient(HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build(), clock);
+        client = new WeLinkClient(HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build(), clock, true);
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         executor = Executors.newVirtualThreadPerTaskExecutor();
         server.setExecutor(executor);
@@ -66,6 +66,28 @@ class WeLinkProtocolTest {
     }
     private IdentityProviderDescriptor provider() { return provider(Map.of()); }
     private WeLinkDirectoryProtocol directory() { return new WeLinkDirectoryProtocol(client); }
+
+    @Test void productionAssemblyRejectsLoopbackWithoutSendingCredentials() {
+        new ApplicationContextRunner().withUserConfiguration(WeLinkAutoConfiguration.class)
+                .withPropertyValues("muyun.iam.federation.enabled=true", "muyun.iam.federation.welink.enabled=true")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(WeLinkClient.class);
+                    var login = context.getBean(WeLinkLoginProtocol.class);
+                    var directory = context.getBean(WeLinkDirectoryProtocol.class);
+                    for (String key : List.of("apiBaseUrl", "loginBaseUrl")) {
+                        var settings = new HashMap<String, String>();
+                        settings.put("apiBaseUrl", WeLinkConfiguration.API);
+                        settings.put(key, "http://127.0.0.1:" + server.getAddress().getPort());
+                        var p = provider(settings);
+                        assertThatThrownBy(() -> login.validateConfiguration(p.configuration())).isInstanceOf(IllegalArgumentException.class);
+                        assertThatThrownBy(() -> directory.validateConfiguration(p.configuration())).isInstanceOf(IllegalArgumentException.class);
+                        assertThatThrownBy(() -> login.verify(p, Map.of("state", "state", "code", "code"), this.context))
+                                .isInstanceOf(IllegalArgumentException.class);
+                        assertThatThrownBy(() -> directory.department(p, "root")).isInstanceOf(IllegalArgumentException.class);
+                    }
+                    assertThat(requests).isEmpty();
+                });
+    }
 
     @Test void onlyConfirmedStatusesAuthorizeLifecycleChanges() {
         var defaults = new WeLinkConfiguration(Map.of());
@@ -322,6 +344,9 @@ class WeLinkProtocolTest {
         runner.withPropertyValues("muyun.iam.federation.welink.enabled=true").run(c -> assertThat(c).doesNotHaveBean(WeLinkLoginProtocol.class));
         runner.withPropertyValues("muyun.iam.federation.enabled=true", "muyun.iam.federation.welink.enabled=true")
                 .run(c -> assertThat(c).hasSingleBean(WeLinkLoginProtocol.class).hasSingleBean(WeLinkDirectoryProtocol.class));
+        runner.withPropertyValues("muyun.iam.federation.enabled=true", "muyun.iam.federation.welink.enabled=true",
+                        "muyun.iam.federation.welink.allow-http-loopback=true")
+                .run(c -> c.getBean(WeLinkLoginProtocol.class).validateConfiguration(provider().configuration()));
     }
     static class MutableClock extends Clock {
         Instant now = Instant.parse("2026-01-01T00:00:00Z");

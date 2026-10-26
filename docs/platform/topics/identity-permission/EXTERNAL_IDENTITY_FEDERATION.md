@@ -104,8 +104,8 @@ muyun:
 
 | 配置键 | 默认值及边界 |
 | --- | --- |
-| `apiBaseUrl` | `https://open.welink.huaweicloud.com`；只接受这一官方 HTTPS origin（可带末尾 `/`），不允许其他主机、端口、路径、查询、片段或用户凭据；仅为后端协议测试允许 HTTP loopback（`localhost`、`127.0.0.1`、`[::1]`，可指定端口） |
-| `loginBaseUrl` | `https://login.welink.huaweicloud.com`；与 API 相同，只接受这一官方 HTTPS origin 或 HTTP loopback 测试 origin；网页只信任官方 origin。HTTP loopback 覆盖仅用于后端协议测试，不能用于浏览器扫码；其他登录域名暂不支持 |
+| `apiBaseUrl` | `https://open.welink.huaweicloud.com`；只接受这一官方 HTTPS origin（可带末尾 `/`），不允许其他主机、端口、路径、查询、片段或用户凭据；部署显式设置 `muyun.iam.federation.welink.allow-http-loopback=true` 后才允许 HTTP loopback（`localhost`、`127.0.0.1`、`[::1]`，可指定端口） |
+| `loginBaseUrl` | `https://login.welink.huaweicloud.com`；与 API 相同，默认只接受这一官方 HTTPS origin；部署显式开启上述开关后允许 HTTP loopback 测试 origin；网页只信任官方 origin。HTTP loopback 开关默认关闭，与 runtime mode/profile 无关；仅在可信后端协议测试装配中开启，不能用于浏览器扫码；其他登录域名暂不支持 |
 | `scope` | 仅接受 `snsapi_login`，不使用管理后台 scope |
 | `tokenParameterMode` | `query` 或 `form`；默认沿用已对接项目的查询参数、空正文；`form` 使用标准表单正文。不会失败后换模式重兑同一码。真实环境确认表单兼容后优先使用 `form`，默认查询模式须对出站代理日志脱敏 |
 | `timeoutMillis` | 每次 HTTP 请求 10000ms，范围 1–120000；连接另有 10s 上限，整体仍受请求超时约束 |

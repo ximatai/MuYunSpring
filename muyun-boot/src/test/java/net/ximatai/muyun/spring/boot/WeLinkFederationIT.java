@@ -74,6 +74,7 @@ class WeLinkFederationIT {
         p.add("muyun.runtime.mode", () -> "development");
         p.add("muyun.iam.federation.enabled", () -> "true");
         p.add("muyun.iam.federation.welink.enabled", () -> "true");
+        p.add("muyun.iam.federation.welink.allow-http-loopback", () -> "true");
         p.add("muyun.iam.federation.workbench-url", () -> "https://workbench.test/app/");
         p.add("muyun.iam.federation.api-base-url", () -> "https://platform.test/api/");
     }

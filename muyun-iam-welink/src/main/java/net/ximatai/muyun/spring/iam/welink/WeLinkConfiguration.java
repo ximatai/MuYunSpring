@@ -15,8 +15,14 @@ final class WeLinkConfiguration {
             "backoffMillis", "rateLimitRetries", "rateLimitCodes", "authenticationFailureCodes",
             "noMoreValue", "rootParentCodes", "activeStatuses", "disabledStatuses", "departedStatuses");
     private final Map<String, String> values;
+    private final boolean allowHttpLoopback;
 
     WeLinkConfiguration(Map<String, String> values) {
+        this(values, false);
+    }
+
+    WeLinkConfiguration(Map<String, String> values, boolean allowHttpLoopback) {
+        this.allowHttpLoopback = allowHttpLoopback;
         this.values = Map.copyOf(values);
         if (!KEYS.containsAll(values.keySet())) throw invalid("unknown setting");
         base("apiBaseUrl", API);
@@ -80,13 +86,13 @@ final class WeLinkConfiguration {
             boolean loopback = Set.of("localhost", "127.0.0.1", "[::1]").contains(uri.getHost() == null ? "" : uri.getHost());
             if (uri.getHost() == null || uri.getRawUserInfo() != null || uri.getRawQuery() != null
                     || uri.getRawFragment() != null || !(uri.getPath().isEmpty() || uri.getPath().equals("/"))
-                    || !("https".equals(uri.getScheme()) || (loopback && "http".equals(uri.getScheme())))) throw invalid(key);
+                    || !("https".equals(uri.getScheme()) || (allowHttpLoopback && loopback && "http".equals(uri.getScheme())))) throw invalid(key);
             String origin = uri.toString().replaceAll("/$", "");
-            if (!origin.equals(fallback) && !(loopback && "http".equals(uri.getScheme()))) {
+            if (!origin.equals(fallback) && !(allowHttpLoopback && loopback && "http".equals(uri.getScheme()))) {
                 throw invalid(key);
             }
             return origin;
-        } catch (IllegalArgumentException bad) { throw invalid(key + " must use the official origin (HTTP loopback is for protocol tests only)"); }
+        } catch (IllegalArgumentException bad) { throw invalid(key + " must use the official origin (HTTP loopback requires deployment opt-in)"); }
     }
     private static IllegalArgumentException invalid(String key) {
         return new IllegalArgumentException("Invalid WeLink configuration: " + key);
