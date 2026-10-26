@@ -50,6 +50,23 @@ class MuYunSpringIdentityConfigurationTest {
                     MenuInitialDataAbilityConfiguration.class);
 
     @Test
+    void shouldBindSessionRetentionAndRejectInvalidDeploymentPolicyAtStartup() {
+        identityContextRunner.run(context -> assertThat(context.getBean(
+                net.ximatai.muyun.spring.iam.user.UserSessionRetentionPolicy.class))
+                .isEqualTo(new net.ximatai.muyun.spring.iam.user.UserSessionRetentionPolicy(30, 200, 10)));
+        identityContextRunner.withPropertyValues("muyun.iam.session.retention.retention-days=7",
+                        "muyun.iam.session.retention.batch-size=50", "muyun.iam.session.retention.max-batches=2")
+                .run(context -> assertThat(context.getBean(
+                        net.ximatai.muyun.spring.iam.user.UserSessionRetentionPolicy.class))
+                        .isEqualTo(new net.ximatai.muyun.spring.iam.user.UserSessionRetentionPolicy(7, 50, 2)));
+        for (String invalid : new String[]{"retention-days=0", "retention-days=36501", "batch-size=0",
+                "batch-size=1001", "max-batches=-1", "max-batches=101", "retention-days=abc"}) {
+            identityContextRunner.withPropertyValues("muyun.iam.session.retention." + invalid)
+                    .run(context -> assertThat(context).hasFailed());
+        }
+    }
+
+    @Test
     void shouldBindLoginLockoutPolicyFromProperties() {
         identityContextRunner.run(context -> {
             LoginLockoutPolicy policy = context.getBean(LoginLockoutPolicy.class);

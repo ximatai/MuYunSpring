@@ -23,6 +23,12 @@ class UserSessionModelSchemaTest {
                         "last_seen_at", "password_change_required", "login_ip", "login_user_agent",
                         "revoked_at", "revoked_reason",
                         "deleted", "version", "created_at", "updated_at");
+        for (String time : new String[]{"revoked_at", "expires_at", "max_expires_at"}) {
+            assertThat(table.getIndexes()).anySatisfy(index -> {
+                assertThat(index.isUnique()).isFalse();
+                assertThat(index.getColumns()).containsExactly(time, "id");
+            });
+        }
         assertThat(table.getIndexes())
                 .anySatisfy(index -> {
                     assertThat(index.isUnique()).isTrue();
