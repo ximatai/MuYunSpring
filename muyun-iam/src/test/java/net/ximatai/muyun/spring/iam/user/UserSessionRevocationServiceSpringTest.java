@@ -9,8 +9,6 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -20,12 +18,7 @@ class UserSessionRevocationServiceSpringTest {
         Instant now = Instant.parse("2031-04-05T06:07:08.123456Z");
         Clock clock = Clock.fixed(now, ZoneOffset.UTC);
         UserSessionRecordService records = mock(UserSessionRecordService.class);
-        UserSession session = new UserSession();
-        session.setId("session-1");
-        session.setUserId("user-1");
-        session.setVersion(0);
-        when(records.listByUserId("user-1")).thenReturn(List.of(session));
-        when(records.updateSession(eq(session), eq(0), any(Instant.class))).thenReturn(1);
+        when(records.revokeActiveByUserId("user-1", now, "security change")).thenReturn(List.of("session-1"));
 
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
             context.registerBean(Clock.class, () -> clock);
@@ -37,7 +30,7 @@ class UserSessionRevocationServiceSpringTest {
                     .revokeUserSessions("user-1", "security change");
 
             assertThat(revoked).isOne();
-            assertThat(session.getRevokedAt()).isEqualTo(now);
+            org.mockito.Mockito.verify(records).revokeActiveByUserId("user-1", now, "security change");
         }
     }
 }
