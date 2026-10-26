@@ -63,6 +63,8 @@ muyun-iam-<vendor>（厂商插件，例如 muyun-iam-welink）
 
 插件只收到只读的身份源描述对象（`IdentityProviderDescriptor`）：身份源编码、外部企业标识、身份命名空间、Client ID、由平台按环境变量解析的密钥，以及协议配置。协议配置以字符串键值的 JSON 对象保存在身份源上，由协议在管理员保存时校验，用于承载端点、scope 等厂商参数。插件返回的外部身份必须包含外部用户标识和认证时间。企业标识应由协议返回；仅当登录协议通过 `singleEnterpriseApplication` 明确声明企业内部单企业应用时，平台允许用身份源配置的 `externalEnterpriseId` 补齐缺失值。协议未声明、配置缺失或返回企业与配置不符，均以 `enterpriseMismatch` 拒绝；浏览器参数不能补齐企业。前端提交的用户标识、部门或手机号不构成可信身份。
 
+`clientSecretEnvironmentVariable` 只允许匹配 `MUYUN_[A-Z0-9_]+_CLIENT_SECRET` 的专用环境变量名，最长 128 字符，例如 `MUYUN_WELINK_CLIENT_SECRET`；可不配置密钥引用。保存身份源与运行时读取环境变量前均校验，不允许引用数据库密码、签名密钥等基础设施变量。部署方只能将身份源应用密钥放入该命名空间；平台管理员配置身份源的权限不包含读取任意服务器机密的权限。携带凭据的厂商出站地址必须由插件约束为可信 origin，且禁止重定向，不能依赖已有绑定后的身份范围锁定。`mock` 登录与通讯录仅处理本地授权及配置 fixture，不发起携密钥的出站请求。
+
 state、浏览器绑定、防重放、准入、账号关联、开户、同步写入和会话签发都由平台完成，插件不创建账号、不写 IAM 数据、不签发会话。会话签发入口 `UserSessionService.loginWithVerifiedIdentity` 只允许 `federation` 包调用，由契约测试约束。插件以自身自动装配与开关接入，进入 BOM，不进入 Starter 默认依赖。
 
 模拟身份源（协议类型 `mock`）需同时开启 `muyun.iam.federation.mock.enabled`，只在开发运行模式下可用，生产运行模式下启动即失败。它提供一个开发用授权页，由开发者填写外部用户 ID 后按真实流程回到工作台，前后端链路与真实身份源一致。
@@ -82,7 +84,7 @@ muyun:
       api-base-url: https://platform.example.com/api/
 ```
 
-由系统管理员创建类型为 `welink` 的身份源，填写 Client ID、`clientSecretEnvironmentVariable`（仅填写环境变量名；密钥由部署环境注入）、`externalEnterpriseId` 和包含应用范围的 `identityNamespace`。无企业标识返回值，协议声明内部单企业应用，企业仅由平台按已配置值补齐；不能用浏览器参数补齐。已有绑定后，端点基址属于锁定的身份范围配置。租户管理员建立接入策略，配置同步根到本地机构的映射、默认岗位和周期；先预览后正式同步，再开放已有账号扫码登录/主动绑定。同步更新既有来源部门、职员与账号时，在已确认的来源映射/绑定、`SYNC` 模式与租约事务内建立私有来源写入命令作用域，继续调用标准 service 的更新入口；不为普通后台作业或通用定时动作授予宽泛权限。该内部作用域不作为对外公开的记录授权凭证，同模块嵌套 hook 仍须遵守来源写入边界。插件不支持按 userId 查询详情，来源状态最大年龄必须覆盖同步周期、分页、调度和重试余量；超龄未同步时拒绝登录。
+由系统管理员创建类型为 `welink` 的身份源，填写 Client ID、`clientSecretEnvironmentVariable`（例如 `MUYUN_WELINK_CLIENT_SECRET`；须符合上述专用命名空间，密钥由部署环境注入）、`externalEnterpriseId` 和包含应用范围的 `identityNamespace`。无企业标识返回值，协议声明内部单企业应用，企业仅由平台按已配置值补齐；不能用浏览器参数补齐。已有绑定后，端点基址属于锁定的身份范围配置。租户管理员建立接入策略，配置同步根到本地机构的映射、默认岗位和周期；先预览后正式同步，再开放已有账号扫码登录/主动绑定。同步更新既有来源部门、职员与账号时，在已确认的来源映射/绑定、`SYNC` 模式与租约事务内建立私有来源写入命令作用域，继续调用标准 service 的更新入口；不为普通后台作业或通用定时动作授予宽泛权限。该内部作用域不作为对外公开的记录授权凭证，同模块嵌套 hook 仍须遵守来源写入边界。插件不支持按 userId 查询详情，来源状态最大年龄必须覆盖同步周期、分页、调度和重试余量；超龄未同步时拒绝登录。
 
 身份源 `configuration` 为字符串键值 JSON，例如：
 
@@ -102,8 +104,8 @@ muyun:
 
 | 配置键 | 默认值及边界 |
 | --- | --- |
-| `apiBaseUrl` | `https://open.welink.huaweicloud.com`；只接受无路径、查询、片段或用户凭据的 HTTPS origin；HTTP 仅允许 loopback 模拟服务 |
-| `loginBaseUrl` | `https://login.welink.huaweicloud.com`；网页只信任这一官方 origin。HTTP loopback 覆盖仅用于后端协议测试，不能用于浏览器扫码；其他登录域名暂不支持 |
+| `apiBaseUrl` | `https://open.welink.huaweicloud.com`；只接受这一官方 HTTPS origin（可带末尾 `/`），不允许其他主机、端口、路径、查询、片段或用户凭据；部署显式设置 `muyun.iam.federation.welink.allow-http-loopback=true` 后才允许 HTTP loopback（`localhost`、`127.0.0.1`、`[::1]`，可指定端口） |
+| `loginBaseUrl` | `https://login.welink.huaweicloud.com`；与 API 相同，默认只接受这一官方 HTTPS origin；部署显式开启上述开关后允许 HTTP loopback 测试 origin；网页只信任官方 origin。HTTP loopback 开关默认关闭，与 runtime mode/profile 无关；仅在可信后端协议测试装配中开启，不能用于浏览器扫码；其他登录域名暂不支持 |
 | `scope` | 仅接受 `snsapi_login`，不使用管理后台 scope |
 | `tokenParameterMode` | `query` 或 `form`；默认沿用已对接项目的查询参数、空正文；`form` 使用标准表单正文。不会失败后换模式重兑同一码。真实环境确认表单兼容后优先使用 `form`，默认查询模式须对出站代理日志脱敏 |
 | `timeoutMillis` | 每次 HTTP 请求 10000ms，范围 1–120000；连接另有 10s 上限，整体仍受请求超时约束 |

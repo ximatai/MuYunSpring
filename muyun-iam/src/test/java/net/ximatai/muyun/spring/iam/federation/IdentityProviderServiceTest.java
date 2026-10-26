@@ -24,7 +24,7 @@ import java.util.Set;
 class IdentityProviderServiceTest {
     private final ExternalIdentityDao identityDao = mock(ExternalIdentityDao.class);
     private final IdentityProviderService service = new IdentityProviderService(mock(IdentityProviderDao.class),
-            List.of(new StrictProtocol()), List.of(), identityDao, name -> "SECRET_VAR".equals(name) ? "s3cr3t" : null, mock(ExternalIdentityAdmissionLocks.class));
+            List.of(new StrictProtocol()), List.of(), identityDao, name -> "MUYUN_TEST_CLIENT_SECRET".equals(name) ? "s3cr3t" : null, mock(ExternalIdentityAdmissionLocks.class));
 
     @Test
     void directoryOnlyProtocolsAlsoLockTheirAuthorityConfigurationOnceBound() {
@@ -115,6 +115,36 @@ class IdentityProviderServiceTest {
     }
 
     @Test
+    void restrictsSecretReferencesOnInsertUpdateAndBeforeEnvironmentAccess() {
+        @SuppressWarnings("unchecked")
+        java.util.function.Function<String, String> environment = mock(java.util.function.Function.class);
+        var guarded = new IdentityProviderService(mock(IdentityProviderDao.class), List.of(new StrictProtocol()),
+                List.of(), identityDao, environment, mock(ExternalIdentityAdmissionLocks.class));
+        try (var ignored = systemUser()) {
+            for (String variable : List.of("DATABASE_PASSWORD", "SECRET_VAR", "MUYUN_SIGNING_KEY",
+                    "MUYUN_welink_CLIENT_SECRET", "MUYUN__CLIENT_SECRET", "MUYUN_WELINK_CLIENT_SECRET_EXTRA",
+                    "MUYUN_" + "A".repeat(109) + "_CLIENT_SECRET", "not a variable")) {
+                var invalid = provider("corp_idp");
+                invalid.setClientSecretEnvironmentVariable(variable);
+                assertThatThrownBy(() -> guarded.beforeInsert(invalid))
+                        .isInstanceOf(PlatformException.class).hasMessageContaining("MUYUN_[A-Z0-9_]+_CLIENT_SECRET");
+                assertThatThrownBy(() -> guarded.beforeUpdate(invalid, provider("corp_idp")))
+                        .isInstanceOf(PlatformException.class);
+                assertThatThrownBy(() -> guarded.descriptorOf(invalid)).isInstanceOf(PlatformException.class);
+            }
+            org.mockito.Mockito.verifyNoInteractions(environment);
+            for (String variable : List.of("MUYUN_WELINK_CLIENT_SECRET", "MUYUN_APP_01_CLIENT_SECRET",
+                    "MUYUN_" + "A".repeat(108) + "_CLIENT_SECRET")) {
+                var valid = provider("corp_idp");
+                valid.setClientSecretEnvironmentVariable(variable);
+                guarded.beforeInsert(valid);
+                guarded.beforeUpdate(valid, provider("corp_idp"));
+            }
+            guarded.beforeInsert(provider("without_secret"));
+        }
+    }
+
+    @Test
     void locksIdentityScopeOnceBindingsExist() {
         IdentityProvider existing = provider("corp_idp");
         existing.setExternalEnterpriseId("corp-a");
@@ -160,7 +190,7 @@ class IdentityProviderServiceTest {
     @Test
     void handsProtocolsAReadOnlyDescriptorWithTheResolvedSecretKeptOutOfText() {
         IdentityProvider provider = provider("corp_idp");
-        provider.setClientSecretEnvironmentVariable("SECRET_VAR");
+        provider.setClientSecretEnvironmentVariable("MUYUN_TEST_CLIENT_SECRET");
 
         IdentityProviderDescriptor descriptor = service.descriptorOf(provider);
 

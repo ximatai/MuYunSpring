@@ -101,7 +101,7 @@ public final class MuYunFileServerTransferAccessService
         CurrentUser user = CurrentUserContext.currentUser()
                 .orElseThrow(() -> new PlatformException("file transfer requires an authenticated user"));
         String scopeId = resolveStorageScopeId(user);
-        String normalizedFileId = operation == FileTransferOperation.UPLOAD ? null : requireText(fileId, "fileId");
+        String normalizedFileId = operation == FileTransferOperation.UPLOAD ? null : requireFileId(fileId);
         Instant issuedAt = clock.instant();
         Instant expiresAt = issuedAt.plus(requirePositive(ttl, operation));
         String token = signToken(user, scopeId, operation, normalizedFileId, issuedAt, expiresAt);
@@ -174,8 +174,16 @@ public final class MuYunFileServerTransferAccessService
         };
     }
 
+    private String requireFileId(String value) {
+        String fileId = requireText(value, "fileId");
+        if (!fileId.matches("[A-Za-z0-9_-]{1,64}")) {
+            throw new PlatformException("file server file id is invalid");
+        }
+        return fileId;
+    }
+
     private String requireFileId(RecordAttachment attachment) {
-        return requireText(attachment == null ? null : attachment.getFileId(), "attachment.fileId");
+        return requireFileId(attachment == null ? null : attachment.getFileId());
     }
 
     private String resolveStorageScopeId(CurrentUser user) {

@@ -133,7 +133,7 @@ public class AiModelProviderService extends StandardBusinessService<AiModelProvi
         if (provider.getEnabled() == null) provider.setEnabled(Boolean.TRUE);
     }
 
-    private static String normalizeTrustedBaseUrl(String baseUrl) {
+    static String normalizeTrustedBaseUrl(String baseUrl) {
         final URI uri;
         try {
             uri = new URI(baseUrl.trim()).normalize();

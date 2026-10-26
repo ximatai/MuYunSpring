@@ -10,6 +10,9 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
+
+import java.net.http.HttpClient;
 
 /** Registers the official FileServer adapter only when an application explicitly enables it. */
 @Configuration(proxyBeanMethods = false)
@@ -29,6 +32,8 @@ public class MuYunFileServerTransferConfiguration {
     @ConditionalOnMissingBean(FileTransferClient.class)
     FileTransferClient fileTransferClient(MuYunFileServerTransferAccessService accessService,
                                           ObjectMapper objectMapper) {
-        return new MuYunFileServerTransferClient(accessService, RestClient.builder().build(), objectMapper);
+        HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
+        RestClient rest = RestClient.builder().requestFactory(new JdkClientHttpRequestFactory(http)).build();
+        return new MuYunFileServerTransferClient(accessService, rest, objectMapper);
     }
 }

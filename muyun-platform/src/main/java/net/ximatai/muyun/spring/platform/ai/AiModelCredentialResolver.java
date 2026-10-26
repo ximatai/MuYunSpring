@@ -21,10 +21,10 @@ public class AiModelCredentialResolver {
         this.environment = environment;
     }
 
-    public String resolve(AiModelConfiguration configuration) {
+    public String resolve(AiModelConfiguration configuration, String baseUrl) {
         String key;
         if (configuration.getCredentialSource() == AiModelCredentialSource.ENVIRONMENT) {
-            String name = requireEnvironmentVariable(configuration.getApiKeyEnvironmentVariable());
+            String name = requireAuthorizedReference(configuration, baseUrl);
             key = environment.apply(name);
             if (key == null || key.isBlank()) {
                 throw new PlatformConfigurationException("AI API Key 环境变量未设置或为空：" + name);
@@ -38,11 +38,23 @@ public class AiModelCredentialResolver {
         return key.trim();
     }
 
+    /** Deployment owns the exact endpoint binding; management records cannot grant it. */
+    String requireAuthorizedReference(AiModelConfiguration configuration, String baseUrl) {
+        String name = requireEnvironmentVariable(configuration.getApiKeyEnvironmentVariable());
+        String allowedBaseUrl = environment.apply(name + "_BASE_URL");
+        if (allowedBaseUrl == null || allowedBaseUrl.isBlank() || baseUrl == null
+                || !AiModelProviderService.normalizeTrustedBaseUrl(allowedBaseUrl).equals(
+                        AiModelProviderService.normalizeTrustedBaseUrl(baseUrl))) {
+            throw new PlatformConfigurationException("AI 环境变量凭据未获部署侧目标地址授权");
+        }
+        return name;
+    }
+
     static String requireEnvironmentVariable(String name) {
-        if (name == null || !name.matches("[A-Za-z_][A-Za-z0-9_]*") || name.length() > 128) {
+        if (name == null || !name.matches("MUYUN_AI_[A-Z0-9_]+_API_KEY") || name.length() > 128) {
             throw PlatformErrors.badRequestText(TextReference.code(
-                    "platform.rejection.ai-model-credential-resolver.api-key-environment-variable-names-must-start-with-a-letter-or-underscore",
-                    "API Key 环境变量名须以字母或下划线开头，仅包含字母、数字和下划线，最长 128 个字符"));
+                    "platform.rejection.ai-model-credential-resolver.api-key-environment-variable-must-use-dedicated-namespace",
+                    "API Key 环境变量名须匹配 MUYUN_AI_[A-Z0-9_]+_API_KEY，最长 128 个字符"));
         }
         return name;
     }

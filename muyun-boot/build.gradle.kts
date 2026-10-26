@@ -110,5 +110,5 @@ tasks.register<BootRun>("collaborationDemoBootRun") {
 
 // Public fixture credential only, supplied through the same environment-reference path as deployments.
 tasks.named<Test>("integrationTest") {
-    environment("MUYUN_WELINK_IT_SECRET", "welink-integration-test-secret")
+    environment("MUYUN_WELINK_IT_CLIENT_SECRET", "welink-integration-test-secret")
 }

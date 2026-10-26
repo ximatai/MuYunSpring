@@ -16,16 +16,16 @@ public final class WeLinkDirectoryProtocol implements ExternalDirectoryProtocol 
     public WeLinkDirectoryProtocol(WeLinkClient client) { this(client, Clock.systemUTC()); }
     WeLinkDirectoryProtocol(WeLinkClient client, Clock clock) { this.client = client; this.clock = clock; }
     public String providerType() { return "welink"; }
-    public void validateConfiguration(Map<String, String> configuration) { new WeLinkConfiguration(configuration); }
+    public void validateConfiguration(Map<String, String> configuration) { client.configuration(configuration); }
     public Set<String> identityScopeConfigurationKeys() { return WeLinkConfiguration.AUTHORITY_KEYS; }
     public Department department(IdentityProviderDescriptor provider, String id) {
         var result = client.directory(provider, "/api/contact/v2/department/detail", Map.of("deptCode", id));
-        Department department = mapDepartment(result.path("data"), new WeLinkConfiguration(provider.configuration()));
+        Department department = mapDepartment(result.path("data"), client.configuration(provider.configuration()));
         if (!id.equals(department.id())) throw WeLinkClient.unavailable();
         return department;
     }
     public Page<Department> departments(IdentityProviderDescriptor provider, String root, String cursor, int limit) {
-        var config = new WeLinkConfiguration(provider.configuration());
+        var config = client.configuration(provider.configuration());
         checkLimit(limit);
         if (cursor != null) return snapshotPage(provider, root, cursor, limit);
         // The vendor's cross-page ordering is unconfirmed. Read a bounded tree before exposing parent-first pages.
@@ -91,7 +91,7 @@ public final class WeLinkDirectoryProtocol implements ExternalDirectoryProtocol 
         }
     }
     public Page<Person> departmentPeople(IdentityProviderDescriptor provider, String departmentId, String cursor, int limit) {
-        var config = new WeLinkConfiguration(provider.configuration());
+        var config = client.configuration(provider.configuration());
         checkLimit(limit);
         int page = cursor == null ? 1 : offset(cursor);
         if (page < 1) throw WeLinkClient.unavailable();

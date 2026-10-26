@@ -13,7 +13,9 @@ import org.springframework.context.annotation.Bean;
 public class WeLinkAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
-    WeLinkClient weLinkClient() { return new WeLinkClient(); }
+    WeLinkClient weLinkClient(
+            @org.springframework.beans.factory.annotation.Value("${muyun.iam.federation.welink.allow-http-loopback:false}")
+            boolean allowHttpLoopback) { return new WeLinkClient(allowHttpLoopback); }
 
     @Bean
     @ConditionalOnMissingBean

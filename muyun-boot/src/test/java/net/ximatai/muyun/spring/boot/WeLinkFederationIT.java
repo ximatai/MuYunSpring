@@ -74,12 +74,14 @@ class WeLinkFederationIT {
         p.add("muyun.runtime.mode", () -> "development");
         p.add("muyun.iam.federation.enabled", () -> "true");
         p.add("muyun.iam.federation.welink.enabled", () -> "true");
+        p.add("muyun.iam.federation.welink.allow-http-loopback", () -> "true");
         p.add("muyun.iam.federation.workbench-url", () -> "https://workbench.test/app/");
         p.add("muyun.iam.federation.api-base-url", () -> "https://platform.test/api/");
     }
     @Autowired net.ximatai.muyun.spring.starter.configuration.platform.JobNodeExecutor executor;
     @Autowired TenantService tenants;
     @Autowired IdentityProviderService providers;
+    @Autowired IdentityProviderDao providerRows;
     @Autowired TenantIdentityPolicyService policies;
     @Autowired OrganizationService organizations;
     @Autowired PositionCategoryService categories;
@@ -92,6 +94,39 @@ class WeLinkFederationIT {
     @Autowired UserSessionDao sessions;
     @Autowired net.ximatai.muyun.spring.iam.department.DepartmentService departments;
 
+    @Test void rejectsUnsafeProviderConfigurationBeforePersistenceWithoutAnyBindings() throws Exception {
+        try (var current = CurrentUserContext.use(CurrentUser.systemUser("boundary-it", "boundary-it"));
+             var system = TenantContext.system("identity provider boundary test")) {
+            var provider = new IdentityProvider();
+            provider.setId("welink_boundary_it"); provider.setTitle("Boundary"); provider.setProviderType("welink");
+            provider.setClientSecretEnvironmentVariable("DATABASE_PASSWORD");
+            assertThatThrownBy(() -> providers.insert(provider))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
+                    .hasMessageContaining("MUYUN_[A-Z0-9_]+_CLIENT_SECRET");
+            assertThat(providerRows.findById(provider.getId())).isNull();
+            provider.setClientSecretEnvironmentVariable("MUYUN_WELINK_IT_CLIENT_SECRET");
+            provider.setConfiguration("{\"apiBaseUrl\":\"https://attacker.test\"}");
+            assertThatThrownBy(() -> providers.insert(provider))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
+                    .hasMessageContaining("official origin");
+            assertThat(providerRows.findById(provider.getId())).isNull();
+            provider.setConfiguration(null);
+            providers.insert(provider);
+            provider.setClientSecretEnvironmentVariable("DATABASE_PASSWORD");
+            assertThatThrownBy(() -> providers.update(provider))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
+                    .hasMessageContaining("MUYUN_[A-Z0-9_]+_CLIENT_SECRET");
+            provider.setClientSecretEnvironmentVariable("MUYUN_WELINK_IT_CLIENT_SECRET");
+            provider.setConfiguration("{\"apiBaseUrl\":\"https://attacker.test\"}");
+            assertThatThrownBy(() -> providers.update(provider))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
+                    .hasMessageContaining("official origin");
+            var stored = providerRows.findById(provider.getId());
+            assertThat(stored.getClientSecretEnvironmentVariable()).isEqualTo("MUYUN_WELINK_IT_CLIENT_SECRET");
+            assertThat(stored.getConfiguration()).isNull();
+        }
+    }
+
     @Test void synchronizesThenLogsInAndRevokesAfterDeparture() throws Exception {
         executor.stop(); // Deterministic claims below; retain real job services, leases and handlers.
         try (var current = CurrentUserContext.use(CurrentUser.systemUser("welink-it", "welink-it"));
@@ -102,7 +137,7 @@ class WeLinkFederationIT {
             var provider = new IdentityProvider();
             provider.setId("welink_it"); provider.setTitle("WeLink"); provider.setProviderType("welink");
             provider.setIdentityNamespace("welink-test-app"); provider.setExternalEnterpriseId("test-enterprise");
-            provider.setClientId("test-client"); provider.setClientSecretEnvironmentVariable("MUYUN_WELINK_IT_SECRET");
+            provider.setClientId("test-client"); provider.setClientSecretEnvironmentVariable("MUYUN_WELINK_IT_CLIENT_SECRET");
             provider.setConfiguration(new ObjectMapper().writeValueAsString(Map.of("apiBaseUrl",
                     "http://127.0.0.1:" + vendor.getAddress().getPort(), "departedStatuses", "6")));
             provider.setEnabled(true); providers.insert(provider);

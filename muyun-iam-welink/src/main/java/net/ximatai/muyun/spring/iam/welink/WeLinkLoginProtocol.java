@@ -10,18 +10,18 @@ public final class WeLinkLoginProtocol implements ExternalLoginProtocol {
     private final WeLinkClient client;
     public WeLinkLoginProtocol(WeLinkClient client) { this.client = client; }
     public String providerType() { return "welink"; }
-    public void validateConfiguration(Map<String, String> configuration) { new WeLinkConfiguration(configuration); }
+    public void validateConfiguration(Map<String, String> configuration) { client.configuration(configuration); }
     public Set<String> identityScopeConfigurationKeys() { return WeLinkConfiguration.AUTHORITY_KEYS; }
     public boolean singleEnterpriseApplication(IdentityProviderDescriptor provider) { return true; }
     public URI authorizationUri(IdentityProviderDescriptor provider, ExternalAuthorizationContext context) {
-        var config = new WeLinkConfiguration(provider.configuration());
+        var config = client.configuration(provider.configuration());
         WeLinkClient.credentials(provider);
         return URI.create(config.loginBase() + WeLinkConfiguration.AUTHORIZE_PATH + "?" + WeLinkClient.form(Map.of(
                 "client_id", provider.clientId(), "redirect_uri", context.callbackUri().toString(),
                 "state", context.state(), "scope", config.scope(), "response_type", "code")));
     }
     public QrCode qrCode(IdentityProviderDescriptor provider, ExternalAuthorizationContext context) {
-        var config = new WeLinkConfiguration(provider.configuration());
+        var config = client.configuration(provider.configuration());
         return new QrCode(providerType(), config.loginBase() + WeLinkConfiguration.SCRIPT_PATH,
                 authorizationUri(provider, context).toString(), provider.clientId(), context.callbackUri().toString(),
                 context.state(), config.scope(), config.loginBase());
