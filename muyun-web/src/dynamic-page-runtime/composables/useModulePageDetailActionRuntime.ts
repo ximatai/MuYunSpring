@@ -1,5 +1,6 @@
-import { useLanguageContext } from '@muyun/web-core';
-import { computed, ref, type Ref } from 'vue';
+import { AppError, useLanguageContext, userFacingErrorMessage } from '@muyun/web-core';
+import { isRecordSaveRejection, recordSaveFieldErrors } from '../recordSaveFeedback';
+import { computed, getCurrentScope, onScopeDispose, ref, watch, type Ref } from 'vue';
 import { recordDraftFingerprint } from '@muyun/platform-components';
 import type {
   RecordActionItem,
@@ -75,6 +76,49 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
   const localEditBlock = ref<(typeof localEditActionBlocks.value)[number]>();
   const localEditDraft = ref<RecordFormRecord>();
   const localEditBaseline = ref<string>();
+  const localEditFieldErrors = ref<Readonly<Record<string, string>>>({});
+  const localEditErrorMessage = ref<string>();
+  let localEditSession = 0;
+  let rejectedValues = new Map<string, string>();
+
+  function clearLocalEditFeedback() {
+    localEditFieldErrors.value = {};
+    localEditErrorMessage.value = undefined;
+    rejectedValues = new Map();
+  }
+
+  // Compare values rather than deep-watch oldValue, which shares the mutated draft.
+  watch(
+    localEditDraft,
+    (draft) => {
+      const changed = [...rejectedValues].filter(
+        ([name, value]) => recordDraftFingerprint({ value: draft?.[name] }) !== value,
+      );
+      if (!changed.length) return;
+      const errors = { ...localEditFieldErrors.value };
+      for (const [name] of changed) {
+        delete errors[name];
+        rejectedValues.delete(name);
+      }
+      localEditFieldErrors.value = errors;
+      localEditErrorMessage.value = undefined;
+    },
+    { deep: true, flush: 'sync' },
+  );
+
+  watch(
+    [() => options.selectedRecord.value?.id, options.editorMode, options.pageBootstrap],
+    closeLocalEditSession,
+    { flush: 'sync' },
+  );
+  watch(
+    localEditOpen,
+    (open) => {
+      if (!open) closeLocalEditSession();
+    },
+    { flush: 'sync' },
+  );
+  if (getCurrentScope()) onScopeDispose(closeLocalEditSession);
   const localEditDirty = computed(
     () =>
       localEditOpen.value &&
@@ -124,7 +168,10 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
 
   function openLocalEdit(block: (typeof localEditActionBlocks.value)[number]) {
     const record = options.selectedRecord.value;
+    if (localEditSaving.value || options.editorMode.value !== 'view') return;
     if (!record || typeof record.version !== 'number') return;
+    localEditSession += 1;
+    clearLocalEditFeedback();
     localEditBlock.value = block;
     localEditDraft.value = {
       id: record.id,
@@ -143,8 +190,11 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
   }
 
   function closeLocalEditSession() {
+    localEditSession += 1;
     localEditOpen.value = false;
+    localEditSaving.value = false;
     localEditBaseline.value = undefined;
+    clearLocalEditFeedback();
   }
 
   async function submitLocalEdit() {
@@ -153,6 +203,8 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
     const recordId =
       options.selectedRecord.value?.id == null ? undefined : String(options.selectedRecord.value.id);
     if (
+      !localEditOpen.value ||
+      localEditSaving.value ||
       !block ||
       !draft ||
       !recordId ||
@@ -161,7 +213,12 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
       options.localEditValid?.value === false
     )
       return;
+    const session = localEditSession;
+    const snapshot = recordDraftFingerprint(draft);
+    const isCurrent = () => session === localEditSession && localEditOpen.value;
+    clearLocalEditFeedback();
     localEditSaving.value = true;
+    let committed = false;
     try {
       const fieldNames = [...localEditFields.value.keys()];
       const values = Object.fromEntries(fieldNames.map((fieldName) => [fieldName, draft[fieldName]]));
@@ -177,18 +234,22 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
           },
         },
       });
+      committed = true;
+      if (!isCurrent()) return;
       let refreshFailure: unknown;
       if (block.refreshStrategy?.detail !== false) {
         try {
           const refreshed = await options.context.crud.view(recordId);
+          if (!isCurrent()) return;
           options.detail.resolveLoad(refreshed);
           options.recordChanged?.(refreshed);
         } catch (cause) {
           refreshFailure = cause;
         }
       }
+      if (!isCurrent()) return;
       if (block.refreshStrategy?.list !== false) options.refreshList();
-      closeLocalEditSession();
+      localEditBaseline.value = undefined;
       await options.presentSuccess(
         result,
         language.t('platform.screen.useModulePageDetailActionRuntime.value-completed', '{value1}成功', {
@@ -196,11 +257,34 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
         }),
         'module-local-edit',
       );
+      if (!isCurrent()) return;
       if (refreshFailure) reportRefreshFailure(refreshFailure, 'module-local-edit');
+      closeLocalEditSession();
     } catch (cause) {
-      options.presentError(cause, 'module-local-edit');
+      if (!isCurrent()) return;
+      if (committed) {
+        closeLocalEditSession();
+        reportRefreshFailure(cause, 'module-local-edit');
+      } else if (cause instanceof AppError && isRecordSaveRejection(cause)) {
+        if (snapshot !== recordDraftFingerprint(draft)) return;
+        // RecordFormFields renders inline feedback only for editable fields.
+        const feedbackFields = new Map(
+          [...localEditFields.value].filter(([, field]) => field.readOnly?.constant !== true),
+        );
+        localEditFieldErrors.value = recordSaveFieldErrors(cause, feedbackFields, language);
+        if (!Object.keys(localEditFieldErrors.value).length)
+          localEditErrorMessage.value = userFacingErrorMessage(cause, language);
+        rejectedValues = new Map(
+          [...localEditFields.value.keys()].map((name) => [
+            name,
+            recordDraftFingerprint({ value: draft[name] }),
+          ]),
+        );
+      } else {
+        options.presentError(cause, 'module-local-edit');
+      }
     } finally {
-      localEditSaving.value = false;
+      if (isCurrent()) localEditSaving.value = false;
     }
   }
 
@@ -248,6 +332,8 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
     localEditDraft,
     localEditDirty,
     localEditFields,
+    localEditFieldErrors,
+    localEditErrorMessage,
     handleConfiguredAction,
     dismissLocalEdit,
     submitLocalEdit,
