@@ -1,6 +1,6 @@
 package net.ximatai.muyun.spring.platform.config;
 
-import net.ximatai.muyun.spring.common.exception.DeclaredArgumentException;
+import net.ximatai.muyun.spring.common.exception.DeclarationValidationException;
 import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import java.util.EnumMap;
 import java.util.EnumSet;
@@ -16,7 +16,7 @@ public class LowCodeModulePackageValidator {
 
     public void validate(LowCodeModulePackage modulePackage) {
         if (modulePackage == null) {
-            throw new DeclaredArgumentException(DiagnosticText.code("platform.config.diagnostic.low-code-module-package-must-not-be-null",
+            throw new DeclarationValidationException(DiagnosticText.code("platform.config.diagnostic.low-code-module-package-must-not-be-null",
                     "low code module package must not be null"));
         }
         Map<LowCodePackageBundleType, LowCodeConfigBundle> bundles = requireUniqueBundles(modulePackage);
@@ -29,11 +29,11 @@ public class LowCodeModulePackageValidator {
         Map<LowCodePackageBundleType, LowCodeConfigBundle> result = new EnumMap<>(LowCodePackageBundleType.class);
         for (LowCodeConfigBundle bundle : modulePackage.bundles()) {
             if (bundle == null) {
-                throw new DeclaredArgumentException(DiagnosticText.code("platform.config.diagnostic.package-bundle-must-not-be-null",
+                throw new DeclarationValidationException(DiagnosticText.code("platform.config.diagnostic.package-bundle-must-not-be-null",
                     "package bundle must not be null"));
             }
             if (result.put(bundle.type(), bundle) != null) {
-                throw new DeclaredArgumentException(DiagnosticText.code("platform.config.diagnostic.duplicated-package-bundle",
+                throw new DeclarationValidationException(DiagnosticText.code("platform.config.diagnostic.duplicated-package-bundle",
                     "duplicated package bundle: {type}", Map.of("type", String.valueOf(bundle.type()))));
             }
         }
@@ -43,7 +43,7 @@ public class LowCodeModulePackageValidator {
     private void requireIncludedBundlesHaveContent(Map<LowCodePackageBundleType, LowCodeConfigBundle> bundles) {
         for (LowCodeConfigBundle bundle : bundles.values()) {
             if (bundle.included() && bundle.content().isEmpty()) {
-                throw new DeclaredArgumentException(DiagnosticText.code("platform.config.diagnostic.included-package-bundle-must-not-be-empty",
+                throw new DeclarationValidationException(DiagnosticText.code("platform.config.diagnostic.included-package-bundle-must-not-be-empty",
                     "included package bundle must not be empty: {type}", Map.of("type", String.valueOf(bundle.type()))));
             }
         }
@@ -64,7 +64,7 @@ public class LowCodeModulePackageValidator {
     private void rejectUnexpectedPageOnlyBundles(Map<LowCodePackageBundleType, LowCodeConfigBundle> bundles) {
         for (LowCodeConfigBundle bundle : bundles.values()) {
             if (bundle.included() && !PAGE_ONLY_ALLOWED.contains(bundle.type())) {
-                throw new DeclaredArgumentException(DiagnosticText.code("platform.config.diagnostic.page-only-package-cannot-include-bundle",
+                throw new DeclarationValidationException(DiagnosticText.code("platform.config.diagnostic.page-only-package-cannot-include-bundle",
                     "PAGE_ONLY package cannot include {type} bundle", Map.of("type", String.valueOf(bundle.type()))));
             }
         }
@@ -73,14 +73,14 @@ public class LowCodeModulePackageValidator {
     private void requireIncluded(Map<LowCodePackageBundleType, LowCodeConfigBundle> bundles, LowCodePackageBundleType type, DiagnosticText message) {
         LowCodeConfigBundle bundle = bundles.get(type);
         if (bundle == null || !bundle.included()) {
-            throw new DeclaredArgumentException(message);
+            throw new DeclarationValidationException(message);
         }
     }
 
     private void validateDependencies(LowCodeModulePackage modulePackage) {
         for (LowCodePackageDependency dependency : modulePackage.dependencyManifest().dependencies()) {
             if (dependency == null) {
-                throw new DeclaredArgumentException(DiagnosticText.code("platform.config.diagnostic.package-dependency-must-not-be-null",
+                throw new DeclarationValidationException(DiagnosticText.code("platform.config.diagnostic.package-dependency-must-not-be-null",
                     "package dependency must not be null"));
             }
             switch (dependency.type()) {
@@ -101,7 +101,7 @@ public class LowCodeModulePackageValidator {
                 case EXCHANGE_RATE_TYPE -> requireText(dependency.alias(),
                         "EXCHANGE_RATE_TYPE dependency rateTypeCode");
                 case WORKFLOW, FILE_SERVICE, EXTERNAL -> requireText(dependency.alias(), dependency.type() + " dependency alias");
-                default -> throw new DeclaredArgumentException(DiagnosticText.code("platform.config.diagnostic.unsupported-dependency-type",
+                default -> throw new DeclarationValidationException(DiagnosticText.code("platform.config.diagnostic.unsupported-dependency-type",
                     "unsupported dependency type: {type}", Map.of("type", String.valueOf(dependency.type()))));
             }
         }
@@ -109,7 +109,7 @@ public class LowCodeModulePackageValidator {
 
     private void requireText(String value, String name) {
         if (value == null || value.isBlank()) {
-            throw new DeclaredArgumentException(DiagnosticText.code("platform.config.diagnostic.must-not-be-blank",
+            throw new DeclarationValidationException(DiagnosticText.code("platform.config.diagnostic.must-not-be-blank",
                     "{name} must not be blank", Map.of("name", String.valueOf(name))));
         }
     }

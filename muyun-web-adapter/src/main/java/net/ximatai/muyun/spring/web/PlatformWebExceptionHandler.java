@@ -110,22 +110,16 @@ public class PlatformWebExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<PlatformWebError> handleBadRequest(IllegalArgumentException exception) {
-        if (exception instanceof net.ximatai.muyun.spring.common.exception.DeclarationValidationException declared) {
-            var failure = PlatformErrors.badRequestText(declared.textSource(), declared.messageArgs(), declared);
+        if (exception instanceof net.ximatai.muyun.spring.common.i18n.TextSourceAware declared && declared.textSource() != null) {
+            var failure = PlatformErrors.badRequestText(declared.textSource(), declared.messageArgs(), exception);
             return platformError(failure);
         }
         ActionMessage actionMessage = ActionMessage.warning(
                 PlatformErrorCodes.VALIDATION_FAILED,
                 exception.getMessage());
-        var error = PlatformWebError.of(PlatformErrorCodes.VALIDATION_FAILED, 400,
-                exception.getMessage(), actionMessage);
-        if (exception instanceof net.ximatai.muyun.spring.common.i18n.TextSourceAware declared) {
-            error = new PlatformWebError(error.traceId(), error.code(), error.status(), error.message(),
-                    new ActionMessage(actionMessage.code(), actionMessage.text(), actionMessage.type(),
-                            declared.messageArgs(), declared.textSource()),
-                    error.scope(), error.targets(), error.details(), declared.messageArgs(), declared.textSource());
-        }
-        return recorded(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error), exception);
+        return recorded(ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(PlatformWebError.of(PlatformErrorCodes.VALIDATION_FAILED, 400,
+                        exception.getMessage(), actionMessage)), exception);
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)

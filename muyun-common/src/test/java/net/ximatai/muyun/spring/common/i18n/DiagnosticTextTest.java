@@ -1,7 +1,7 @@
 package net.ximatai.muyun.spring.common.i18n;
 
-import net.ximatai.muyun.spring.common.exception.DeclaredArgumentException;
-import net.ximatai.muyun.spring.common.exception.DeclaredStateException;
+import net.ximatai.muyun.spring.common.exception.DeclarationValidationException;
+import net.ximatai.muyun.spring.common.exception.DeclarationStateException;
 import org.junit.jupiter.api.Test;
 import java.util.HashMap;
 import java.util.Map;
@@ -13,8 +13,8 @@ class DiagnosticTextTest {
         var args = new HashMap<String, Object>(Map.of("field", "raw {field} $1\\name"));
         var text = DiagnosticText.code("test.diagnostic", "Invalid field: {field}", args);
         args.put("field", "changed");
-        var argument = new DeclaredArgumentException(text);
-        var state = new DeclaredStateException(text);
+        var argument = new DeclarationValidationException(text);
+        var state = new DeclarationStateException(text);
         assertThat(argument).isInstanceOf(IllegalArgumentException.class);
         assertThat(state).isInstanceOf(IllegalStateException.class);
         assertThat(argument.getMessage()).isEqualTo("Invalid field: raw {field} $1\\name").isEqualTo(state.getMessage());

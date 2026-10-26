@@ -5,11 +5,11 @@ import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.i18n.TextSourceAware;
 import java.util.Map;
 
-/** Preserves the IllegalArgumentException contract while declaring the diagnostic at its producer. */
-public class DeclaredArgumentException extends IllegalArgumentException implements TextSourceAware {
+/** Preserves the IllegalStateException contract while declaring the diagnostic at its producer. */
+public class DeclarationStateException extends IllegalStateException implements TextSourceAware {
     private final DiagnosticText text;
 
-    public DeclaredArgumentException(DiagnosticText text) {
+    public DeclarationStateException(DiagnosticText text) {
         super(text.message());
         this.text = text;
     }

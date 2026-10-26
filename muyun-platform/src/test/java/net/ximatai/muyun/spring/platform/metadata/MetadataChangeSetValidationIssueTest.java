@@ -33,6 +33,24 @@ class MetadataChangeSetValidationIssueTest {
     }
 
     @Test
+    void dynamicDeclarationSourcesSurviveBothMetadataAndBusinessRuleIssueBoundaries() {
+        var failure = org.assertj.core.api.Assertions.catchThrowableOfType(
+                net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException.class,
+                () -> new net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionValidator().validateField(
+                        net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition.string("createdAt", "Created at")));
+        var metadata = MetadataChangeSetValidationIssue.failure("INVALID_FIELD_DRAFT", "createdAt", failure);
+        var rule = BusinessRuleIssue.failure("MODULE_DEFINITION_INVALID", "calculate", "createdAt", failure);
+        assertThat(metadata.textSource()).isEqualTo(failure.textSource()).isEqualTo(rule.textSource());
+        assertThat(metadata.messageArgs()).isEqualTo(failure.messageArgs()).isEqualTo(rule.messageArgs());
+        assertThat(metadata.message()).isEqualTo(failure.getMessage()).isEqualTo(rule.message());
+        assertThat(metadata.code()).isEqualTo("INVALID_FIELD_DRAFT");
+        assertThat(metadata.subject()).isEqualTo("createdAt");
+        assertThat(rule.code()).isEqualTo("MODULE_DEFINITION_INVALID");
+        assertThat(rule.ruleCode()).isEqualTo("calculate");
+        assertThat(rule.field()).isEqualTo("createdAt");
+    }
+
+    @Test
     void keepsDeclaredFailureSourceButDoesNotInventOneForTechnicalDiagnostics() {
         var source = TextReference.code("platform.metadata.test.referenced", "字段 {field} 被引用");
         var declared = PlatformErrors.badRequestText(source, Map.of("field", "amount"));

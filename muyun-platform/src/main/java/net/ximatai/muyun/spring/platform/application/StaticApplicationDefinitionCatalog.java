@@ -1,6 +1,6 @@
 package net.ximatai.muyun.spring.platform.application;
 
-import net.ximatai.muyun.spring.common.exception.DeclaredStateException;
+import net.ximatai.muyun.spring.common.exception.DeclarationStateException;
 import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -77,7 +77,7 @@ public class StaticApplicationDefinitionCatalog {
         Set<String> aliases = new HashSet<>();
         for (StaticApplicationDefinition definition : definitions) {
             if (!aliases.add(definition.alias())) {
-                throw new DeclaredStateException(DiagnosticText.code("platform.static.diagnostic.duplicate-static-application-definition",
+                throw new DeclarationStateException(DiagnosticText.code("platform.static.diagnostic.duplicate-static-application-definition",
                     "duplicate static application definition: {alias}", Map.of("alias", String.valueOf(definition.alias()))));
             }
         }
