@@ -33,6 +33,9 @@ public interface ExternalLoginProtocol {
         return Set.of();
     }
 
+    /** Only enterprise-internal, single-enterprise applications may supply a configured enterprise. */
+    default boolean singleEnterpriseApplication(IdentityProviderDescriptor provider) { return false; }
+
     /**
      * Builds the provider authorization address that the browser opens for this transaction. Protocols whose
      * provider supports PKCE send {@link ExternalAuthorizationContext#codeChallenge()} with the

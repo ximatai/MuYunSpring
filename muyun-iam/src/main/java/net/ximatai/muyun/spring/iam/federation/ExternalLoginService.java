@@ -326,9 +326,9 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
             return Outcome.denied(ExternalLoginFailure.POLICY_DISABLED);
         }
         IdentityProviderDescriptor descriptor = providers.descriptorOf(provider);
-        VerifiedExternalIdentity identity;
+        VerifiedExternalIdentity verified;
         try {
-            identity = providers.protocolOf(provider).verify(descriptor, Map.copyOf(parameters),
+            verified = providers.protocolOf(provider).verify(descriptor, Map.copyOf(parameters),
                     context(state, transaction.getPkceVerifier()));
         } catch (ExternalIdentityVerificationException exception) {
             log.warn("External identity verification failed for provider {}: {}", provider.getId(),
@@ -337,6 +337,14 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                     ? ExternalLoginFailure.PROVIDER_UNAVAILABLE
                     : ExternalLoginFailure.PROVIDER_REJECTED);
         }
+        VerifiedExternalIdentity identity;
+        if (verified.externalEnterpriseId() == null) {
+            if (!providers.protocolOf(provider).singleEnterpriseApplication(descriptor)
+                    || descriptor.externalEnterpriseId() == null || descriptor.externalEnterpriseId().isBlank())
+                return Outcome.denied(ExternalLoginFailure.ENTERPRISE_MISMATCH);
+            identity = new VerifiedExternalIdentity(descriptor.externalEnterpriseId(), verified.externalUserId(),
+                    verified.displayName(), verified.authenticatedAt());
+        } else identity = verified;
         if (descriptor.externalEnterpriseId() != null
                 && !descriptor.externalEnterpriseId().equals(identity.externalEnterpriseId())) {
             return Outcome.denied(ExternalLoginFailure.ENTERPRISE_MISMATCH);
@@ -352,7 +360,10 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         if (transaction.getPurpose() == ExternalLoginPurpose.LOGIN && observed != null
                 && sourceExpired(observed, policy.get(), descriptor, checkedAt)) {
             try {
-                refreshed = directory.protocol(descriptor).person(descriptor, identity.externalUserId());
+                var directoryProtocol = directory.protocol(descriptor);
+                if (!directoryProtocol.supportsPersonLookup(descriptor))
+                    return Outcome.denied(ExternalLoginFailure.PROVIDER_UNAVAILABLE);
+                refreshed = directoryProtocol.person(descriptor, identity.externalUserId());
                 if (!identity.externalUserId().equals(refreshed.id())
                         || !Set.of("active", "disabled", "departed").contains(refreshed.status()))
                     return Outcome.denied(ExternalLoginFailure.PROVIDER_REJECTED);
