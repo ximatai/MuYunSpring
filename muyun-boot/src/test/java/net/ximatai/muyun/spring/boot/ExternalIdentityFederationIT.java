@@ -1164,6 +1164,46 @@ class ExternalIdentityFederationIT {
     }
 
     @Test
+    void pendingScopeDefaultsDoNotAffectAutoOrReviewProvisioning() {
+        for (var mode : List.of(ProvisioningMode.AUTO, ProvisioningMode.REVIEW)) {
+            var fixture = provisioningFixture("pending_defaults_" + mode.name().toLowerCase(), mode);
+            String activePosition;
+            String pendingRole;
+            try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-it", "Test"));
+                 var tenant = TenantContext.use(TENANT)) {
+                var policy = tenantIdentityPolicyService.select(fixture.policy());
+                activePosition = policy.getSyncPositionId();
+                String activeScope = policy.getSyncScopeId();
+                var position = new Position(); position.setCode(fixture.provider() + "_pending"); position.setTitle("Pending position");
+                position.setCategoryId(positions.select(activePosition).getCategoryId()); positions.insert(position);
+                var role = new Role(); role.setTitle(fixture.provider() + " pending role"); roles.insert(role); pendingRole = role.getId();
+                policy.setSyncRoots("[]"); policy.setSyncScopeConfirmed(true);
+                policy.setSyncPositionId(position.getId()); policy.setSyncRoleId(pendingRole);
+                tenantIdentityPolicyService.update(policy);
+                var saved = tenantIdentityPolicyService.select(fixture.policy());
+                assertThat(saved.getSyncScopeId()).isEqualTo(activeScope);
+                assertThat(saved.getPendingSyncScopeId()).isNotNull().isNotEqualTo(activeScope);
+            }
+            var scan = provisioningScan(fixture.provider(), "pending-default-person");
+            if (mode == ProvisioningMode.AUTO) {
+                assertThat(scan.path("result").path("status").asText()).isEqualTo("confirmationRequired");
+                assertThat(confirmProvisioning(fixture.provider(), scan.path("start")).path("status").asText()).isEqualTo("succeeded");
+            } else {
+                assertThat(scan.path("result").path("status").asText()).isEqualTo("reviewPending");
+                try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-it", "Test"));
+                     var tenant = TenantContext.use(TENANT)) {
+                    var row = applications.list(Criteria.of().eq("providerId", fixture.provider()), new PageRequest(0, 1)).getFirst();
+                    applications.review(row.getId(), true, null);
+                }
+            }
+            assertThat(jdbcTemplate.queryForList("select position_id from iam_employee_position where source_provider_id=?", String.class, fixture.provider()))
+                    .containsExactly(activePosition);
+            assertThat(count("iam_employment_role_grant", "role_id", fixture.role())).isEqualTo(1);
+            assertThat(count("iam_employment_role_grant", "role_id", pendingRole)).isZero();
+        }
+    }
+
+    @Test
     void provisioningDoesNotReuseAnotherTenantsOrganizationFactsOrApplications() {
         var fixture = provisioningFixture("isolation_provision", ProvisioningMode.REVIEW);
         assertThat(provisioningScan(fixture.provider(), "tenant-isolated").path("result").path("status").asText()).isEqualTo("reviewPending");

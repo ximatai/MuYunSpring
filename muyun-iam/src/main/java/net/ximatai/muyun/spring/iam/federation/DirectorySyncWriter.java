@@ -185,10 +185,11 @@ final class DirectorySyncWriter {
             throw new IllegalArgumentException("Provisioning requires active admitted source memberships");
         if (identities.findByExternalIdentity(provider.identityNamespace(), provider.externalEnterpriseId(), person.id()).isPresent())
             throw new IllegalStateException("Provisioning requires an unbound identity");
-        var scope = new DirectorySyncScope();
-        scope.setProviderId(provider.id());
-        scope.setPositionId(policy.getSyncPositionId());
-        scope.setRoleId(policy.getSyncRoleId());
+        var scope = store.scopes.findById(policy.getSyncScopeId());
+        if (scope == null || !Objects.equals(scope.getTenantId(), policy.getTenantId())
+                || !Objects.equals(scope.getPolicyId(), policy.getId())
+                || !Objects.equals(scope.getProviderId(), provider.id()))
+            throw new IllegalStateException("Active provisioning scope unavailable");
         if (!person(null, scope, provider, person, primarySource, memberships))
             throw new IllegalStateException("Provisioning conflict");
         return identities.findByExternalIdentity(provider.identityNamespace(), provider.externalEnterpriseId(), person.id()).orElseThrow();

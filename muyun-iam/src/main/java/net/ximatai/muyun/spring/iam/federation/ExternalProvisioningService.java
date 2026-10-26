@@ -117,7 +117,7 @@ public class ExternalProvisioningService {
             }
             if (allowed) memberships.add(map);
         }
-        if (memberships.isEmpty() || policy.getSyncPositionId() == null) throw rejected();
+        if (memberships.isEmpty()) throw rejected();
         var primary = person.primaryDepartmentId();
         if (memberships.stream().noneMatch(m -> m.getExternalDepartmentId().equals(primary))) primarySource = "inferred";
         return new Admission(person, List.copyOf(memberships), checked, primarySource);
