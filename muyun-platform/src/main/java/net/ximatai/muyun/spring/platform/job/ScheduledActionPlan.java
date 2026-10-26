@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 @Getter
 @Setter
 @Table(name = "platform_scheduled_action_plan", comment = "Scheduled module action plan")
+@CompositeIndex(columns = {"tenant_id", "module_alias", "action_code"})
 public class ScheduledActionPlan extends StandardEntity {
     /** An absent update version must stay absent; insert lifecycle initializes persisted version zero. */
     public ScheduledActionPlan() { setVersion(null); }

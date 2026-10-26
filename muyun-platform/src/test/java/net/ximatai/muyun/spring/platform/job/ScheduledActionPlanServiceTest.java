@@ -28,6 +28,18 @@ class ScheduledActionPlanServiceTest {
         when(identities.capture("test.target", "execute")).thenAnswer(call -> Optional.of(new TrustedExecutionIdentityResolver.Reference(
                 CurrentUserContext.currentUser().orElseThrow().userId(), "tenant-a", Instant.EPOCH, null)));
     }
+    @Test void ordinarySmallPageBuildsVisibilityWithoutReadingPlansOrParsingArguments() {
+        service = new ScheduledActionPlanService(rows, jobs, actions,
+                new DefaultListableBeanFactory().getBeanProvider(TrustedExecutionIdentityResolver.class),
+                whitelist, tenant -> { throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException("ordinary user"); },
+                new ObjectMapper(), tenants);
+        try (var user = CurrentUserContext.use(CurrentUser.tenantUser("reader", "reader", "tenant-a"));
+             var tenant = TenantContext.use("tenant-a")) {
+            service.activeCriteria(net.ximatai.muyun.database.core.orm.Criteria.of().eq("enabled", true));
+        }
+        verifyNoInteractions(rows);
+        verify(actions, never()).requireAuthorized(anyString(), anyString(), anyMap());
+    }
     @Test void savingCapturesLastEditorAndDoesNotTrustSubmittedIdentityFields() {
         var row = row(); row.setExecutionUserId("spoofed"); row.setJobPlanId("spoofed");
         try (var user = CurrentUserContext.use(CurrentUser.tenantUser("first", "first", "tenant-a")); var tenant = TenantContext.use("tenant-a")) { service.beforeInsert(row); }

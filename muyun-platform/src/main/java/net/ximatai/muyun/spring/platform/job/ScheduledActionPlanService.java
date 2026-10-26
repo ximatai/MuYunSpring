@@ -48,14 +48,14 @@ public class ScheduledActionPlanService extends AbstractAbilityService<Scheduled
         scope.eq("tenantId", user.tenantId());
         try { access.requireAdministrator(user.tenantId()); return scope; }
         catch (PlatformAccessDeniedException ordinaryUser) {
-            var visible = rows.query(Criteria.of().eq("tenantId", user.tenantId()), new PageRequest(0, Integer.MAX_VALUE)).stream()
-                    .filter(row -> authorized(row)).map(ScheduledActionPlan::getId).toList();
-            return scope.in("id", visible.isEmpty() ? List.of("__none__") : visible);
+            var visible = actions.authorizedScheduledTargets();
+            if (visible.isEmpty()) return scope.isNull("id");
+            var targets = Criteria.of();
+            for (var target : visible) {
+                targets.orGroup(group -> group.eq("moduleAlias", target.moduleAlias()).eq("actionCode", target.actionCode()));
+            }
+            return scope.andGroup(targets.getRoot());
         }
-    }
-    private boolean authorized(ScheduledActionPlan row) {
-        try { actions.requireAuthorized(row.getModuleAlias(), row.getActionCode(), arguments(row.getArgumentsJson())); return true; }
-        catch (RuntimeException denied) { return false; }
     }
     @Override public Integer expectedVersionForUpdate(ScheduledActionPlan incoming, ScheduledActionPlan existing) {
         if (incoming.getVersion() == null || existing != null && !Objects.equals(incoming.getVersion(), existing.getVersion()))

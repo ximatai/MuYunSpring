@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.*;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import java.util.*;
+import net.ximatai.muyun.database.core.orm.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -84,5 +85,79 @@ class ModuleActionInvokerTest {
         assertThatThrownBy(() -> invoker.invoke("test.target", "execute", Map.of())).hasMessage("denied");
         verify(contribution, never()).validate(anyMap()); verify(contribution, never()).execute(anyMap());
     }
+    @Test void visibilityChecksTargetsInBusinessScopeWithoutValidatingPlanParameters() {
+        module.setModuleKind(ModuleKind.STATIC);
+        var contribution = mock(ScheduledModuleAction.class);
+        when(contribution.moduleAlias()).thenReturn("test.target");
+        when(contribution.actionCode()).thenReturn("execute");
+        beans.registerSingleton("static", contribution);
+        when(actions.list(any(Criteria.class), any(PageRequest.class), any(Sort.class))).thenReturn(List.of());
+        doAnswer(call -> {
+            assertThat(TenantContext.currentTenantId()).contains("tenant-a");
+            return ActionAuthorizationResult.allowed(call.getArgument(0), "ROLE_GRANTED");
+        }).when(policies).authorize(any());
+        try (var tenant = TenantContext.use("tenant-a")) {
+            assertThat(invoker.authorizedScheduledTargets()).containsExactly(
+                    new ModuleActionInvoker.ScheduledTarget("test.target", "execute"));
+            assertThat(TenantContext.currentTenantId()).contains("tenant-a");
+        }
+        verify(contribution, never()).validate(anyMap());
+        verify(contribution, never()).execute(anyMap());
+        verifyNoInteractions(records);
+    }
+
+    @Test void visibilityExcludesDeniedDisabledAndForeignTargetsAndPropagatesInfrastructureFailures() {
+        action.setId("action-1");
+        when(actions.list(any(Criteria.class), any(PageRequest.class), any(Sort.class)))
+                .thenReturn(List.of(action), List.of());
+        try (var tenant = TenantContext.use("tenant-a")) {
+            doThrow(new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException("denied")).when(policies).authorize(any());
+            assertThat(invoker.authorizedScheduledTargets()).isEmpty();
+            reset(policies);
+            when(actions.list(any(Criteria.class), any(PageRequest.class), any(Sort.class)))
+                    .thenReturn(List.of(action), List.of());
+            module.setTenantId("tenant-b");
+            assertThat(invoker.authorizedScheduledTargets()).isEmpty();
+            module.setTenantId(null); action.setEnabled(false);
+            when(actions.list(any(Criteria.class), any(PageRequest.class), any(Sort.class)))
+                    .thenReturn(List.of(action), List.of());
+            assertThat(invoker.authorizedScheduledTargets()).isEmpty();
+            action.setEnabled(true);
+            when(actions.list(any(Criteria.class), any(PageRequest.class), any(Sort.class)))
+                    .thenReturn(List.of(action), List.of());
+            doThrow(new IllegalStateException("database unavailable")).when(policies).authorize(any());
+            assertThatThrownBy(invoker::authorizedScheduledTargets).hasMessage("database unavailable");
+        }
+    }
+
+    @Test void visibilityCatalogUsesBoundedBatchesAndRejectsBudgetExhaustionBeforeAuthorization() {
+        var scanned = new java.util.concurrent.atomic.AtomicInteger();
+        when(actions.list(any(Criteria.class), any(PageRequest.class), any(Sort.class))).thenAnswer(call -> {
+            assertThat(TenantContext.isSystem()).isTrue();
+            var page = call.getArgument(1, PageRequest.class);
+            assertThat(page.getLimit()).isBetween(1, ModuleActionInvoker.VISIBILITY_BATCH_SIZE);
+            return java.util.stream.IntStream.range(0, page.getLimit()).mapToObj(index -> {
+                var item = new PlatformModuleAction(); item.setId(String.format("%032d", scanned.incrementAndGet()));
+                item.setModuleAlias("test.target"); item.setActionCode("execute"); return item;
+            }).toList();
+        });
+        try (var tenant = TenantContext.use("tenant-a")) {
+            assertThatThrownBy(invoker::authorizedScheduledTargets)
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
+                    .hasMessageContaining("target budget");
+            assertThat(TenantContext.currentTenantId()).contains("tenant-a");
+        }
+        assertThat(scanned.get()).isEqualTo(ModuleActionInvoker.VISIBILITY_TARGET_BUDGET + 1);
+        verifyNoInteractions(policies, modules);
+    }
+
+    @Test void visibilityRejectsUnboundedStaticContributions() {
+        for (int index = 0; index <= ModuleActionInvoker.VISIBILITY_TARGET_BUDGET; index++) {
+            beans.registerSingleton("static-" + index, mock(ScheduledModuleAction.class));
+        }
+        assertThatThrownBy(invoker::authorizedScheduledTargets).hasMessageContaining("target budget");
+        verifyNoInteractions(policies, modules);
+    }
+
     private void rejected() { assertThatThrownBy(() -> invoker.validateTarget("test.target", "execute")).isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class); }
 }

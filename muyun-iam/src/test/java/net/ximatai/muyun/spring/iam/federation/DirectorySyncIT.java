@@ -102,6 +102,7 @@ class DirectorySyncIT {
     private final List<BusinessNotification> alerts = new ArrayList<>();
     private DirectorySyncJob handler;
     private DirectorySyncWriter writer;
+    private ExternalIdentityService identities;
     private ExternalDirectoryProtocol protocol;
 
     @BeforeEach
@@ -238,7 +239,6 @@ class DirectorySyncIT {
                         syncRuns, scopes, mappings, seen, observedDepartments, db, policyRows);
         var revocations = new UserSessionRevocationService(
                 new UserSessionRecordService(sessionRows), event -> {}, Clock.systemUTC());
-        var identities = new ExternalIdentityService(identityRows, t -> {}, revocations, rebindBlocks, store);
         var jobPositionService = new PositionService(jobPositionRows, t -> {});
         var roles =
                 new RoleService(
@@ -256,6 +256,8 @@ class DirectorySyncIT {
                         mock(RoleDataGrantActionDao.class),
                         mock(TenantApplicationService.class),
                         beans.getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
+        var lifecycle = new DirectorySourceLifecycle(employeeAccounts, positions, roles, revocations);
+        identities = new ExternalIdentityService(identityRows, t -> {}, revocations, rebindBlocks, store, lifecycle);
         // Resolve the real JobService lazily only while assembling the cyclic handler/registry
         // graph.
         var jobFacade = mock(JobService.class);
@@ -293,11 +295,7 @@ class DirectorySyncIT {
                         identities,
                         roles,
                         config,
-                        new DirectorySourceLifecycle(
-                                employeeAccounts,
-                                positions,
-                                roles,
-                                revocations)));
+                        lifecycle));
         handler = new DirectorySyncJob(store, providers, config, writer);
         beans.registerSingleton("access", (JobManagementAccess) t -> {});
         beans.registerSingleton(
@@ -625,6 +623,73 @@ class DirectorySyncIT {
         assertThat(global(() -> sessionRows.findById(b).getRevokedAt())).isNull();
         assertThat(global(() -> accountRows.query(Criteria.of(), new PageRequest(0, 10))))
                 .allSatisfy(account -> assertThat(account.getEnabled()).isTrue());
+    }
+
+    @Test
+    void failedUnbindRollsBackBindingBlockSourceGrantsAndSessionRevocation() {
+        enqueue(false);
+        execute();
+        String session = sessionFor("tenant-a");
+        tenant("tenant-a", () -> {
+            var binding = identityRows.query(Criteria.of(), new PageRequest(0, 1)).getFirst();
+            assertThatThrownBy(() -> new TransactionTemplate(transactions).execute(status -> {
+                identities.delete(binding.getId());
+                throw new IllegalStateException("rollback unbind");
+            })).hasMessage("rollback unbind");
+            assertThat(identityRows.findById(binding.getId())).isNotNull();
+            assertThat(identities.isAutoRebindBlocked(provider.getId(), binding.getExternalUserId())).isFalse();
+            assertThat(positionRows.query(Criteria.of(), new PageRequest(0, 10)))
+                    .allSatisfy(p -> assertThat(p.getSourceStatus()).isEqualTo("active"));
+            assertThat(grantRows.query(Criteria.of().eq("source", "directory"), new PageRequest(0, 10))).hasSize(1);
+            return null;
+        });
+        assertThat(global(() -> sessionRows.findById(session).getRevokedAt())).isNull();
+    }
+
+    @Test
+    void unbindingRetiresSourceFactsBeforeMissingSyncAndPreservesManualFacts() {
+        enqueue(false);
+        execute();
+        String session = sessionFor("tenant-a");
+        tenant("tenant-a", () -> {
+            var old = positionRows.query(Criteria.of().eq("primaryPosition", true), new PageRequest(0, 1)).getFirst();
+            var manual = new EmployeePosition();
+            manual.setEmployeeId(old.getEmployeeId());
+            manual.setOrganizationId(old.getOrganizationId());
+            manual.setDepartmentId(old.getDepartmentId());
+            manual.setPositionId(old.getPositionId());
+            positions.insert(manual);
+            for (String id : List.of(old.getId(), manual.getId())) {
+                var grant = new EmploymentRoleGrant();
+                grant.setRoleId(policy.getSyncRoleId());
+                grant.setEmployeePositionId(id);
+                DirectorySyncStore.insert(grantRows, grant);
+            }
+            var binding = identityRows.query(Criteria.of(), new PageRequest(0, 1)).getFirst();
+            identities.delete(binding.getId());
+            assertThat(rebindBlocks.query(Criteria.of(), new PageRequest(0, 10))).singleElement()
+                    .satisfies(block -> assertThat(block.getDirectoryUserId()).isEqualTo(binding.getUserId()));
+            assertThat(positionRows.query(Criteria.of().eq("source", "directory"), new PageRequest(0, 10)))
+                    .hasSize(2).allSatisfy(p -> {
+                        assertThat(p.getSourceStatus()).isEqualTo("unbound");
+                        assertThat(p.getPrimaryPosition()).isFalse();
+                    });
+            assertThat(positionRows.findById(manual.getId()).getEnabled()).isTrue();
+            assertThat(grantRows.query(Criteria.of(), new PageRequest(0, 10)))
+                    .hasSize(2).allSatisfy(g -> assertThat(g.getSource()).isEqualTo("manual"));
+            return null;
+        });
+        assertThat(global(() -> sessionRows.findById(session).getRevokedAt())).isNotNull();
+        setPeople(List.of(), List.of());
+        enqueue(false);
+        execute();
+        tenant("tenant-a", () -> {
+            assertThat(identityRows.query(Criteria.of(), new PageRequest(0, 10))).isEmpty();
+            assertThat(positionRows.query(Criteria.of().eq("source", "directory"), new PageRequest(0, 10)))
+                    .hasSize(2).allSatisfy(p -> assertThat(p.getSourceStatus()).isEqualTo("unbound"));
+            assertThat(grantRows.query(Criteria.of().eq("source", "directory"), new PageRequest(0, 10))).isEmpty();
+            return null;
+        });
     }
 
     @Test
