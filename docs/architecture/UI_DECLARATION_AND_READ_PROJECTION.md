@@ -20,7 +20,9 @@
 
 当前没有上线兼容成本，后续推进按“先立契约，再接真实链路，再扩展场景”的生产化顺序执行。SQL 列投影不是第一优先级；Web 契约、安全边界和字段事实先稳定，后续 SQL 裁剪只作为性能优化接入。
 
-当前静态样板状态：`iam.employee` 已验证普通列表、声明表单、组织 scope、部门引用选择、统一保存和记录动作流；`iam.department` 已验证树形业务、机构 scope、父子选择、声明表单、统一保存和记录动作流；`platform.dictionary` 已验证应用 scope 下的类目树、类目 scope 下的条目树、父子选择、主资源表单和子资源表单；`iam.position` 已验证非字典子资源表单可通过父模块 descriptor 和 `RecordFormFields` 复用同一套字段运行器。子资源表单样板已沉淀为稳定接入契约：子资源 view 归属父模块 descriptor，view code 由 resource 命名门面生成，字段按 relationCode 关联子资源实体事实并在编译期失败。动态发布快照已接入模块 runtime context：发布快照先归一为 `ModuleUiDefinition`，再编译为 `ResolvedModuleUiDescriptor`，动态模块 host 可复用 `RecordQueryListPanel` 和 `RecordFormFields` 展示列表与只读表单。后续不继续横向铺更多静态页面，优先补动态保存 envelope、SQL 列投影和字段级授权治理。
+当前静态样板状态：`iam.employee` 已验证普通列表、声明表单、组织 scope、部门引用选择、统一保存和记录动作流；`iam.department` 已验证树形业务、机构 scope、父子选择、声明表单、统一保存和记录动作流；`platform.dictionary_category` 已验证应用 scope 下的类目树、类目 scope 下的条目树、父子选择、主资源表单和子资源表单；`iam.position` 已验证非字典子资源表单可通过父模块 descriptor 和 `RecordFormFields` 复用同一套字段运行器。子资源表单样板已沉淀为稳定接入契约：子资源 view 归属父模块 descriptor，view code 由 resource 命名门面生成，字段按 relationCode 关联子资源实体事实并在编译期失败。动态发布快照已接入模块 runtime context：发布快照先归一为 `ModuleUiDefinition`，再编译为 `ResolvedModuleUiDescriptor`，动态模块 host 可复用 `RecordQueryListPanel` 和 `RecordFormFields` 展示列表与只读表单。后续不继续横向铺更多静态页面，优先补动态保存 envelope、SQL 列投影和字段级授权治理。
+
+静态管理入口的当前宿主与扩展边界见 [静态管理页组件边界](../frontend/STATIC_MANAGEMENT_PAGE_COMPONENTS.md#当前页面口径)：字典、用户（含系统用户视角）、职员、菜单与角色主入口均已迁入标准模块宿主。TD-046 仅保留 `iam.role.detail` 恢复视图中的重复 CRUD 会话；角色授权矩阵及账号/任职绑定继续作为专用业务工作区或受控动作面板，不属于普通 CRUD 迁移缺口。
 
 ### 阶段 1：协议冻结
 
