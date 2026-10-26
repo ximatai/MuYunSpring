@@ -25,6 +25,12 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.iam.federation.*;
+import net.ximatai.muyun.spring.iam.organization.*;
+import net.ximatai.muyun.spring.iam.department.*;
+import net.ximatai.muyun.spring.iam.position.*;
+import net.ximatai.muyun.spring.iam.role.*;
+import net.ximatai.muyun.spring.common.model.EntityLifecycle;
 import net.ximatai.muyun.spring.iam.federation.ExternalAuthorizationContext;
 import net.ximatai.muyun.spring.iam.federation.ExternalDirectoryProtocol;
 import net.ximatai.muyun.spring.iam.federation.ExternalIdentity;
@@ -756,7 +762,7 @@ class ExternalIdentityFederationIT {
         assertThat(anonymousPaths).containsExactlyInAnyOrder(
                 "/iam.auth/login", "/iam.auth/logout", "/platform.localization/catalog",
                 "/iam.auth/external/{providerId}/login", "/iam.auth/external/{providerId}/complete",
-                "/iam.auth/external/mock/authorize");
+                "/iam.auth/external/{providerId}/confirm", "/iam.auth/external/mock/authorize");
     }
 
     @Test
@@ -927,6 +933,360 @@ class ExternalIdentityFederationIT {
         }
     }
 
+
+    @Autowired OrganizationService organizations;
+    @Autowired DepartmentService departments;
+    @Autowired PositionCategoryService categories;
+    @Autowired PositionService positions;
+    @Autowired RoleService roles;
+    @Autowired DirectoryDepartmentMappingDao mappings;
+    @Autowired JoinApplicationService applications;
+    @Autowired net.ximatai.muyun.spring.platform.job.JobService jobs;
+    @Autowired net.ximatai.muyun.spring.starter.configuration.platform.JobNodeExecutor jobExecutor;
+    @Autowired net.ximatai.muyun.spring.platform.job.JobRunDao jobRuns;
+
+    private record ProvisioningFixture(String provider, String policy, String role) { }
+
+    private ProvisioningFixture provisioningFixture(String id, ProvisioningMode mode) {
+        statusProtocol.status = "active"; statusProtocol.fail = false;
+        statusProtocol.lookupSupported = true; statusProtocol.omitEnterprise = false;
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-it", "Test"));
+             var tenant = TenantContext.use(TENANT)) {
+            var provider = new IdentityProvider();
+            provider.setId(id); provider.setTitle(id); provider.setProviderType(StatusProtocol.TYPE);
+            provider.setExternalEnterpriseId("status-corp"); provider.setIdentityNamespace(id);
+            try (var system = TenantContext.system("provisioning fixture provider")) { identityProviderService.insert(provider); }
+            var organization = new Organization(); organization.setCode(id); organization.setTitle(id);
+            organizations.insert(organization);
+            var category = new PositionCategory(); category.setCode(id); category.setTitle(id); categories.insert(category);
+            var position = new Position(); position.setCode(id); position.setTitle(id); position.setCategoryId(category.getId()); positions.insert(position);
+            var role = new Role(); role.setTitle(id); roles.insert(role);
+            var policy = new TenantIdentityPolicy(); policy.setProviderId(id); policy.setProvisioningMode(mode);
+            policy.setAdmissionRoots("[\"root\"]"); policy.setSyncPositionId(position.getId()); policy.setSyncRoleId(role.getId());
+            policy.setSyncScopeConfirmed(true);
+            policy.setSyncRoots("[{\"externalDepartmentId\":\"root\",\"organizationId\":\"" + organization.getId() + "\"}]");
+            tenantIdentityPolicyService.insert(policy);
+            jobExecutor.stop();
+            statusProtocol.directoryPeople = List.of();
+            String baseline = tenantIdentityPolicyService.synchronize(policy.getId(), false);
+            assertThat(jobs.runOne(DirectorySyncJob.CHANNEL, "provisioning-it")).isTrue();
+            assertThat(jobRuns.findById(baseline).getResultCode()).isEqualTo("DIRECTORY_COMPLETED");
+            return new ProvisioningFixture(id, policy.getId(), role.getId());
+        }
+    }
+
+    private JsonNode provisioningScan(String provider, String person) {
+        var start = post("/iam.auth/external/" + provider + "/login", Map.of("tenantId", TENANT), null).getBody();
+        var result = post("/iam.auth/external/" + provider + "/complete", Map.of("state", start.path("state").asText(),
+                "browserProof", start.path("browserProof").asText(), "parameters", Map.of("code", person)), null).getBody();
+        var combined = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        combined.set("start", start); combined.set("result", result); return combined;
+    }
+
+    private JsonNode confirmProvisioning(String provider, JsonNode start) {
+        return post("/iam.auth/external/" + provider + "/confirm", Map.of("state", start.path("state").asText(),
+                "browserProof", start.path("browserProof").asText(), "parameters", Map.of("tenantId", "forged", "externalUserId", "forged")), null).getBody();
+    }
+
+    @Test
+    void autoProvisioningConfirmsAtomicallyAndConcurrentConfirmationsCreateOneAccount() throws Exception {
+        var fixture = provisioningFixture("auto_provision", ProvisioningMode.AUTO);
+        var scan = provisioningScan(fixture.provider(), "new-auto");
+        assertThat(scan.path("result").path("status").asText()).isEqualTo("confirmationRequired");
+        assertThat(scan.path("result").path("login").isNull()).isTrue();
+        assertThat(scan.path("result").path("confirmation").path("placements").toString()).contains("auto_provision / Root");
+        assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isZero();
+        var second = provisioningScan(fixture.provider(), "new-auto");
+        try (var executor = java.util.concurrent.Executors.newFixedThreadPool(3)) {
+            var first = executor.submit(() -> confirmProvisioning(fixture.provider(), scan.path("start")));
+            var repeated = executor.submit(() -> confirmProvisioning(fixture.provider(), scan.path("start")));
+            var concurrent = executor.submit(() -> confirmProvisioning(fixture.provider(), second.path("start")));
+            var results = List.of(first.get(), repeated.get(), concurrent.get());
+            assertThat(results).allSatisfy(result -> assertThat(result.path("status").asText()).isEqualTo("succeeded"));
+            assertThat(results.stream().filter(result -> result.path("login").path("token").isTextual()).count()).isEqualTo(2);
+        }
+        assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isEqualTo(1);
+        String user = jdbcTemplate.queryForObject("select user_id from iam_external_identity where provider_id=?", String.class, fixture.provider());
+        assertThat(count("iam_employee_account", "user_id", user)).isEqualTo(1);
+        assertThat(count("iam_employee_position", "source_provider_id", fixture.provider())).isEqualTo(1);
+        assertThat(count("iam_employment_role_grant", "role_id", fixture.role())).isEqualTo(1);
+        var login = provisioningScan(fixture.provider(), "new-auto").path("result");
+        assertThat(login.path("login").path("token").asText()).isNotBlank();
+    }
+
+    @Test
+    void realtimeAdmissionCannotReuseDepartmentMappingsFromAnEarlierAuthority() {
+        var fixture = provisioningFixture("authority_provision", ProvisioningMode.AUTO);
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-it", "Test"));
+             var system = TenantContext.system("change unbound identity authority")) {
+            var provider = identityProviderService.select(fixture.provider());
+            provider.setIdentityNamespace("changed-namespace"); identityProviderService.update(provider);
+        }
+        assertThat(provisioningScan(fixture.provider(), "new-authority").path("result").path("failure").asText()).isEqualTo("admissionRejected");
+        assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isZero();
+    }
+
+    @Test
+    void failureWhileGrantingTheDefaultRoleRollsBackTheWholeAccountAggregate() {
+        var fixture = provisioningFixture("rollback_provision", ProvisioningMode.AUTO);
+        var scan = provisioningScan(fixture.provider(), "rollback-person");
+        assertThat(scan.path("result").path("status").asText()).isEqualTo("confirmationRequired");
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-it", "Test"));
+             var tenant = TenantContext.use(TENANT)) { roles.disable(fixture.role()); }
+        assertThat(confirmProvisioning(fixture.provider(), scan.path("start")).path("status").asText()).isNotEqualTo("succeeded");
+        assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isZero();
+        String organization = jdbcTemplate.queryForObject("select organization_id from iam_directory_department_mapping where provider_id=?",
+                String.class, fixture.provider());
+        assertThat(count("iam_employee", "organization_id", organization)).isZero();
+        assertThat(count("iam_employee_position", "source_provider_id", fixture.provider())).isZero();
+    }
+
+    @Test
+    void authoritativeAdmissionRejectsEmptyOutsideUnknownAndPolicyChangesBeforeConfirmation() {
+        var fixture = provisioningFixture("admission_provision", ProvisioningMode.AUTO);
+        var scan = provisioningScan(fixture.provider(), "policy-change");
+        assertThat(scan.path("result").path("status").asText()).isEqualTo("confirmationRequired");
+        jdbcTemplate.update("update iam_tenant_identity_policy set admission_roots='[\"outside\"]' where id=?", fixture.policy());
+        assertThat(confirmProvisioning(fixture.provider(), scan.path("start")).path("status").asText()).isNotEqualTo("succeeded");
+        assertThat(provisioningScan(fixture.provider(), "outside").path("result").path("failure").asText()).isEqualTo("admissionRejected");
+        jdbcTemplate.update("update iam_tenant_identity_policy set admission_roots='[]' where id=?", fixture.policy());
+        assertThat(provisioningScan(fixture.provider(), "empty").path("result").path("failure").asText()).isEqualTo("admissionRejected");
+        jdbcTemplate.update("update iam_tenant_identity_policy set admission_roots='[\"root\"]' where id=?", fixture.policy());
+        statusProtocol.status = "unknown";
+        assertThat(provisioningScan(fixture.provider(), "unknown").path("result").path("failure").asText()).isEqualTo("admissionRejected");
+        statusProtocol.status = "active"; statusProtocol.lookupSupported = false;
+        assertThat(provisioningScan(fixture.provider(), "no-evidence").path("result").path("failure").asText()).isEqualTo("admissionRejected");
+        statusProtocol.lookupSupported = true;
+        assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isZero();
+    }
+
+    @Test
+    void reviewApplicationApprovesUsingSameWriterAndRejectsPersistentlyAcrossPolicyChanges() {
+        var fixture = provisioningFixture("review_provision", ProvisioningMode.REVIEW);
+        var scan = provisioningScan(fixture.provider(), "review-approved").path("result");
+        assertThat(scan.path("status").asText()).isEqualTo("reviewPending");
+        assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isZero();
+        assertThat(provisioningScan(fixture.provider(), "review-approved").path("result").path("status").asText()).isEqualTo("reviewPending");
+        assertThat(count("iam_join_application", "provider_id", fixture.provider())).isEqualTo(1);
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-it", "Test"));
+             var tenant = TenantContext.use(TENANT)) {
+            statusProtocol.directoryPeople = List.of("review-approved");
+            String run = tenantIdentityPolicyService.synchronize(fixture.policy(), false);
+            assertThat(jobs.runOne(DirectorySyncJob.CHANNEL, "provisioning-it")).isTrue();
+            assertThat(jobRuns.findById(run).getResultCode()).isEqualTo("DIRECTORY_COMPLETED");
+            assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isZero();
+        }
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-reviewer", "Reviewer"));
+             var tenant = TenantContext.use(TENANT)) {
+            var row = applications.list(Criteria.of().eq("providerId", fixture.provider()), new PageRequest(0, 10)).getFirst();
+            applications.review(row.getId(), true, "Verified");
+            applications.review(row.getId(), true, "Repeated approval");
+        }
+        assertThat(provisioningScan(fixture.provider(), "review-approved").path("result").path("login").path("token").asText()).isNotBlank();
+        assertThat(provisioningScan(fixture.provider(), "review-rejected").path("result").path("status").asText()).isEqualTo("reviewPending");
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-reviewer", "Reviewer"));
+             var tenant = TenantContext.use(TENANT)) {
+            var row = applications.list(Criteria.of().eq("externalUserId", "review-rejected"), new PageRequest(0, 10)).getFirst();
+            applications.review(row.getId(), false, "Not admitted");
+        }
+        assertThat(provisioningScan(fixture.provider(), "review-rejected").path("result").path("login").isNull()).isTrue();
+        jdbcTemplate.update("update iam_tenant_identity_policy set provisioning_mode='auto' where id=?", fixture.policy());
+        assertThat(provisioningScan(fixture.provider(), "review-rejected").path("result").path("status").asText()).isEqualTo("reviewRejected");
+        assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("select reviewer_id from iam_join_application where provider_id=? and status='rejected'",
+                String.class, fixture.provider())).isEqualTo("provisioning-reviewer");
+    }
+
+    @Test
+    void directoryOnlyProvisioningRequiresFreshCompleteObservationsAndRejectsNewerUnknown() {
+        var fixture = provisioningFixture("cached_provision", ProvisioningMode.AUTO);
+        jobExecutor.stop();
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-it", "Test"));
+             var tenant = TenantContext.use(TENANT)) {
+            var mapping = mappings.query(Criteria.of().eq("tenantId", TENANT).eq("providerId", fixture.provider()), new PageRequest(0, 1)).getFirst();
+            var policy = tenantIdentityPolicyService.select(fixture.policy());
+            policy.setSyncRoots("[{\"externalDepartmentId\":\"root\",\"organizationId\":\"" + mapping.getOrganizationId() + "\"}]");
+            policy.setSyncScopeConfirmed(true);
+            tenantIdentityPolicyService.update(policy);
+            statusProtocol.directoryPeople = List.of();
+            String baseline = tenantIdentityPolicyService.synchronize(fixture.policy(), false);
+            assertThat(jobs.runOne(DirectorySyncJob.CHANNEL, "provisioning-it")).isTrue();
+            assertThat(jobRuns.findById(baseline).getResultCode()).isEqualTo("DIRECTORY_COMPLETED");
+            statusProtocol.directoryPeople = List.of("cached-active", "cached-stale", "cached-unknown");
+            String preview = tenantIdentityPolicyService.synchronize(fixture.policy(), true);
+            assertThat(jobs.runOne(DirectorySyncJob.CHANNEL, "provisioning-it")).isTrue();
+            assertThat(jobRuns.findById(preview).getResultCode()).isEqualTo("DIRECTORY_COMPLETED");
+            statusProtocol.lookupSupported = false;
+            var scan = provisioningScan(fixture.provider(), "cached-active");
+            assertThat(scan.path("result").path("status").asText()).isEqualTo("confirmationRequired");
+            assertThat(confirmProvisioning(fixture.provider(), scan.path("start")).path("login").path("token").asText()).isNotBlank();
+            jdbcTemplate.update("update iam_directory_sync_seen set created_at=current_timestamp - interval '4 days' where external_user_id='cached-stale'");
+            assertThat(provisioningScan(fixture.provider(), "cached-stale").path("result").path("failure").asText()).isEqualTo("admissionRejected");
+            statusProtocol.status = "unknown";
+            String unknown = tenantIdentityPolicyService.synchronize(fixture.policy(), true);
+            assertThat(jobs.runOne(DirectorySyncJob.CHANNEL, "provisioning-it")).isTrue();
+            assertThat(jobRuns.findById(unknown).getResultCode()).isEqualTo("DIRECTORY_UNKNOWN_STATUS");
+            assertThat(provisioningScan(fixture.provider(), "cached-unknown").path("result").path("failure").asText()).isEqualTo("admissionRejected");
+            assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isEqualTo(1);
+        } finally {
+            statusProtocol.directoryPeople = List.of(); statusProtocol.lookupSupported = true; statusProtocol.status = "active";
+        }
+    }
+
+    @Test
+    void continuingAnOlderPreviewCannotOverrideANewerUnknownObservation() {
+        var fixture = provisioningFixture("continued_preview", ProvisioningMode.AUTO);
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-it", "Test"));
+             var tenant = TenantContext.use(TENANT)) {
+            statusProtocol.directoryPeople = List.of("continued-person");
+            statusProtocol.failAfterPeoplePage = true;
+            String older = tenantIdentityPolicyService.synchronize(fixture.policy(), true);
+            assertThat(jobs.runOne(DirectorySyncJob.CHANNEL, "provisioning-it")).isTrue();
+            assertThat(jobRuns.findById(older).getStatus()).isEqualTo("FAILED");
+            assertThat(jdbcTemplate.queryForObject("select source_status from iam_directory_sync_seen s join iam_directory_sync_run r on r.id=s.run_id where r.job_run_id=?",
+                    String.class, older)).isEqualTo("active");
+            statusProtocol.failAfterPeoplePage = false;
+            statusProtocol.status = "unknown";
+            String newer = tenantIdentityPolicyService.synchronize(fixture.policy(), true);
+            assertThat(jobs.runOne(DirectorySyncJob.CHANNEL, "provisioning-it")).isTrue();
+            assertThat(jobRuns.findById(newer).getResultCode()).isEqualTo("DIRECTORY_UNKNOWN_STATUS");
+            var continuation = jobs.retry(older);
+            assertThat(jobs.runOne(DirectorySyncJob.CHANNEL, "provisioning-it")).isTrue();
+            assertThat(jobRuns.findById(continuation.getId()).getResultCode()).isEqualTo("DIRECTORY_COMPLETED");
+            statusProtocol.lookupSupported = false;
+            assertThat(provisioningScan(fixture.provider(), "continued-person").path("result").path("failure").asText())
+                    .isEqualTo("admissionRejected");
+            assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isZero();
+        } finally {
+            statusProtocol.failAfterPeoplePage = false;
+            statusProtocol.status = "active"; statusProtocol.lookupSupported = true; statusProtocol.directoryPeople = List.of();
+        }
+    }
+
+    @Test
+    void pendingScopeDefaultsDoNotAffectAutoOrReviewProvisioning() {
+        for (var mode : List.of(ProvisioningMode.AUTO, ProvisioningMode.REVIEW)) {
+            var fixture = provisioningFixture("pending_defaults_" + mode.name().toLowerCase(), mode);
+            String activePosition;
+            String pendingRole;
+            try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-it", "Test"));
+                 var tenant = TenantContext.use(TENANT)) {
+                var policy = tenantIdentityPolicyService.select(fixture.policy());
+                activePosition = policy.getSyncPositionId();
+                String activeScope = policy.getSyncScopeId();
+                var position = new Position(); position.setCode(fixture.provider() + "_pending"); position.setTitle("Pending position");
+                position.setCategoryId(positions.select(activePosition).getCategoryId()); positions.insert(position);
+                var role = new Role(); role.setTitle(fixture.provider() + " pending role"); roles.insert(role); pendingRole = role.getId();
+                policy.setSyncRoots("[]"); policy.setSyncScopeConfirmed(true);
+                policy.setSyncPositionId(position.getId()); policy.setSyncRoleId(pendingRole);
+                tenantIdentityPolicyService.update(policy);
+                var saved = tenantIdentityPolicyService.select(fixture.policy());
+                assertThat(saved.getSyncScopeId()).isEqualTo(activeScope);
+                assertThat(saved.getPendingSyncScopeId()).isNotNull().isNotEqualTo(activeScope);
+            }
+            var scan = provisioningScan(fixture.provider(), "pending-default-person");
+            if (mode == ProvisioningMode.AUTO) {
+                assertThat(scan.path("result").path("status").asText()).isEqualTo("confirmationRequired");
+                assertThat(confirmProvisioning(fixture.provider(), scan.path("start")).path("status").asText()).isEqualTo("succeeded");
+            } else {
+                assertThat(scan.path("result").path("status").asText()).isEqualTo("reviewPending");
+                try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-it", "Test"));
+                     var tenant = TenantContext.use(TENANT)) {
+                    var row = applications.list(Criteria.of().eq("providerId", fixture.provider()), new PageRequest(0, 1)).getFirst();
+                    applications.review(row.getId(), true, null);
+                }
+            }
+            assertThat(jdbcTemplate.queryForList("select position_id from iam_employee_position where source_provider_id=?", String.class, fixture.provider()))
+                    .containsExactly(activePosition);
+            assertThat(count("iam_employment_role_grant", "role_id", fixture.role())).isEqualTo(1);
+            assertThat(count("iam_employment_role_grant", "role_id", pendingRole)).isZero();
+        }
+    }
+
+    @Test
+    void reviewEndpointsEnforceActionPermissionsAndTenantIsolationOverHttp() {
+        var fixture = provisioningFixture("http_review", ProvisioningMode.REVIEW);
+        for (String person : List.of("http-approved", "http-rejected"))
+            assertThat(provisioningScan(fixture.provider(), person).path("result").path("status").asText()).isEqualTo("reviewPending");
+        String approved = jdbcTemplate.queryForObject("select id from iam_join_application where provider_id=? and external_user_id='http-approved'", String.class, fixture.provider());
+        String rejected = jdbcTemplate.queryForObject("select id from iam_join_application where provider_id=? and external_user_id='http-rejected'", String.class, fixture.provider());
+        String otherTenant;
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-it", "Test"));
+             var system = TenantContext.system("review HTTP fixtures")) {
+            var other = new Tenant(); other.setAlias("http_review_other"); other.setTitle("Other reviewer tenant"); tenantService.insert(other);
+            otherTenant = other.getId();
+            createReviewUser(TENANT, "http_viewer", List.of());
+            createReviewUser(TENANT, "http_approver", List.of("approve"));
+            createReviewUser(TENANT, "http_rejector", List.of("reject"));
+            createReviewUser(otherTenant, "http_other", List.of("approve", "reject"));
+        }
+        String viewerToken = passwordLogin("http_viewer");
+        String approveToken = passwordLogin("http_approver");
+        String rejectToken = passwordLogin("http_rejector");
+        var foreignLogin = post("/iam.auth/login", Map.of("tenantId", otherTenant, "username", "http_other", "password", PASSWORD), null);
+        assertThat(foreignLogin.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String foreignToken = foreignLogin.getBody().path("token").asText();
+        for (String action : List.of("approve", "reject")) {
+            String path = "/iam.join_application/" + (action.equals("approve") ? approved : rejected) + "/" + action;
+            assertThat(post(path, Map.of(), null).getStatusCode()).as("anonymous %s", action).isEqualTo(HttpStatus.UNAUTHORIZED);
+            assertThat(post(path, Map.of(), viewerToken).getStatusCode()).as("ungranted %s", action).isEqualTo(HttpStatus.FORBIDDEN);
+            assertThat(post(path, Map.of(), action.equals("approve") ? rejectToken : approveToken).getStatusCode())
+                    .as("wrong action %s", action).isEqualTo(HttpStatus.FORBIDDEN);
+            var foreign = post(path, Map.of(), foreignToken);
+            assertThat(foreign.getStatusCode().is4xxClientError()).as("foreign %s: %s", action, foreign.getBody()).isTrue();
+        }
+        assertThat(jdbcTemplate.queryForList("select status from iam_join_application where provider_id=?", String.class, fixture.provider()))
+                .containsOnly("pending");
+        assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isZero();
+        assertThat(post("/iam.join_application/" + approved + "/approve", Map.of(), approveToken).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post("/iam.join_application/" + rejected + "/reject", Map.of(), rejectToken).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(jdbcTemplate.queryForObject("select status from iam_join_application where id=?", String.class, approved)).isEqualTo("approved");
+        assertThat(jdbcTemplate.queryForObject("select status from iam_join_application where id=?", String.class, rejected)).isEqualTo("rejected");
+        assertThat(jdbcTemplate.queryForObject("select reviewer_id from iam_join_application where id=?", String.class, approved))
+                .isEqualTo(jdbcTemplate.queryForObject("select id from iam_user where tenant_id=? and username='http_approver'", String.class, TENANT));
+        assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isEqualTo(1);
+        assertThat(provisioningScan(fixture.provider(), "http-approved").path("result").path("login").path("token").asText()).isNotBlank();
+        assertThat(provisioningScan(fixture.provider(), "http-rejected").path("result").path("status").asText()).isEqualTo("reviewRejected");
+    }
+
+    private void createReviewUser(String tenantId, String username, List<String> actions) {
+        try (var tenant = TenantContext.use(tenantId)) {
+            createUser(username);
+            var user = userAccountService.list(Criteria.of().eq("username", username), new PageRequest(0, 1)).getFirst();
+            var role = new Role(); role.setTitle(username); role.setAssignmentType(RoleAssignmentType.ACCOUNT);
+            roles.insert(role);
+            roles.grantAction(role.getId(), JoinApplicationService.MODULE_ALIAS, "view");
+            for (String action : actions) roles.grantAction(role.getId(), JoinApplicationService.MODULE_ALIAS, action);
+            roles.grantAccountRoleResult(role.getId(), user.getId(), tenantId);
+        }
+    }
+
+    @Test
+    void provisioningDoesNotReuseAnotherTenantsOrganizationFactsOrApplications() {
+        var fixture = provisioningFixture("isolation_provision", ProvisioningMode.REVIEW);
+        assertThat(provisioningScan(fixture.provider(), "tenant-isolated").path("result").path("status").asText()).isEqualTo("reviewPending");
+        String application = jdbcTemplate.queryForObject("select id from iam_join_application where provider_id=?", String.class, fixture.provider());
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-it", "Test"));
+             var system = TenantContext.system("second tenant fixture")) {
+            var second = new Tenant(); second.setAlias("provisioning_other"); second.setTitle("Other"); tenantService.insert(second);
+            try (var tenant = TenantContext.use(second.getId())) {
+                assertThat(applications.select(application)).isNull();
+                org.assertj.core.api.Assertions.assertThatThrownBy(() -> applications.review(application, true, null)).isInstanceOf(RuntimeException.class);
+                var policy = new TenantIdentityPolicy(); policy.setProviderId(fixture.provider()); policy.setProvisioningMode(ProvisioningMode.AUTO);
+                policy.setAdmissionRoots("[\"root\"]"); tenantIdentityPolicyService.insert(policy);
+                var start = post("/iam.auth/external/" + fixture.provider() + "/login", Map.of("tenantId", second.getId()), null).getBody();
+                var result = post("/iam.auth/external/" + fixture.provider() + "/complete", Map.of("state", start.path("state").asText(),
+                        "browserProof", start.path("browserProof").asText(), "parameters", Map.of("code", "tenant-isolated")), null).getBody();
+                assertThat(result.path("failure").asText()).isEqualTo("admissionRejected");
+            }
+        }
+        assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isZero();
+    }
+
+    private int count(String table, String column, String value) {
+        return jdbcTemplate.queryForObject("select count(*) from " + table + " where " + column + "=?", Integer.class, value);
+    }
+
     private JsonNode completeBlocking(JsonNode start, String externalId) {
         return post("/iam.auth/external/" + BlockingProtocol.TYPE + "/complete", Map.of("state", start.path("state").asText(),
                 "browserProof", start.path("browserProof").asText(), "parameters", Map.of("code", externalId)), null).getBody();
@@ -1070,6 +1430,8 @@ class ExternalIdentityFederationIT {
         volatile boolean singleEnterprise;
         volatile int calls;
         volatile Runnable lookupHook = () -> {};
+        volatile List<String> directoryPeople = List.of();
+        volatile boolean failAfterPeoplePage;
         @Override public void validateConfiguration(Map<String, String> configuration) { }
         @Override public Set<String> identityScopeConfigurationKeys() { return Set.of(); }
         @Override public String providerType() { return TYPE; }
@@ -1090,9 +1452,17 @@ class ExternalIdentityFederationIT {
             lookupHook.run();
             return new Person(id, id, null, "root", List.of("root"), observedStatus, null, null);
         }
-        @Override public Department department(IdentityProviderDescriptor provider, String id) { throw new UnsupportedOperationException(); }
-        @Override public Page<Department> departments(IdentityProviderDescriptor provider, String root, String cursor, int limit) { throw new UnsupportedOperationException(); }
-        @Override public Page<Person> departmentPeople(IdentityProviderDescriptor provider, String department, String cursor, int limit) { throw new UnsupportedOperationException(); }
+        @Override public Department department(IdentityProviderDescriptor provider, String id) { return new Department(id, null, id); }
+        @Override public Page<Department> departments(IdentityProviderDescriptor provider, String root, String cursor, int limit) {
+            return new Page<>(List.of(new Department("root", null, "Root")), null);
+        }
+        @Override public Page<Person> departmentPeople(IdentityProviderDescriptor provider, String department, String cursor, int limit) {
+            if ("after-people".equals(cursor)) {
+                if (failAfterPeoplePage) throw new net.ximatai.muyun.spring.platform.job.JobFailure("TEST_AFTER_PEOPLE", false);
+                return new Page<>(List.of(), null);
+            }
+            return new Page<>(directoryPeople.stream().map(id -> new Person(id, id, null, "root", List.of("root"), status, null, null)).toList(), failAfterPeoplePage ? "after-people" : null);
+        }
     }
 
     static final class BlockingProtocol implements ExternalLoginProtocol {

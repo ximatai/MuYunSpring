@@ -66,3 +66,5 @@ IAM 业务失败统一通过 `BusinessExceptions.warning(...)` 返回：
 5. 数据库、网络、密码哈希等技术故障。
 
 后续新增真实 IAM 页面时，若出现需要字段定位或专属展示槽位的错误，再在对应业务契约与本目录中同步登记；不预建前端错误码映射表。
+
+外部身份准入失败使用 `iam.federation.admission-rejected`：权威资料不可用、unknown、超龄、权威变化或不在准入范围时，匿名用户收到不含他人账号信息的统一提示。扫码完成结果的对应机器值为 `admissionRejected`；申请待审与拒绝分别使用 `reviewPending`、`reviewRejected` 状态。

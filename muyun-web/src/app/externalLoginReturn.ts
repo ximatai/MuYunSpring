@@ -86,6 +86,15 @@ export function takeExternalLoginReturn(
 
 /** User-facing explanation of a completion that did not succeed. */
 export function externalLoginFailureMessage(completion: ExternalLoginCompletion, language: LanguageContext) {
+  if (completion.status === 'reviewPending')
+    return language.t('platform.external-login.review-pending', '加入申请已提交，审核通过后请重新扫码登录');
+  if (completion.status === 'reviewRejected')
+    return language.t('platform.external-login.review-rejected', '加入申请已被拒绝，请联系管理员');
+  if (completion.failure === 'admissionRejected')
+    return language.t(
+      'platform.external-login.admission-rejected',
+      '无法确认有效的准入资料，请联系管理员检查准入范围并更新通讯录后重试',
+    );
   if (completion.status === 'expired') {
     return language.t('platform.external-login.authorization-expired', '授权已超时，请重新发起');
   }

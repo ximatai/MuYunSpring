@@ -34,6 +34,7 @@ async function host(
       { providerId: 'idp', purpose: options.purpose ?? 'login', tenantId: 'tenant-a' },
     );
   const complete = vi.fn();
+  const confirm = vi.fn();
   const onAuthenticated = vi.fn();
   let api!: ExternalLoginHost;
   wrappers.push(
@@ -41,7 +42,7 @@ async function host(
       defineComponent({
         setup() {
           api = useExternalLoginHost({
-            client: { complete } as unknown as ExternalLoginClient,
+            client: { complete, confirm } as unknown as ExternalLoginClient,
             router,
             signedIn: () => options.signedIn ?? false,
             onAuthenticated,
@@ -52,7 +53,7 @@ async function host(
       }),
     ),
   );
-  return { api, complete, router, onAuthenticated };
+  return { api, complete, confirm, router, onAuthenticated };
 }
 
 it('cleans address and history before completion, coalesces calls, and hands off once', async () => {
@@ -134,3 +135,66 @@ it('continues an existing session after a denied bind', async () => {
   expect(api.error.value).toContain('其他账号');
   expect(onAuthenticated).not.toHaveBeenCalled();
 });
+
+const confirmation = {
+  displayName: 'Applicant',
+  tenantId: 'tenant-a',
+  departmentIds: ['sales'],
+  placements: ['Org / Sales'],
+};
+
+it('confirms through the public host once and hands off the session without exposing proof', async () => {
+  const { api, complete, confirm, onAuthenticated } = await host();
+  complete.mockResolvedValue({ status: 'confirmationRequired', confirmation });
+  expect(await api.completeReturn()).toBe(true);
+  expect(api.confirmation.value).toEqual(confirmation);
+  expect(onAuthenticated).not.toHaveBeenCalled();
+  let release!: (value: unknown) => void;
+  confirm.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const first = api.confirmProvisioning();
+  await api.confirmProvisioning();
+  api.cancelProvisioning();
+  expect(api.confirmation.value).toBeDefined();
+  expect(api.confirming.value).toBe(true);
+  const login = { token: 'new-session' };
+  release({ status: 'succeeded', login });
+  await first;
+  expect(confirm).toHaveBeenCalledExactlyOnceWith('idp', { state: 'state', browserProof: 'proof' });
+  expect(onAuthenticated).toHaveBeenCalledExactlyOnceWith(login);
+  expect(api.confirmation.value).toBeUndefined();
+  expect(api.confirming.value).toBe(false);
+});
+
+it('keeps confirmation after admission failure and allows cancel without creating an account', async () => {
+  const { api, complete, confirm, onAuthenticated } = await host();
+  complete.mockResolvedValue({ status: 'confirmationRequired', confirmation });
+  await api.completeReturn();
+  confirm.mockResolvedValue({ status: 'denied', failure: 'admissionRejected' });
+  await api.confirmProvisioning();
+  expect(api.error.value).toContain('准入');
+  expect(api.confirmation.value).toEqual(confirmation);
+  expect(onAuthenticated).not.toHaveBeenCalled();
+  api.cancelProvisioning();
+  await api.confirmProvisioning();
+  expect(confirm).toHaveBeenCalledTimes(1);
+  expect(api.confirmation.value).toBeUndefined();
+  expect(api.error.value).toBeUndefined();
+});
+
+it.each(['reviewPending', 'reviewRejected'])(
+  'reports %s without session handoff or confirmation',
+  async (status) => {
+    const { api, complete, confirm, onAuthenticated } = await host();
+    complete.mockResolvedValue({ status });
+    expect(await api.completeReturn()).toBe(true);
+    expect(api.error.value).toContain(status === 'reviewPending' ? '审核通过' : '拒绝');
+    expect(api.confirmation.value).toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(onAuthenticated).not.toHaveBeenCalled();
+  },
+);

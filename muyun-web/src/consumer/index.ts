@@ -83,6 +83,7 @@ export type {
 } from '../vue-ui-antdv/index';
 export { default as PlatformAdminOutlet } from './PlatformAdminOutlet.vue';
 export { default as AppWorkbenchShell } from './AppWorkbenchShell.vue';
+export { default as ExternalProvisioningConfirmation } from '../app/ExternalProvisioningConfirmation.vue';
 export { default as LoginView } from '../app/LoginView.vue';
 export type { AppWorkbenchNavigation } from './workbenchNavigation';
 export { configureUserPreferencePersistence } from './userPreferencePersistence';

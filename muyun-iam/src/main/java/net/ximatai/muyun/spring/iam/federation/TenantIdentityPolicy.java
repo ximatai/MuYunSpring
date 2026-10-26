@@ -52,6 +52,10 @@ public class TenantIdentityPolicy extends StandardEnabledSortableEntity {
     @OptionLoad(source = "provisioningMode")
     private transient String provisioningModeTitle;
 
+    @Column(name = "admission_roots", type = ColumnType.TEXT,
+            comment = "JSON external department subtree ids allowed to provision; empty denies")
+    private String admissionRoots;
+
     @Column(name = "sync_roots", type = ColumnType.TEXT, comment = "JSON root to organization mappings")
     private String syncRoots;
     @Column(name = "sync_scope_confirmed", type = ColumnType.BOOLEAN, comment = "Explicit whole enterprise or empty scope confirmation")

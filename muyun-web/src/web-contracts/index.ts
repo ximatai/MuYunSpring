@@ -339,8 +339,15 @@ export interface ExternalLoginStart {
   } | null;
 }
 
-export type ExternalLoginStatus = 'succeeded' | 'denied' | 'expired';
+export type ExternalLoginStatus =
+  | 'succeeded'
+  | 'denied'
+  | 'expired'
+  | 'confirmationRequired'
+  | 'reviewPending'
+  | 'reviewRejected';
 export type ExternalLoginFailure =
+  | 'admissionRejected'
   | 'identityNotBound'
   | 'identityConflict'
   | 'alreadyBound'
@@ -371,12 +378,20 @@ export interface ExternalLoginCompleteRequest {
   parameters: Record<string, string>;
 }
 
+export interface ExternalProvisioningProfile {
+  displayName: string;
+  tenantId: string;
+  departmentIds: string[];
+  placements?: string[];
+}
+
 export interface ExternalLoginCompletion {
   status: ExternalLoginStatus;
   purpose: ExternalLoginPurpose;
   failure?: ExternalLoginFailure;
   login?: LoginResult;
   binding?: ExternalIdentityView;
+  confirmation?: ExternalProvisioningProfile;
 }
 
 export interface OwnExternalIdentities {

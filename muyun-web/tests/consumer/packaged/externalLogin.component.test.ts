@@ -37,6 +37,12 @@ it('assembles a custom shell with public login, callback handoff and personal bi
       messageOrigin: 'invalid',
     },
   });
+  const profile: Consumer.ExternalProvisioningProfile = {
+    displayName: 'Applicant',
+    tenantId: 'tenant-a',
+    departmentIds: ['sales'],
+    placements: ['Org / Sales'],
+  };
   const provider = { providerId: 'welink', title: 'WeLink', providerType: 'welink' };
   const login = {
     token: 'host-session',
@@ -52,6 +58,12 @@ it('assembles a custom shell with public login, callback handoff and personal bi
       if (path.endsWith('/login-context')) return Response.json({ externalLoginMethods: [provider] });
       if (path.endsWith('/welink/login')) return Response.json(start('login-state'));
       if (path.endsWith('/welink/complete'))
+        return Response.json({
+          status: 'confirmationRequired',
+          purpose: 'login',
+          confirmation: profile,
+        });
+      if (path.endsWith('/welink/confirm'))
         return Response.json({ status: 'succeeded', purpose: 'login', login });
       if (path.endsWith('/external/identities'))
         return Response.json({ bindings: [], bindableProviders: [provider] });
@@ -80,14 +92,22 @@ it('assembles a custom shell with public login, callback handoff and personal bi
       });
       Vue.onMounted(() => void host.completeReturn());
       return () =>
-        session.value
-          ? Vue.h(sdk.ExternalIdentityBindings, { client, token: session.value.token })
-          : Vue.h(sdk.LoginView, {
-              authClient: sdk.createAuthClient(http),
-              loginContextClient: sdk.createLoginContextClient(http),
-              externalLoginClient: host.client,
+        host.confirmation.value
+          ? Vue.h(sdk.ExternalProvisioningConfirmation, {
+              confirmation: host.confirmation.value,
+              busy: host.confirming.value,
               error: host.error.value,
-            });
+              onConfirm: host.confirmProvisioning,
+              onCancel: host.cancelProvisioning,
+            })
+          : session.value
+            ? Vue.h(sdk.ExternalIdentityBindings, { client, token: session.value.token })
+            : Vue.h(sdk.LoginView, {
+                authClient: sdk.createAuthClient(http),
+                loginContextClient: sdk.createLoginContextClient(http),
+                externalLoginClient: host.client,
+                error: host.error.value,
+              });
     },
   });
   let wrapper = mount(Shell);
@@ -105,7 +125,20 @@ it('assembles a custom shell with public login, callback handoff and personal bi
     await router.replace('/?state=login-state&code=provider-code');
     wrapper = mount(Shell);
     await flushPromises();
+    expect(session.value).toBeUndefined();
+    expect(wrapper.text()).toContain('Org / Sales');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('确认并登录'))!
+      .trigger('click');
+    await flushPromises();
     expect(session.value).toEqual(login);
+    expect(
+      JSON.parse(String(requests.find(({ path }) => path.endsWith('/welink/confirm'))?.init?.body)),
+    ).toEqual({
+      state: 'login-state',
+      browserProof: 'proof-login-state',
+    });
     const completion = requests.find(({ path }) => path.endsWith('/welink/complete'))!;
     expect(JSON.parse(String(completion.init?.body))).toEqual({
       state: 'login-state',

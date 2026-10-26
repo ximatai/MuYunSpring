@@ -3684,7 +3684,18 @@
       "platform.welink.qr-title": "WeLink 扫码授权",
       "platform.welink.expired": "二维码授权已超时，请关闭后重新发起",
       "platform.welink.load-failed": "无法加载 WeLink 二维码，请检查网络后重新发起，或使用其他登录方式",
-      "platform.welink.scan": "请使用 WeLink 扫码并在手机上确认授权"
+      "platform.welink.scan": "请使用 WeLink 扫码并在手机上确认授权",
+      "platform.external-login.review-pending": "加入申请已提交，审核通过后请重新扫码登录",
+      "platform.external-login.review-rejected": "加入申请已被拒绝，请联系管理员",
+      "platform.external-login.admission-rejected": "无法确认有效的准入资料，请联系管理员检查准入范围并更新通讯录后重试",
+      "platform.external-login.created-sign-in-again": "账号已创建，请重新扫码登录",
+      "platform.external-login.confirm-title": "确认加入",
+      "platform.external-login.confirm-explanation": "请确认以下身份资料。确认后将创建本系统账号。",
+      "platform.external-login.person": "姓名",
+      "platform.external-login.tenant": "租户",
+      "platform.external-login.placements": "任职归属",
+      "platform.external-login.confirm-join": "确认并登录",
+      "platform.external-login.cancel-join": "取消"
     }
   },
   "en": {
@@ -7373,7 +7384,18 @@
       "platform.welink.qr-title": "WeLink QR authorization",
       "platform.welink.expired": "QR authorization expired. Close it and try again.",
       "platform.welink.load-failed": "Unable to load the WeLink QR code. Check your network and try again, or use another sign-in method.",
-      "platform.welink.scan": "Scan with WeLink and confirm authorization on your phone."
+      "platform.welink.scan": "Scan with WeLink and confirm authorization on your phone.",
+      "platform.external-login.review-pending": "Your application is pending review. Scan again after approval.",
+      "platform.external-login.review-rejected": "Your application was rejected. Contact an administrator.",
+      "platform.external-login.admission-rejected": "Admission cannot be verified. Ask an administrator to check admission scope and refresh the directory.",
+      "platform.external-login.created-sign-in-again": "Your account was created. Scan again to sign in.",
+      "platform.external-login.confirm-title": "Confirm joining",
+      "platform.external-login.confirm-explanation": "Confirm your identity details to create your local account.",
+      "platform.external-login.person": "Name",
+      "platform.external-login.tenant": "Tenant",
+      "platform.external-login.placements": "Organization and department",
+      "platform.external-login.confirm-join": "Confirm and sign in",
+      "platform.external-login.cancel-join": "Cancel"
     }
   },
   "fr": {

@@ -55,6 +55,14 @@ public class ExternalLoginWebController {
                 httpRequest.getRemoteAddr(), httpRequest.getHeader("User-Agent"));
     }
 
+    @AnonymousEndpoint
+    @PostMapping("/{providerId}/confirm")
+    public ExternalLoginResults.Completion confirm(@PathVariable String providerId, @RequestBody CompleteRequest body,
+            HttpServletRequest request) {
+        return externalLoginService.confirm(providerId, body.state(), body.browserProof(), request.getRemoteAddr(),
+                request.getHeader("User-Agent"));
+    }
+
     @GetMapping("/identities")
     public ExternalLoginResults.OwnIdentities identities() {
         return externalLoginService.ownIdentities(currentUser());

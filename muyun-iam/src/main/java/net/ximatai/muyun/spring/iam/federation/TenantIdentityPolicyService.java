@@ -10,8 +10,6 @@ import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformErrors;
-import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.job.JobService;
@@ -158,11 +156,10 @@ public class TenantIdentityPolicyService extends TenantActiveScopedService<Tenan
         if (policy.getSourceStatusMaxAgeSeconds() == null) policy.setSourceStatusMaxAgeSeconds(259200);
         if (policy.getSourceStatusMaxAgeSeconds() < 60 || policy.getSourceStatusMaxAgeSeconds() > 2592000)
             throw new IllegalArgumentException("Source status maximum age must be between 60 seconds and 30 days");
-        // AUTO and REVIEW are reserved in the model; accepting them before they work would silently deny users.
-        if (policy.getProvisioningMode() != null && policy.getProvisioningMode() != ProvisioningMode.DISABLED) {
-            throw PlatformErrors.badRequestText(TextReference.code(
-                    "iam.rejection.tenant-identity-policy.provisioning-mode-is-not-supported-yet",
-                    "only disabled provisioning is supported in this version"), Map.of());
+        if (policy.getAdmissionRoots() != null && !policy.getAdmissionRoots().isBlank()) {
+            var roots = DirectorySyncStore.decode(policy.getAdmissionRoots(), String[].class);
+            if (roots.length > 100 || java.util.Arrays.stream(roots).anyMatch(id -> id == null || id.isBlank()))
+                throw new IllegalArgumentException("At most 100 nonempty admission roots");
         }
     }
 }

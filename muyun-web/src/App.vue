@@ -105,6 +105,7 @@ import { useCurrentUserProfile } from './app/useCurrentUserProfile';
 import { useAssistantAvailability } from './app/useAssistantAvailability';
 import LoginView from './app/LoginView.vue';
 import { useExternalLoginHost } from './app/useExternalLoginHost';
+import ExternalProvisioningConfirmation from './app/ExternalProvisioningConfirmation.vue';
 import ThemeSkinPreferencesDialog from './app/ThemeSkinPreferencesDialog.vue';
 import {
   closeMenuTab,
@@ -530,6 +531,19 @@ const externalLoginHost = useExternalLoginHost({
   signedIn: () => Boolean(effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN)),
   onAuthenticated: handleAuthenticated,
 });
+async function confirmExternalProvisioning() {
+  await externalLoginHost.confirmProvisioning();
+  if (!externalLoginHost.confirmation.value && externalLoginHost.error.value) {
+    error.value = externalLoginHost.error.value;
+    loginRequired.value = true;
+    loading.value = false;
+  }
+}
+function cancelExternalProvisioning() {
+  externalLoginHost.cancelProvisioning();
+  loginRequired.value = true;
+  loading.value = false;
+}
 const profileAuthToken = computed(() =>
   profileOpen.value ? effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN) : undefined,
 );
@@ -548,6 +562,7 @@ configureAuthenticationRecovery((error, token) => {
 
 onMounted(async () => {
   if (await externalLoginHost.completeReturn()) {
+    if (externalLoginHost.confirmation.value) loading.value = false;
     if (externalLoginHost.error.value) {
       error.value = externalLoginHost.error.value;
       loginRequired.value = true;
@@ -1567,8 +1582,16 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
 <template>
   <UiLanguageProvider :context="platformLanguageContext" scope="global">
     <UiThemeProvider :theme="activeThemeSkin.theme" scope="global">
+      <ExternalProvisioningConfirmation
+        v-if="externalLoginHost.confirmation.value"
+        :confirmation="externalLoginHost.confirmation.value"
+        :busy="externalLoginHost.confirming.value"
+        :error="externalLoginHost.error.value"
+        @confirm="confirmExternalProvisioning"
+        @cancel="cancelExternalProvisioning"
+      />
       <LoginView
-        v-if="loginRequired"
+        v-else-if="loginRequired"
         :auth-client="authClient"
         :login-context-client="loginContextClient"
         :external-login-client="externalLoginClient"

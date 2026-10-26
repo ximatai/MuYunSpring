@@ -385,3 +385,10 @@
 | `/{moduleAlias}/actions`、`/{moduleAlias}/actions/{recordId}`、`/{moduleAlias}/{actionCode}`、`/{moduleAlias}/{actionCode}/{recordId}`、`/{moduleAlias}/{actionCode}/batch`                                                                                                         | 动态运行态   | 动态动作目录、记录动作可用性和动作执行入口；按 `moduleAlias + actionCode` 进入权限判断。 |
 | `/platform.menu/{menuId}/entry`                                                                                                                                                                                                                                                     | 页面交付     | 菜单节点页面 bootstrap；会返回权限裁剪后的 descriptor 和页面配置，但不是菜单剪枝接口。   |
 | `/workflow/runtime/**`、`/workflow/runtime/admin/**`                                                                                                                                                                                                                                | 工作流与任务 | 工作流实例、任务、提交审批和管理动作入口；复用当前用户上下文，接口归工作流专题。         |
+
+### 按需开户与加入申请
+
+- `POST /iam.auth/external/{providerId}/complete`：未绑定身份按策略返回 `confirmationRequired`（只读确认资料）、`reviewPending` 或 `reviewRejected`，这些结果不含业务会话。
+- `POST /iam.auth/external/{providerId}/confirm`：匿名浏览器凭原 `state`、`browserProof` 确认 AUTO 开户，不接受身份或组织字段；有效期与原登录事务相同。
+- `/iam.join_application`：标准租户静态只读列表与详情；`POST /{id}/approve`、`POST /{id}/reject` 分别要求 `approve`、`reject` 动作权限，查看权限不包含审批权限；匿名及其他租户审批者不得审核本租户申请，重复审核保持既有终态。批准不向管理员签发申请人会话，申请人须重新扫码。
+- 租户策略 `admissionRoots`：JSON 外部部门子树编码数组，空值拒绝按需开户，与同步根分别配置。

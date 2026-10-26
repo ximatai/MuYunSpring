@@ -45,6 +45,10 @@ export interface ExternalLoginClient {
   startLogin(providerId: string, tenantId: string): Promise<ExternalLoginStart>;
   startBind(providerId: string, token: string): Promise<ExternalLoginStart>;
   complete(providerId: string, request: ExternalLoginCompleteRequest): Promise<ExternalLoginCompletion>;
+  confirm(
+    providerId: string,
+    request: Omit<ExternalLoginCompleteRequest, 'parameters'>,
+  ): Promise<ExternalLoginCompletion>;
   identities(token: string): Promise<OwnExternalIdentities>;
   unbind(identityId: string, token: string): Promise<void>;
 }
@@ -167,6 +171,12 @@ export function createExternalLoginClient(http: HttpClient): ExternalLoginClient
       http.request<ExternalLoginCompletion>({
         method: 'POST',
         path: `/iam.auth/external/${segment(providerId)}/complete`,
+        body: request,
+      }),
+    confirm: (providerId, request) =>
+      http.request<ExternalLoginCompletion>({
+        method: 'POST',
+        path: `/iam.auth/external/${segment(providerId)}/confirm`,
         body: request,
       }),
     identities: (token) =>

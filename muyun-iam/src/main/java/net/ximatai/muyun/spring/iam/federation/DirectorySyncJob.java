@@ -146,6 +146,7 @@ public class DirectorySyncJob implements JobHandler {
                                 return retained;
                             }
                             var row = new DirectorySyncRun();
+                            row.setAuthorityFingerprint(provider.authorityFingerprint());
                             row.setJobRunId(context.runId());
                             row.setTenantId(context.tenantId());
                             row.setPolicyId(scope.getPolicyId());
@@ -161,6 +162,8 @@ public class DirectorySyncJob implements JobHandler {
         boolean peopleProgressReported = false;
         while (true) {
             var run = reload(initial);
+            if (!Objects.equals(run.getAuthorityFingerprint(), provider.authorityFingerprint()))
+                throw new JobFailure("DIRECTORY_AUTHORITY_CHANGED", false);
             context.checkCancelled();
             var cursor = DirectorySyncStore.decode(run.getCursor(), Cursor.class);
             var stats = DirectorySyncStore.decode(run.getStatistics(), Statistics.class);

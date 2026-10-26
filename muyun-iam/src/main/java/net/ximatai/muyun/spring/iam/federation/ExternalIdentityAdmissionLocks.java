@@ -16,6 +16,11 @@ final class ExternalIdentityAdmissionLocks {
         this.database = Objects.requireNonNull(database, "database");
     }
 
+    void transaction(String id) {
+        requireTransaction();
+        database.query("select id from iam_external_login_transaction where id=? for update", id);
+    }
+
     void providerMutation(String providerId) {
         requireTransaction();
         database.query("select id from iam_identity_provider where id = ? for update", providerId);

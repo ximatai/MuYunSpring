@@ -3,6 +3,7 @@ export { default as TenantScopedOverviewExample } from './views/TenantScopedOver
 export { useRecordReadSession } from '@ximatai/muyun-web-app/record-read';
 export {
   useExternalLoginHost,
+  ExternalProvisioningConfirmation,
   LoginView,
   CurrentUserProfileDialog,
   ExternalIdentityBindings,

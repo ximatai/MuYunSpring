@@ -19,6 +19,9 @@ import net.ximatai.muyun.spring.platform.job.JobRunStatus;
 @CompositeIndex(columns = {"tenant_id", "scope_id", "mode", "completed", "created_at"})
 @TenantUniqueConstraint(fields = "jobRunId")
 public class DirectorySyncRun extends StandardEntity {
+    @Column(name = "authority_fingerprint", type = ColumnType.VARCHAR, length = 64)
+    private String authorityFingerprint;
+
     @Column(name = "job_run_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "jobRunId")
     private String jobRunId;
     @Column(name = "policy_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "policyId")

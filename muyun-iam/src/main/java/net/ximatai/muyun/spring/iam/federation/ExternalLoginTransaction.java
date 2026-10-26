@@ -62,6 +62,16 @@ public class ExternalLoginTransaction extends StandardEntity {
             comment = "Binding used or created by the transaction")
     private String resultIdentityId;
 
+    @Column(name = "verified_profile", type = ColumnType.TEXT)
+    private String verifiedProfile;
+
+    @Column(name = "verified_external_user_id", type = ColumnType.VARCHAR, length = 128)
+    private String verifiedExternalUserId;
+    @Column(name = "verified_enterprise_id", type = ColumnType.VARCHAR, length = 128)
+    private String verifiedEnterpriseId;
+    @Column(name = "verified_authority_fingerprint", type = ColumnType.VARCHAR, length = 64)
+    private String verifiedAuthorityFingerprint;
+
     @Column(name = "expires_at", type = ColumnType.TIMESTAMP, nullable = false, comment = "Expires at")
     private Instant expiresAt;
 

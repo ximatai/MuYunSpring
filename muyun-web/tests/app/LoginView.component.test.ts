@@ -272,6 +272,7 @@ function externalLoginClient(overrides: Partial<ExternalLoginClient> = {}): Exte
     }),
     startBind: vi.fn(),
     complete: vi.fn(),
+    confirm: vi.fn(),
     identities: vi.fn(),
     unbind: vi.fn(),
     ...overrides,

@@ -38,6 +38,7 @@ final class DirectorySyncWriter {
     private final RoleService roles;
     private final DirectorySyncConfiguration configuration;
     private final DirectorySourceLifecycle lifecycle;
+    private final JoinApplicationDao applications;
 
     DirectorySyncWriter(
             DirectorySyncStore store,
@@ -49,7 +50,7 @@ final class DirectorySyncWriter {
             ExternalIdentityService identities,
             RoleService roles,
             DirectorySyncConfiguration configuration,
-            DirectorySourceLifecycle lifecycle) {
+            DirectorySourceLifecycle lifecycle, JoinApplicationDao applications) {
         this.store = Objects.requireNonNull(store, "store");
         this.departments = Objects.requireNonNull(departments, "departments");
         this.employees = Objects.requireNonNull(employees, "employees");
@@ -60,6 +61,7 @@ final class DirectorySyncWriter {
         this.roles = Objects.requireNonNull(roles, "roles");
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle");
+        this.applications = Objects.requireNonNull(applications);
     }
 
     boolean departmentConflict(
@@ -173,6 +175,31 @@ final class DirectorySyncWriter {
             DirectorySyncScope scope,
             IdentityProviderDescriptor provider,
             ExternalDirectoryProtocol.Person person, String primarySource) {
+        return person(run, scope, provider, person, primarySource, null);
+    }
+
+    /** On-demand admission uses the same IAM aggregate writer with already verified memberships. */
+    ExternalIdentity provision(TenantIdentityPolicy policy, IdentityProviderDescriptor provider,
+            ExternalDirectoryProtocol.Person person, List<DirectoryDepartmentMapping> memberships, String primarySource) {
+        if (!"active".equals(person.status()) || memberships.isEmpty())
+            throw new IllegalArgumentException("Provisioning requires active admitted source memberships");
+        if (identities.findByExternalIdentity(provider.identityNamespace(), provider.externalEnterpriseId(), person.id()).isPresent())
+            throw new IllegalStateException("Provisioning requires an unbound identity");
+        var scope = store.scopes.findById(policy.getSyncScopeId());
+        if (scope == null || !Objects.equals(scope.getTenantId(), policy.getTenantId())
+                || !Objects.equals(scope.getPolicyId(), policy.getId())
+                || !Objects.equals(scope.getProviderId(), provider.id()))
+            throw new IllegalStateException("Active provisioning scope unavailable");
+        if (!person(null, scope, provider, person, primarySource, memberships))
+            throw new IllegalStateException("Provisioning conflict");
+        return identities.findByExternalIdentity(provider.identityNamespace(), provider.externalEnterpriseId(), person.id()).orElseThrow();
+    }
+
+    private boolean person(DirectorySyncRun run, DirectorySyncScope scope, IdentityProviderDescriptor provider,
+            ExternalDirectoryProtocol.Person person, String primarySource, List<DirectoryDepartmentMapping> admitted) {
+        String tenantId = run == null ? TenantContext.currentTenantId().orElseThrow() : run.getTenantId();
+        String runId = run == null ? null : run.getId();
+        String mode = run == null ? "SYNC" : run.getMode();
         // An unknown observation proves presence, but authorizes no IAM or employment mutation.
         if ("unknown".equals(person.status())) return true;
         var binding =
@@ -182,34 +209,43 @@ final class DirectorySyncWriter {
                                 provider.externalEnterpriseId(),
                                 person.id())
                         .orElse(null);
+        if (run == null && binding != null) return false;
+        if (binding == null && admitted == null && !applications.query(Criteria.of()
+                .eq("tenantId", tenantId).eq("providerId", provider.id())
+                .eq("externalEnterpriseId", provider.externalEnterpriseId()).eq("externalUserId", person.id())
+                .in("status", List.of("pending", "rejected")), new PageRequest(0, 1)).isEmpty()) return true;
         if (binding == null && identities.isAutoRebindBlocked(provider.id(), person.id())) return false;
         if (binding != null
                 && (binding.getBindingSource() != ExternalIdentityBindingSource.DIRECTORY_SYNC
                         || !scope.getProviderId().equals(binding.getProviderId()))) return false;
         if (binding != null && !"active".equals(person.status())) {
-            if (!"SYNC".equals(run.getMode())) return true;
+            if (!"SYNC".equals(mode)) return true;
             binding.setSourceStatus(person.status());
             binding.setSourceCheckedAt(Instant.now());
-            binding.setLastSyncRunId(run.getId());
+            binding.setLastSyncRunId(runId);
             identities.update(binding);
-            lifecycle.invalidate(binding, person.status(), run.getId());
+            lifecycle.invalidate(binding, person.status(), runId);
             return true;
         }
         var memberships = new ArrayList<DirectoryDepartmentMapping>();
-        for (String id : new LinkedHashSet<>(person.departmentIds())) {
+        for (String id : admitted == null ? new LinkedHashSet<>(person.departmentIds()) : Set.<String>of()) {
             var observed =
                     store.departments.query(
                             Criteria.of()
-                                    .eq("tenantId", run.getTenantId())
-                                    .eq("runId", run.getId())
+                                    .eq("tenantId", tenantId)
+                                    .eq("runId", runId)
                                     .eq("externalDepartmentId", id),
                             new PageRequest(0, 1));
             if (observed.isEmpty()) continue;
-            var map = store.mapping(run.getTenantId(), scope.getProviderId(), id);
+            var map = store.mapping(tenantId, scope.getProviderId(), id);
             if (map != null) memberships.add(map);
         }
+        if (admitted != null) {
+            memberships.clear();
+            memberships.addAll(admitted);
+        }
         String username = username(scope, person);
-        if (!"SYNC".equals(run.getMode())) {
+        if (!"SYNC".equals(mode)) {
             if (binding != null) {
                 var accountLink = employeeAccounts.accountOfUser(binding.getUserId());
                 if (accountLink == null || accounts.selectActiveRaw(binding.getUserId()) == null)
@@ -225,7 +261,7 @@ final class DirectorySyncWriter {
                                 .findFirst()
                                 .orElse(memberships.isEmpty() ? null : memberships.getFirst());
                 // A primary department move is an ordinary source update, not an identity conflict.
-                return main != null || "SCOPE_PREVIEW".equals(run.getMode());
+                return main != null || "SCOPE_PREVIEW".equals(mode);
             }
             return usernameAvailable(username);
         }
@@ -276,7 +312,7 @@ final class DirectorySyncWriter {
             binding.setDisplayName(person.title());
             binding.setSourceStatus(person.status());
             binding.setSourceCheckedAt(Instant.now());
-            binding.setLastSyncRunId(run.getId());
+            binding.setLastSyncRunId(runId);
             identities.insert(binding);
         } else {
             var accountLink = employeeAccounts.accountOfUser(binding.getUserId());
@@ -284,7 +320,7 @@ final class DirectorySyncWriter {
                 return false;
             // Match aggregate writes: lock the employee row before its child partition.
             store.database.query("select id from iam_employee where tenant_id=? and id=? for update",
-                    run.getTenantId(), accountLink.getEmployeeId());
+                    tenantId, accountLink.getEmployeeId());
             positions.lockParentMutation(accountLink.getEmployeeId());
             employee = employees.selectActiveRaw(accountLink.getEmployeeId());
             if (employee == null || manualPrimaryConflict(employee.getId())) return false;
@@ -302,11 +338,11 @@ final class DirectorySyncWriter {
             binding.setDisplayName(person.title());
             binding.setSourceStatus(person.status());
             binding.setSourceCheckedAt(Instant.now());
-            binding.setLastSyncRunId(run.getId());
+            binding.setLastSyncRunId(runId);
             identities.update(binding);
         }
         if (!"active".equals(person.status())) {
-            lifecycle.invalidate(binding, person.status(), run.getId());
+            lifecycle.invalidate(binding, person.status(), runId);
             return true;
         }
         // Only source-owned positions participate. Local enablement is never restored.
@@ -319,7 +355,7 @@ final class DirectorySyncWriter {
                             && scope.getPositionId().equals(old.getPositionId()));
             boolean primaryNow = present && primary.getDepartmentId().equals(old.getDepartmentId());
             if (!present || Boolean.TRUE.equals(old.getPrimaryPosition()) && !primaryNow) {
-                lifecycle.retire(old, present ? "active" : "retired", run.getId());
+                lifecycle.retire(old, present ? "active" : "retired", runId);
             }
         }
         for (var membership : memberships) {
@@ -350,7 +386,7 @@ final class DirectorySyncWriter {
             }
             position.setPrimaryDepartmentSource(membership == primary ? primarySource : null);
             position.setSourceStatus(person.status());
-            position.setLastSyncRunId(run.getId());
+            position.setLastSyncRunId(runId);
             if (fresh) {
                 // Enabled reference validation must not restore a disabled employee or create
                 // grants beneath it.
@@ -365,7 +401,7 @@ final class DirectorySyncWriter {
                             row.setSourceStatus(person.status());
                             row.setPrimaryPosition(membership == primary);
                             row.setPrimaryDepartmentSource(membership == primary ? primarySource : null);
-                            row.setLastSyncRunId(run.getId());
+                            row.setLastSyncRunId(runId);
                         });
             }
             roles.retainDirectoryEmploymentRole(position.getId(), provider.id(),
