@@ -92,6 +92,7 @@ class DirectorySyncIT {
     @Autowired JobRunDao jobRuns;
     private final AtomicInteger departmentReads = new AtomicInteger();
     private volatile Runnable peopleHook = () -> {};
+    private volatile boolean outsideScopePage;
     private volatile Runnable departmentHook = () -> {};
     private JobService jobs;
     private TenantIdentityPolicyService policies;
@@ -156,6 +157,7 @@ class DirectorySyncIT {
                 });
         var mode = mock(PlatformRuntimeModeProvider.class);
         when(mode.isDevelopment()).thenReturn(true);
+        outsideScopePage = false;
         var mockDirectory = new MockExternalDirectoryProtocol(mode);
         // Assert every provider call is outside a database transaction and outside the topic lock.
         protocol =
@@ -178,14 +180,19 @@ class DirectorySyncIT {
                         outside();
                         departmentReads.incrementAndGet();
                         departmentHook.run();
+                        if (outsideScopePage) return new Page<>(List.of(mockDirectory.department(p, "b")), null);
                         return mockDirectory.departments(p, root, cursor, limit);
                     }
 
-                    public Page<String> departmentPeople(
+                    public Page<Person> departmentPeople(
                             IdentityProviderDescriptor p, String id, String cursor, int limit) {
                         outside();
                         peopleHook.run();
                         return mockDirectory.departmentPeople(p, id, cursor, limit);
+                    }
+
+                    public boolean supportsPersonLookup(IdentityProviderDescriptor p) {
+                        return mockDirectory.supportsPersonLookup(p);
                     }
 
                     public Person person(IdentityProviderDescriptor p, String id) {
@@ -276,7 +283,7 @@ class DirectorySyncIT {
                         roles,
                         beans.getBeanProvider(JobService.class));
         writer =
-                new DirectorySyncWriter(
+                spy(new DirectorySyncWriter(
                         store,
                         departments,
                         employees,
@@ -290,7 +297,7 @@ class DirectorySyncIT {
                                 employeeAccounts,
                                 positions,
                                 roles,
-                                revocations));
+                                revocations)));
         handler = new DirectorySyncJob(store, providers, config, writer);
         beans.registerSingleton("access", (JobManagementAccess) t -> {});
         beans.registerSingleton(
@@ -726,6 +733,187 @@ class DirectorySyncIT {
             provider.setConfiguration(DirectorySyncStore.encode(Map.of("directory", DirectorySyncStore.encode(
                     new MockExternalDirectoryProtocol.Data(base.departments(), people, failures)))));
             DirectorySyncStore.save(providerRows, provider);
+            return null;
+        });
+    }
+
+    private void singleDepartmentView() {
+        global(() -> {
+            var config = new java.util.LinkedHashMap<String, String>(DirectorySyncStore.decode(provider.getConfiguration(), Map.class));
+            config.put("directorySingleDepartmentView", "true");
+            config.put("directoryPersonLookup", "false");
+            provider.setConfiguration(DirectorySyncStore.encode(config));
+            DirectorySyncStore.save(providerRows, provider);
+            return null;
+        });
+    }
+
+    private String primaryDepartment() {
+        return tenant("tenant-a", () -> positionRows.query(Criteria.of().eq("primaryPosition", true),
+                new PageRequest(0, 10)).getFirst().getExternalDepartmentId());
+    }
+
+    @Test
+    void singleDepartmentObservationsAggregateAndInferStablePrimaryWithoutDetailLookup() {
+        singleDepartmentView();
+        String first = enqueue(false);
+        execute();
+        assertThat(jobRuns.findById(first).getResultCode()).isEqualTo("DIRECTORY_COMPLETED");
+        String primary = primaryDepartment();
+        tenant("tenant-a", () -> {
+            assertThat(employeeRows.query(Criteria.of(), new PageRequest(0, 10))).hasSize(1);
+            assertThat(positionRows.query(Criteria.of(), new PageRequest(0, 10)))
+                    .hasSize(2).filteredOn(p -> Boolean.TRUE.equals(p.getPrimaryPosition()))
+                    .singleElement().satisfies(p -> assertThat(p.getPrimaryDepartmentSource()).isEqualTo("inferred"));
+            var fact = seen.query(Criteria.of(), new PageRequest(0, 10)).getFirst();
+            var memberships = DirectorySyncStore.decode(fact.getDepartmentIds(), String[].class);
+            assertThat(memberships).containsExactlyInAnyOrder("a1", "b");
+            assertThat(primary).isEqualTo(memberships[0]);
+            return null;
+        });
+        enqueue(false);
+        execute();
+        assertThat(primaryDepartment()).isEqualTo(primary);
+        // Explicit vendor primary overrides inference, then remains stable without a vendor primary.
+        String other = primary.equals("b") ? "a1" : "b";
+        setPeople(List.of(person(other, List.of("a1", "b"), "active")), List.of());
+        enqueue(false);
+        execute();
+        assertThat(primaryDepartment()).isEqualTo(other);
+        tenant("tenant-a", () -> {
+            assertThat(positionRows.query(Criteria.of().eq("primaryPosition", true), new PageRequest(0, 10)))
+                    .singleElement().satisfies(p -> assertThat(p.getPrimaryDepartmentSource()).isEqualTo("vendor"));
+            return null;
+        });
+        singleDepartmentView();
+        enqueue(true);
+        execute();
+        tenant("tenant-a", () -> {
+            assertThat(seen.query(Criteria.of().eq("primaryDepartmentSource", "inferred"), new PageRequest(0, 10)))
+                    .allSatisfy(p -> assertThat(p.getPrimaryDepartmentId()).isIn(primary, other));
+            return null;
+        });
+        enqueue(false);
+        execute();
+        assertThat(primaryDepartment()).isEqualTo(other);
+        // Removing the old primary selects the remaining observation and retires the old placement.
+        setPeople(List.of(person(null, List.of(primary), "active")), List.of());
+        singleDepartmentView();
+        enqueue(false);
+        execute();
+        assertThat(primaryDepartment()).isEqualTo(primary);
+        tenant("tenant-a", () -> {
+            assertThat(positionRows.query(Criteria.of().eq("externalDepartmentId", other), new PageRequest(0, 10)))
+                    .singleElement().satisfies(p -> assertThat(p.getSourceStatus()).isEqualTo("retired"));
+            return null;
+        });
+    }
+
+    @Test
+    void takeoverDuringObservationCollectionRetainsAllMembershipsAndWritesOnce() {
+        singleDepartmentView();
+        String id = enqueue(false);
+        var calls = new AtomicInteger();
+        peopleHook = () -> {
+            if (calls.incrementAndGet() == 3) throw new AssertionError("process lost after first membership committed");
+        };
+        assertThatThrownBy(this::execute).isInstanceOf(AssertionError.class);
+        tenant("tenant-a", () -> {
+            assertThat(seen.query(Criteria.of(), new PageRequest(0, 10))).hasSize(1);
+            assertThat(employeeRows.query(Criteria.of(), new PageRequest(0, 10))).isEmpty();
+            return null;
+        });
+        peopleHook = () -> {};
+        global(() -> {
+            db.execute("update platform_job_run set lease_until=clock_timestamp()-interval '1 second' where id=?", id);
+            return null;
+        });
+        execute();
+        assertThat(jobRuns.findById(id).getAttempts()).isEqualTo(2);
+        assertThat(jobRuns.findById(id).getResultCode()).isEqualTo("DIRECTORY_COMPLETED");
+        tenant("tenant-a", () -> {
+            assertThat(employeeRows.query(Criteria.of(), new PageRequest(0, 10))).hasSize(1);
+            assertThat(positionRows.query(Criteria.of(), new PageRequest(0, 10)))
+                    .extracting(EmployeePosition::getExternalDepartmentId).containsExactlyInAnyOrder("a1", "b");
+            assertThat(positionRows.query(Criteria.of().eq("primaryPosition", true), new PageRequest(0, 10))).hasSize(1);
+            return null;
+        });
+    }
+
+    @Test
+    void failedObservationPageCannotRetireUnobservedSecondaryEmployment() {
+        singleDepartmentView();
+        enqueue(false);
+        execute();
+        String primary = primaryDepartment();
+        setPeople(List.of(person(null, List.of("a1", "b"), "active")), List.of("people:b:0"));
+        singleDepartmentView();
+        String partial = enqueue(false);
+        execute();
+        assertThat(jobRuns.findById(partial).getResultCode()).isEqualTo("DIRECTORY_PARTIAL");
+        assertThat(primaryDepartment()).isEqualTo(primary);
+        tenant("tenant-a", () -> {
+            assertThat(positionRows.query(Criteria.of(), new PageRequest(0, 10))).hasSize(2)
+                    .allSatisfy(p -> assertThat(p.getSourceStatus()).isEqualTo("active"));
+            return null;
+        });
+    }
+
+    @Test
+    void trustedInactiveObservationStillRevokesSourceWhenAnotherDepartmentPageFails() {
+        singleDepartmentView();
+        enqueue(false);
+        execute();
+        String session = sessionFor("tenant-a");
+        setPeople(List.of(person(null, List.of("a1", "b"), "departed")), List.of("people:b:0"));
+        singleDepartmentView();
+        String partial = enqueue(false);
+        execute();
+        assertThat(jobRuns.findById(partial).getResultCode()).isEqualTo("DIRECTORY_PARTIAL");
+        tenant("tenant-a", () -> {
+            assertThat(identityRows.query(Criteria.of(), new PageRequest(0, 10)))
+                    .singleElement().satisfies(p -> assertThat(p.getSourceStatus()).isEqualTo("departed"));
+            assertThat(positionRows.query(Criteria.of(), new PageRequest(0, 10)))
+                    .allSatisfy(p -> assertThat(p.getSourceStatus()).isEqualTo("departed"));
+            assertThat(sessionRows.findById(session).getRevokedAt()).isNotNull();
+            return null;
+        });
+    }
+
+    @Test
+    void takeoverDuringPersonWritesResumesKeysetWithoutRereadingOrDuplicatingPeople() {
+        setPeople(List.of(person(null, List.of("a1", "b"), "active"),
+                new ExternalDirectoryProtocol.Person("bob", "Bob", "002", null, List.of("a1", "b"), "active", null, null)), List.of());
+        singleDepartmentView();
+        var writes = new AtomicInteger();
+        doAnswer(call -> {
+            if (writes.incrementAndGet() == 2) throw new AssertionError("process lost after one person committed");
+            return call.callRealMethod();
+        }).when(writer).person(any(), any(), any(), any(), anyString());
+        String id = enqueue(false);
+        assertThatThrownBy(this::execute).isInstanceOf(AssertionError.class);
+        tenant("tenant-a", () -> {
+            assertThat(seen.query(Criteria.of(), new PageRequest(0, 10))).hasSize(2);
+            assertThat(employeeRows.query(Criteria.of(), new PageRequest(0, 10))).hasSize(1);
+            var run = syncRuns.query(Criteria.of().eq("jobRunId", id), new PageRequest(0, 1)).getFirst();
+            var cursor = DirectorySyncStore.decode(run.getCursor(), DirectorySyncJob.Cursor.class);
+            assertThat(cursor.phase).isEqualTo("WRITING_PEOPLE");
+            assertThat(cursor.personRow).isNotNull();
+            return null;
+        });
+        peopleHook = () -> { throw new AssertionError("must resume writing without vendor reads"); };
+        doCallRealMethod().when(writer).person(any(), any(), any(), any(), anyString());
+        global(() -> {
+            db.execute("update platform_job_run set lease_until=clock_timestamp()-interval '1 second' where id=?", id);
+            return null;
+        });
+        execute();
+        assertThat(jobRuns.findById(id).getResultCode()).isEqualTo("DIRECTORY_COMPLETED");
+        tenant("tenant-a", () -> {
+            assertThat(employeeRows.query(Criteria.of(), new PageRequest(0, 10))).hasSize(2);
+            assertThat(accountRows.query(Criteria.of(), new PageRequest(0, 10))).hasSize(2);
+            assertThat(positionRows.query(Criteria.of(), new PageRequest(0, 10))).hasSize(4);
+            assertThat(positionRows.query(Criteria.of().eq("primaryPosition", true), new PageRequest(0, 10))).hasSize(2);
             return null;
         });
     }
@@ -1364,6 +1552,28 @@ class DirectorySyncIT {
     }
 
     @Test
+    void parentOnlyHierarchyRejectsOutOfScopePagesWithoutIamWrites() {
+        tenant("tenant-a", () -> {
+            var root = DirectorySyncConfiguration.roots(policy.getSyncRoots()).getFirst();
+            policy.setSyncRoots(DirectorySyncStore.encode(List.of(new DirectorySyncConfiguration.Root("a", root.organizationId()))));
+            policies.update(policy);
+            var pending = scopes.findById(policy.getPendingSyncScopeId());
+            // Test the frozen proposal directly; no confirmation or IAM writes are involved in preview.
+            assertThat(pending).isNotNull();
+            return null;
+        });
+        outsideScopePage = true;
+        String preview = enqueue(true);
+        execute();
+        assertThat(jobRuns.findById(preview).getResultCode()).isEqualTo("DIRECTORY_PARTIAL");
+        tenant("tenant-a", () -> {
+            assertThat(observedDepartments.query(Criteria.of(), new PageRequest(0, 10))).isEmpty();
+            assertThat(departmentRows.query(Criteria.of(), new PageRequest(0, 10))).isEmpty();
+            return null;
+        });
+    }
+
+    @Test
     void unsafeScopesAndManagementDefaultsAreRejectedBeforeChangingManagedPlans() {
         String roots = policy.getSyncRoots();
         String plan = policy.getSyncPlanId();
@@ -1504,13 +1714,13 @@ class DirectorySyncIT {
         var departments =
                 List.of(
                         new ExternalDirectoryProtocol.Department(
-                                "company", null, "Company", List.of()),
+                                "company", null, "Company"),
                         new ExternalDirectoryProtocol.Department(
-                                "a", "company", "A", List.of("company")),
+                                "a", "company", "A"),
                         new ExternalDirectoryProtocol.Department(
-                                "a1", "a", "A1", List.of("company", "a")),
+                                "a1", "a", "A1"),
                         new ExternalDirectoryProtocol.Department(
-                                "b", "company", "B", List.of("company")));
+                                "b", "company", "B"));
         var person =
                 new ExternalDirectoryProtocol.Person(
                         "alice", "Alice", "001", "a1", List.of("a1", "b"), "active", null, null);

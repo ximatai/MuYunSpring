@@ -16,14 +16,20 @@ public interface ExternalDirectoryProtocol {
 
     Department department(IdentityProviderDescriptor provider, String id);
     Page<Department> departments(IdentityProviderDescriptor provider, String rootId, String cursor, int limit);
-    Page<String> departmentPeople(IdentityProviderDescriptor provider, String departmentId, String cursor, int limit);
-    Person person(IdentityProviderDescriptor provider, String id);
-    record Department(String id, String parentId, String title, List<String> ancestorIds) {
-        public Department { ancestorIds = List.copyOf(ancestorIds); }
+    /** Each item observes membership in the requested department; main/all departments are optional. */
+    Page<Person> departmentPeople(IdentityProviderDescriptor provider, String departmentId, String cursor, int limit);
+    /** Optional authoritative lookup used only for stale-source login verification. */
+    default boolean supportsPersonLookup(IdentityProviderDescriptor provider) { return false; }
+    default Person person(IdentityProviderDescriptor provider, String id) {
+        throw new UnsupportedOperationException("Person lookup unavailable");
     }
+    record Department(String id, String parentId, String title) { }
     record Person(String id, String title, String employeeNo, String primaryDepartmentId,
                   List<String> departmentIds, String status, String mobile, String email) {
-        public Person { departmentIds = List.copyOf(departmentIds); }
+        public Person { departmentIds = departmentIds == null ? List.of() : List.copyOf(departmentIds); }
+        public Person withMemberships(String primary, List<String> departments) {
+            return new Person(id, title, employeeNo, primary, departments, status, mobile, email);
+        }
     }
     record Page<T>(List<T> items, String nextCursor) {
         public Page { items = List.copyOf(items); }

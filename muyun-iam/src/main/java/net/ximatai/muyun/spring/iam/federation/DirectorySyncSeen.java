@@ -18,9 +18,13 @@ public class DirectorySyncSeen extends StandardEntity {
     private String runId;
     @Column(name = "external_user_id", type = ColumnType.VARCHAR, length = 128, nullable = false, comment = "externalUserId")
     private String externalUserId;
+    @Column(name = "person", type = ColumnType.TEXT, comment = "First observed person profile")
+    private String person;
+    @Column(name = "primary_department_source", type = ColumnType.VARCHAR, length = 16, comment = "vendor or inferred")
+    private String primaryDepartmentSource;
     @Column(name = "source_status", type = ColumnType.VARCHAR, length = 32, comment = "Observed authoritative employment state")
     private String sourceStatus;
-    @Column(name = "primary_department_id", type = ColumnType.VARCHAR, length = 128, comment = "Observed authoritative primary department")
+    @Column(name = "primary_department_id", type = ColumnType.VARCHAR, length = 128, comment = "Vendor or inferred primary department")
     private String primaryDepartmentId;
     @Column(name = "department_ids", type = ColumnType.TEXT, comment = "Observed external department memberships")
     private String departmentIds;

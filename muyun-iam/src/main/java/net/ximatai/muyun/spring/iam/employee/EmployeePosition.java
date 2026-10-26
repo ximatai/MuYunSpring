@@ -104,6 +104,8 @@ public class EmployeePosition extends StandardEntity implements EnabledCapable, 
     private String externalDepartmentId;
     @Column(name = "source_status", type = ColumnType.VARCHAR, length = 32, comment = "External employment status")
     private String sourceStatus;
+    @Column(name = "primary_department_source", type = ColumnType.VARCHAR, length = 16, comment = "vendor or inferred; null for secondary/manual positions")
+    private String primaryDepartmentSource;
     @Column(name = "last_sync_run_id", type = ColumnType.VARCHAR, length = 32, comment = "Last observed run")
     private String lastSyncRunId;
 }

@@ -24,16 +24,10 @@ public class MockExternalDirectoryProtocol implements ExternalDirectoryProtocol 
             for (var d : data.departments()) {
                 if (d.id() == null || !ids.add(d.id()) || d.title() == null) throw new IllegalArgumentException();
                 if (d.parentId() != null && !ids.contains(d.parentId())) throw new IllegalArgumentException();
-                List<String> ancestors = new ArrayList<>(); String parent = d.parentId();
-                while (parent != null) {
-                    ancestors.addFirst(parent); String key = parent;
-                    parent = data.departments().stream().filter(v -> v.id().equals(key)).findFirst().orElseThrow().parentId();
-                }
-                if (!ancestors.equals(d.ancestorIds())) throw new IllegalArgumentException();
             }
             ids.clear();
             for (var p : data.people()) {
-                if (p.id() == null || !ids.add(p.id()) || p.title() == null || !p.departmentIds().contains(p.primaryDepartmentId())
+                if (p.id() == null || !ids.add(p.id()) || p.title() == null || (p.primaryDepartmentId() != null && !p.departmentIds().contains(p.primaryDepartmentId()))
                         || !Set.of("active", "disabled", "departed").contains(p.status())) throw new IllegalArgumentException();
                 for (String id : p.departmentIds()) if (data.departments().stream().noneMatch(d -> d.id().equals(id))) throw new IllegalArgumentException();
             }
@@ -46,13 +40,18 @@ public class MockExternalDirectoryProtocol implements ExternalDirectoryProtocol 
     }
     public Page<Department> departments(IdentityProviderDescriptor provider, String root, String cursor, int limit) {
         var data = data(provider.configuration());
-        return page(data, "departments:" + root, data.departments().stream().filter(d -> d.id().equals(root) || d.ancestorIds().contains(root)).toList(), cursor, limit);
+        return page(data, "departments:" + root, data.departments().stream().filter(d -> d.id().equals(root) || DirectorySyncConfiguration.ancestors(this, provider, d.id()).contains(root)).toList(), cursor, limit);
     }
-    public Page<String> departmentPeople(IdentityProviderDescriptor provider, String department, String cursor, int limit) {
+    public Page<Person> departmentPeople(IdentityProviderDescriptor provider, String department, String cursor, int limit) {
         var data = data(provider.configuration());
-        return page(data, "people:" + department, data.people().stream().filter(p -> p.departmentIds().contains(department)).map(Person::id).toList(), cursor, limit);
+        return page(data, "people:" + department, data.people().stream().filter(p -> p.departmentIds().contains(department)).map(p -> Boolean.parseBoolean(provider.configuration().getOrDefault("directorySingleDepartmentView", "false"))
+                ? p.withMemberships(null, List.of()) : p).toList(), cursor, limit);
+    }
+    public boolean supportsPersonLookup(IdentityProviderDescriptor provider) {
+        return Boolean.parseBoolean(provider.configuration().getOrDefault("directoryPersonLookup", "true"));
     }
     public Person person(IdentityProviderDescriptor provider, String id) {
+        if (!supportsPersonLookup(provider)) throw new UnsupportedOperationException("Person lookup unavailable");
         return data(provider.configuration()).people().stream().filter(p -> p.id().equals(id)).findFirst().orElseThrow();
     }
     private <T> Page<T> page(Data data, String key, List<T> items, String cursor, int limit) {

@@ -47,7 +47,7 @@ class IdentityProviderServiceTest {
                         throw new UnsupportedOperationException();
                     }
 
-                    public Page<String> departmentPeople(
+                    public Page<Person> departmentPeople(
                             IdentityProviderDescriptor p, String id, String cursor, int limit) {
                         throw new UnsupportedOperationException();
                     }

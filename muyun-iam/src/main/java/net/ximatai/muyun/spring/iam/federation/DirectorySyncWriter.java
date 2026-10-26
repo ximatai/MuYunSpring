@@ -108,12 +108,41 @@ final class DirectorySyncWriter {
         else DirectorySyncStore.save(store.mappings, map);
     }
 
+    /** Preserve an existing source primary while it remains in the current observed memberships. */
+    ExternalDirectoryProtocol.Person resolvePrimary(DirectorySyncRun run,
+            IdentityProviderDescriptor provider, ExternalDirectoryProtocol.Person person) {
+        var scoped = new ArrayList<String>();
+        for (String id : person.departmentIds()) {
+            if (!store.departments.query(Criteria.of().eq("tenantId", run.getTenantId())
+                    .eq("runId", run.getId()).eq("externalDepartmentId", id), new PageRequest(0, 1)).isEmpty())
+                scoped.add(id);
+        }
+        person = person.withMemberships(person.primaryDepartmentId(), scoped);
+        if (person.primaryDepartmentId() != null) {
+            return scoped.contains(person.primaryDepartmentId()) ? person
+                    : person.withMemberships(scoped.isEmpty() ? null : scoped.getFirst(), scoped);
+        }
+        var binding = identities.findByExternalIdentity(provider.identityNamespace(),
+                provider.externalEnterpriseId(), person.id()).orElse(null);
+        if (binding != null) {
+            var link = employeeAccounts.accountOfUser(binding.getUserId());
+            if (link != null) {
+                var retained = positions.listRaw(Criteria.of().eq("employeeId", link.getEmployeeId())
+                        .eq("source", "directory").eq("sourceProviderId", provider.id())
+                        .eq("primaryPosition", true), new PageRequest(0, 1));
+                if (!retained.isEmpty() && person.departmentIds().contains(retained.getFirst().getExternalDepartmentId()))
+                    return person.withMemberships(retained.getFirst().getExternalDepartmentId(), person.departmentIds());
+            }
+        }
+        return person.withMemberships(person.departmentIds().isEmpty() ? null : person.departmentIds().getFirst(), person.departmentIds());
+    }
+
     /** Returns false on an identity conflict; preview performs exactly these ownership checks without mutations. */
     boolean person(
             DirectorySyncRun run,
             DirectorySyncScope scope,
             IdentityProviderDescriptor provider,
-            ExternalDirectoryProtocol.Person person) {
+            ExternalDirectoryProtocol.Person person, String primarySource) {
         var binding =
                 identities
                         .findByExternalIdentity(
@@ -287,6 +316,7 @@ final class DirectorySyncWriter {
                 position.setPositionId(scope.getPositionId());
                 position.setPrimaryPosition(membership == primary);
             }
+            position.setPrimaryDepartmentSource(membership == primary ? primarySource : null);
             position.setSourceStatus(person.status());
             position.setLastSyncRunId(run.getId());
             if (fresh) {
@@ -302,6 +332,7 @@ final class DirectorySyncWriter {
                         row -> {
                             row.setSourceStatus(person.status());
                             row.setPrimaryPosition(membership == primary);
+                            row.setPrimaryDepartmentSource(membership == primary ? primarySource : null);
                             row.setLastSyncRunId(run.getId());
                         });
             }
