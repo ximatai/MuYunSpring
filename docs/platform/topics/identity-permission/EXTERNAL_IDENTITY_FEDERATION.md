@@ -301,6 +301,8 @@ HTTP 使用项目已有 JDK HttpClient 与 Jackson，不引入新库。应用 To
 
 ## Web 入口
 
+自有工作台壳通过公开的 `useExternalLoginHost` 与 `LoginView` 接入同一回调完成、会话交接和二维码流程，个人绑定组件亦可复用，见[前端消费者接入](../../../frontend/LOCAL_CONSUMER.md#自有壳的外部登录与个人绑定)。
+
 外部登录入口位于 `/iam.auth/external` 下，按身份源路由：匿名入口只有建立登录事务与由发起浏览器完成事务（开发模式另有模拟授权页），均以 `@AnonymousEndpoint` 显式声明；绑定、解绑与查询本人绑定要求登录。锁定租户的登录上下文（`/iam.auth/login-context`）返回该租户提供的外部登录方式。管理端的身份源、租户接入策略与外部身份绑定以标准静态模块交付，同步运行提供标准只读列表与详情，加入申请随后续能力加入。URL 明细见 [Web API](WEB_API.md)。
 
 部署需配置 `muyun.iam.federation.workbench-url`（工作台对外地址，即向身份源登记的回调地址）与 `muyun.iam.federation.api-base-url`（平台 API 对外地址，供需要自带页面的协议使用，如模拟身份源），二者只接受不带查询参数的绝对 http(s) 地址；事务有效期由 `muyun.iam.federation.transaction-ttl` 配置，默认 3 分钟。身份源编码最长 48 个字符，以便写入会话登录方式。

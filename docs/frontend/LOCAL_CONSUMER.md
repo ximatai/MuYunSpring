@@ -69,6 +69,54 @@ npm link <muyun-spring-repository>/build/consumer-npm/staging/web-app
 
 正式 npm 发布后，本地 tarball 消费者验证仍保留，并作为发布前检查。
 
+## 自有壳的外部登录与个人绑定
+
+根包公开 `useExternalLoginHost`、`ExternalLoginHostOptions`、`ExternalLoginHost`、
+`CurrentUserProfileDialog` 和 `ExternalIdentityBindings`。宿主继续使用现有的
+`LoginView`、`createExternalLoginClient`、`createLoginContextClient`；无需读取私有路径、
+复制 state/browserProof 或操作事务 sessionStorage。standalone App 也使用同一宿主入口。
+
+下面片段假定宿主已有 `router`、匿名 HTTP client `http`、`session`、`authClient`、
+`loginContextClient` 与 `acceptLogin`。`acceptLogin` 与密码登录共用，负责保存平台会话并加载工作台。
+
+```vue
+<script setup lang="ts">
+import { onMounted, ref } from 'vue';
+import { useExternalLoginHost, createExternalLoginClient, LoginView,
+  ExternalIdentityBindings } from '@ximatai/muyun-web-app';
+const ready = ref(false), client = createExternalLoginClient(http);
+const { completeReturn, error, completing } = useExternalLoginHost({
+  client, router, signedIn: () => Boolean(session.value),
+  onAuthenticated: acceptLogin,
+});
+onMounted(async () => {
+  if (!(await completeReturn())) await restoreOrdinarySession();
+  ready.value = true;
+});
+</script>
+<template>
+  <LoginView v-if="ready && !session" :auth-client="authClient"
+    :login-context-client="loginContextClient" :external-login-client="client"
+    :loading="completing" :error="error" @authenticated="acceptLogin" />
+  <ExternalIdentityBindings v-if="ready && session" :client="client" :token="session.token" />
+</template>
+```
+
+应在恢复普通会话前调用 `completeReturn()`，并在完成前暂缓渲染登录表单，让清理后的租户地址
+决定表单的租户锁定。返回 `true` 表示已交接登录结果或已有待展示的未登录失败；返回 `false`
+表示继续宿主原有会话恢复流程（包括绑定成功）。`error`、`completing` 是只读响应式状态；
+未登录失败交给 `LoginView.error` 展示，已登录失败和绑定成功使用平台反馈。
+`callbackPath` 默认 `/`，可指定已注册的宿主回调路由（相对于 Router base），并与后端 redirect URI 对齐。
+重复并发调用会合并；事务在请求前消费，地址以 Router replace 清除厂商参数和 hash，保留发起登录
+的锁定租户。刷新或旧回调重放不会重试已消费事务；网络失败后需重新发起授权。
+凭证只在请求体中提交，不进入 URL，宿主自行负责会话持久化，不应把 token 写入导航参数。
+
+`LoginView` 在锁定租户且登录上下文提供外部方式时显示按钮，传入同一个 client 后自动保存事务、
+跳转或展示 WeLink 二维码。个人信息可直接使用 `CurrentUserProfileDialog` 的
+`externalLoginClient` / `authToken` 属性；自有个人中心也可单独使用 `ExternalIdentityBindings`
+的 `client` / `token` 属性，复用列表、绑定、解绑确认与二维码。二维码展示由这些组件内部管理，
+无需额外公开厂商 SDK 协作者。绑定组件应在会话交接后挂载，或在 token 改变时重建。
+
 ## 顶栏业务扩展
 
 业务 App 可在 `AppWorkbenchShell` 的 `#topbar-actions="{ currentUser }"` 插槽中放入自己的 Vue 组件，入口位于账号菜单左侧；同一插槽支持多个组件，未接入时不占位。图标、样式、下拉菜单、显隐与业务请求由 App 控制，可复用公开的 `UiButton`、`UiDropdown` 和 `UiIcon`；打开业务页使用 `useWorkbenchNavigation()`，沿用工作台页签导航。
