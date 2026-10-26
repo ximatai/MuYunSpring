@@ -38,7 +38,6 @@ import {
 } from '@muyun/vue-ui-antdv';
 import {
   presentPlatformError,
-  presentPlatformMessage,
   presentPlatformSuccess,
   providePlatformTimeZoneContext,
   BusinessNotificationPanel,
@@ -105,7 +104,7 @@ import CurrentUserProfileDialog from './app/CurrentUserProfileDialog.vue';
 import { useCurrentUserProfile } from './app/useCurrentUserProfile';
 import { useAssistantAvailability } from './app/useAssistantAvailability';
 import LoginView from './app/LoginView.vue';
-import { externalLoginFailureMessage, takeExternalLoginReturn } from './app/externalLoginReturn';
+import { useExternalLoginHost } from './app/useExternalLoginHost';
 import ThemeSkinPreferencesDialog from './app/ThemeSkinPreferencesDialog.vue';
 import {
   closeMenuTab,
@@ -525,6 +524,12 @@ const assistantAvailability = useAssistantAvailability({
 });
 const loginContextClient = createLoginContextClient(anonymousHttpClient);
 const externalLoginClient = createExternalLoginClient(anonymousHttpClient);
+const externalLoginHost = useExternalLoginHost({
+  client: externalLoginClient,
+  router,
+  signedIn: () => Boolean(effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN)),
+  onAuthenticated: handleAuthenticated,
+});
 const profileAuthToken = computed(() =>
   profileOpen.value ? effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN) : undefined,
 );
@@ -542,7 +547,12 @@ configureAuthenticationRecovery((error, token) => {
 });
 
 onMounted(async () => {
-  if (await completeReturningExternalLogin()) {
+  if (await externalLoginHost.completeReturn()) {
+    if (externalLoginHost.error.value) {
+      error.value = externalLoginHost.error.value;
+      loginRequired.value = true;
+      loading.value = false;
+    }
     return;
   }
   if (!usesMockStartup() && !effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN)) {
@@ -552,60 +562,6 @@ onMounted(async () => {
   }
   await loadWorkbench();
 });
-
-/**
- * Completes an external sign-in or bind when the identity provider returns this browser to the workbench
- * root. Only a transaction this browser started can be completed; a return for any other transaction is
- * dropped. Returns `true` when the return already decided what the workbench shows.
- */
-async function completeReturningExternalLogin(): Promise<boolean> {
-  await router.isReady();
-  const route = router.currentRoute.value;
-  const externalReturn = route.path === '/' ? takeExternalLoginReturn(route.query) : undefined;
-  if (!externalReturn) {
-    return false;
-  }
-  const pending = externalReturn.pending;
-  // Provider parameters must not remain in the address bar or browser history.
-  await router.replace({
-    path: '/',
-    query: pending?.purpose === 'login' && pending.tenantId ? { _muyunTenantId: pending.tenantId } : {},
-  });
-  if (!pending) {
-    return false;
-  }
-  const signedIn = Boolean(effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN));
-  try {
-    const completion = await externalLoginClient.complete(pending.providerId, {
-      state: pending.state,
-      browserProof: pending.browserProof,
-      parameters: externalReturn.parameters,
-    });
-    if (completion.status === 'succeeded' && completion.login) {
-      await handleAuthenticated(completion.login);
-      return true;
-    }
-    if (completion.status === 'succeeded') {
-      presentPlatformSuccess(
-        platformLanguageContext.t('platform.external-login.bound', '已绑定 {provider}', {
-          provider: completion.binding?.providerTitle ?? '',
-        }),
-      );
-      return false;
-    }
-    const message = externalLoginFailureMessage(completion, platformLanguageContext);
-    if (pending.purpose === 'login' && !signedIn) {
-      error.value = message;
-      loginRequired.value = true;
-      loading.value = false;
-      return true;
-    }
-    presentPlatformMessage(message);
-  } catch (cause) {
-    presentPlatformError(cause, { source: 'external-login', phase: 'action' });
-  }
-  return false;
-}
 
 onUnmounted(() => {
   clearSecurityLogoutTimer();

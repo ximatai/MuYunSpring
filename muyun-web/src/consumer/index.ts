@@ -179,3 +179,8 @@ export { default as ReadonlyRecordWorkspace } from '../platform-components/Reado
 // Cached business pages read their own restored route/descriptor, independently of the active tab.
 export { usePageDescriptor, usePageRoute } from '../app/pageRouteContext';
 export type { PageRoute } from '../app/pageRouteContext';
+
+export { useExternalLoginHost } from '../app/useExternalLoginHost';
+export type { ExternalLoginHost, ExternalLoginHostOptions } from '../app/useExternalLoginHost';
+export { default as CurrentUserProfileDialog } from '../app/CurrentUserProfileDialog.vue';
+export { default as ExternalIdentityBindings } from '../app/ExternalIdentityBindings.vue';
