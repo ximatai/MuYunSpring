@@ -40,6 +40,8 @@ bootstrap 会下发 `associationBlocks`、`actionBlocks` 和 `taskBlocks`。未�
 
 局部编辑动作使用内置 executor key `muyun.localEdit`。动作本身负责授权和记录数据范围校验；执行器只允许提交已发布 `localEdit` UI 配置中的主关系字段，并要求 `record.version` 参与乐观锁。
 
+前端对明确的 400/409/422 拒绝保留局部编辑草稿，复用标准保存的主表字段定位；无法定位到当前表单字段时显示整体提示，不重复触发全局错误。修改字段清除对应旧反馈；切换记录、关闭弹窗或离开页面使当前提交会话失效，迟到响应不回写界面。保存成功后的详情刷新失败按读取失败反馈，避免误示为保存失败。
+
 ### 动态弹窗
 
 DIALOG action 只负责初始化弹窗和返回提交入口。`executorKey` 可用 `dialogKey#submitActionCode` 绑定后续业务动作；实际提交仍走动态 action 主链路，避免前端私有 handler 绕过平台能力。

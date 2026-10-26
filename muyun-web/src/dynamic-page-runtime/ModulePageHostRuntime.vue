@@ -1590,11 +1590,13 @@ export default defineComponent({
       @confirm="submitLocalEdit"
       @cancel="dismissLocalEdit"
     >
+      <div v-if="localEditErrorMessage" role="alert">{{ localEditErrorMessage }}</div>
       <RecordFormFields
         v-if="localEditDraft"
         :record="localEditDraft"
         mode="edit"
         :fields="localEditFields"
+        :server-errors="localEditFieldErrors"
         :option-context="context"
         :file-transfer-context="context"
         :disabled="localEditSaving"

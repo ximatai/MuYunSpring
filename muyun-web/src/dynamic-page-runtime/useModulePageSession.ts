@@ -1131,6 +1131,8 @@ export function useModulePageSession(
     localEditDraft,
     localEditDirty,
     localEditFields,
+    localEditFieldErrors,
+    localEditErrorMessage,
     handleConfiguredAction,
     dismissLocalEdit,
     submitLocalEdit,
@@ -5578,6 +5580,8 @@ export function useModulePageSession(
     dismissLocalEdit,
     localEditDraft,
     localEditFields,
+    localEditFieldErrors,
+    localEditErrorMessage,
     updateLocalEditFormValidity,
     pageLayout,
   };

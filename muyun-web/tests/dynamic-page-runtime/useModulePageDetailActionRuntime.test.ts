@@ -1,8 +1,9 @@
-import { ref, type Ref } from 'vue';
+import { AppError } from '@muyun/web-core';
+import { effectScope, ref, type Ref } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { useModulePageDetailActionRuntime } from '@/dynamic-page-runtime/composables/useModulePageDetailActionRuntime.ts';
 
-function createRuntime(localEditValid?: Ref<boolean>, refreshDetail = false) {
+function createRuntime(localEditValid?: Ref<boolean>, refreshDetail = false, readOnlyTitle = false) {
   const request = vi.fn().mockResolvedValue({ message: '已提交' });
   const view = vi.fn().mockResolvedValue({ id: 'record-1', version: 2, title: '已刷新' });
   const resolveLoad = vi.fn();
@@ -52,6 +53,7 @@ function createRuntime(localEditValid?: Ref<boolean>, refreshDetail = false) {
                 {
                   fieldName: 'title',
                   fieldTitle: '名称',
+                  readOnly: readOnlyTitle,
                   fieldUiControlAlias: 'date',
                   valueType: 'LONG',
                 },
@@ -79,6 +81,7 @@ function createRuntime(localEditValid?: Ref<boolean>, refreshDetail = false) {
   });
   return {
     runtime,
+    selectedRecord,
     request,
     view,
     resolveLoad,
@@ -204,4 +207,190 @@ describe('module page detail action runtime', () => {
     await runtime.submitLocalEdit();
     expect(request).toHaveBeenCalledOnce();
   });
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (cause: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+it.each([400, 409, 422])(
+  'retains a %s rejection in the draft and clears only edited field feedback',
+  async (status) => {
+    const { runtime, request, presentError, presentSuccess } = createRuntime();
+    runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+    request.mockRejectedValueOnce(
+      new AppError('字段被拒绝', {
+        status,
+        targets: [
+          { kind: 'field', fieldName: 'title' },
+          { kind: 'field', fieldName: 'amount' },
+        ],
+      }),
+    );
+    await runtime.submitLocalEdit();
+    expect(runtime.localEditOpen.value).toBe(true);
+    expect(runtime.localEditDraft.value!.title).toBe('旧标题');
+    expect(runtime.localEditFieldErrors.value).toEqual({ title: '字段被拒绝', amount: '字段被拒绝' });
+    expect(runtime.localEditErrorMessage.value).toBeUndefined();
+    expect(presentError).not.toHaveBeenCalled();
+    expect(presentSuccess).not.toHaveBeenCalled();
+    runtime.localEditDraft.value!.title = '新名称';
+    expect(runtime.localEditFieldErrors.value).toEqual({ amount: '字段被拒绝' });
+    runtime.localEditDraft.value!.title = '旧标题';
+    expect(runtime.localEditFieldErrors.value).toEqual({ amount: '字段被拒绝' });
+  },
+);
+
+it.each(
+  [
+    [],
+    [{ kind: 'field', fieldName: 'missing' }],
+    [{ kind: 'field', fieldName: 'title', relationAlias: 'children', rowIndex: 0 }],
+  ].map((targets) => ({ targets })),
+)('falls back to one form message for an unlocatable rejection: %j', async ({ targets }) => {
+  const { runtime, request, presentError } = createRuntime();
+  runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+  request.mockRejectedValueOnce(new AppError('整体拒绝', { status: 422, targets }));
+  await runtime.submitLocalEdit();
+  expect(runtime.localEditFieldErrors.value).toEqual({});
+  expect(runtime.localEditErrorMessage.value).toBe('整体拒绝');
+  expect(presentError).not.toHaveBeenCalled();
+  runtime.localEditDraft.value!.title = '新名称';
+  expect(runtime.localEditErrorMessage.value).toBeUndefined();
+});
+
+it.each(['switch', 'close', 'dispose'] as const)(
+  'ignores a late rejection after %s, including a reopened form',
+  async (change) => {
+    const scope = effectScope();
+    const { runtime, request, selectedRecord, presentError } = scope.run(() => createRuntime())!;
+    const gate = deferred<unknown>();
+    request.mockReturnValueOnce(gate.promise);
+    runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+    const saving = runtime.submitLocalEdit();
+    if (change === 'switch') selectedRecord.value = { ...selectedRecord.value, id: 'record-2' };
+    else if (change === 'close') runtime.localEditOpen.value = false;
+    else scope.stop();
+    expect(runtime.localEditOpen.value).toBe(false);
+    if (change !== 'dispose') runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+    gate.reject(new AppError('旧拒绝', { status: 409, targets: [{ kind: 'field', fieldName: 'title' }] }));
+    await saving;
+    expect(runtime.localEditFieldErrors.value).toEqual({});
+    expect(runtime.localEditErrorMessage.value).toBeUndefined();
+    expect(presentError).not.toHaveBeenCalled();
+    scope.stop();
+  },
+);
+
+it.each(['write', 'read'] as const)('ignores a late successful %s after record switching', async (phase) => {
+  const {
+    runtime,
+    request,
+    view,
+    selectedRecord,
+    resolveLoad,
+    presentSuccess,
+    refreshList,
+    reportRefreshFailure,
+  } = createRuntime(undefined, true);
+  const gate = deferred<unknown>();
+  if (phase === 'write') request.mockReturnValueOnce(gate.promise);
+  else view.mockReturnValueOnce(gate.promise);
+  runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+  const saving = runtime.submitLocalEdit();
+  await Promise.resolve();
+  selectedRecord.value = { ...selectedRecord.value, id: 'record-2' };
+  gate.resolve({ id: 'record-1', version: 2 });
+  await saving;
+  expect(resolveLoad).not.toHaveBeenCalled();
+  expect(presentSuccess).not.toHaveBeenCalled();
+  expect(refreshList).not.toHaveBeenCalled();
+  expect(reportRefreshFailure).not.toHaveBeenCalled();
+});
+
+it('prevents duplicate submissions and ignores a rejection for a modified in-flight draft', async () => {
+  const { runtime, request, presentError } = createRuntime();
+  const gate = deferred<unknown>();
+  request.mockReturnValueOnce(gate.promise);
+  runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+  const saving = runtime.submitLocalEdit();
+  await runtime.submitLocalEdit();
+  expect(request).toHaveBeenCalledOnce();
+  runtime.localEditDraft.value!.title = 'new draft';
+  gate.reject(new AppError('旧拒绝', { status: 400 }));
+  await saving;
+  expect(runtime.localEditErrorMessage.value).toBeUndefined();
+  expect(presentError).not.toHaveBeenCalled();
+});
+
+it.each(['switch', 'close'] as const)(
+  'ignores a late refresh failure after %s without reporting a failed save',
+  async (change) => {
+    const { runtime, view, selectedRecord, resolveLoad, presentSuccess, presentError, reportRefreshFailure } =
+      createRuntime(undefined, true);
+    const gate = deferred<unknown>();
+    view.mockReturnValueOnce(gate.promise);
+    runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+    const saving = runtime.submitLocalEdit();
+    await Promise.resolve();
+    expect(view).toHaveBeenCalledOnce();
+    if (change === 'switch') selectedRecord.value = { ...selectedRecord.value, id: 'record-2' };
+    else runtime.localEditOpen.value = false;
+    runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+    gate.reject(new AppError('旧详情不可读', { status: 422 }));
+    await saving;
+    expect(runtime.localEditOpen.value).toBe(true);
+    expect(runtime.localEditSaving.value).toBe(false);
+    expect(runtime.localEditFieldErrors.value).toEqual({});
+    expect(runtime.localEditErrorMessage.value).toBeUndefined();
+    expect(resolveLoad).not.toHaveBeenCalled();
+    expect(presentSuccess).not.toHaveBeenCalled();
+    expect(presentError).not.toHaveBeenCalled();
+    expect(reportRefreshFailure).not.toHaveBeenCalled();
+  },
+);
+
+it('does not unlock a new submission when an older session finishes', async () => {
+  const { runtime, request, presentError, presentSuccess } = createRuntime();
+  const oldRequest = deferred<unknown>();
+  const newRequest = deferred<unknown>();
+  request.mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(newRequest.promise);
+  runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+  const oldSaving = runtime.submitLocalEdit();
+  runtime.localEditOpen.value = false;
+  runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+  runtime.localEditDraft.value!.title = '新会话草稿';
+  const newSaving = runtime.submitLocalEdit();
+  oldRequest.reject(new AppError('旧拒绝', { status: 409 }));
+  await oldSaving;
+  expect(runtime.localEditSaving.value).toBe(true);
+  expect(runtime.localEditDraft.value!.title).toBe('新会话草稿');
+  expect(runtime.localEditErrorMessage.value).toBeUndefined();
+  expect(presentError).not.toHaveBeenCalled();
+  newRequest.resolve({ message: '新提交成功' });
+  await newSaving;
+  expect(runtime.localEditSaving.value).toBe(false);
+  expect(runtime.localEditOpen.value).toBe(false);
+  expect(presentSuccess).toHaveBeenCalledOnce();
+});
+
+it('shows a form message when the rejected field is read-only and cannot render inline feedback', async () => {
+  const { runtime, request, presentError } = createRuntime(undefined, false, true);
+  runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+  request.mockRejectedValueOnce(
+    new AppError('只读名称已变更', { status: 409, targets: [{ kind: 'field', fieldName: 'title' }] }),
+  );
+  await runtime.submitLocalEdit();
+  expect(runtime.localEditFieldErrors.value).toEqual({});
+  expect(runtime.localEditErrorMessage.value).toBe('只读名称已变更');
+  expect(runtime.localEditOpen.value).toBe(true);
+  expect(presentError).not.toHaveBeenCalled();
+  runtime.localEditDraft.value!.amount = '2';
+  expect(runtime.localEditErrorMessage.value).toBeUndefined();
 });

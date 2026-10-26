@@ -1594,6 +1594,139 @@ describe('ModulePageHost', () => {
     });
   });
 
+  it.each([400, 409, 422])(
+    'shows a local-edit %s rejection through the host form without duplicate global feedback',
+    async (status) => {
+      const globalFeedback = vi
+        .spyOn(errorFeedback, 'presentPlatformError')
+        .mockImplementation(normalizeError);
+      let fieldName = 'name';
+      const requests: Request[] = [];
+      globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        requests.push(request);
+        if (request.url.endsWith('/platform.module/crm.customer/context')) {
+          return Response.json({
+            moduleAlias: 'crm.customer',
+            capabilities: [],
+            actions: [{ actionCode: 'editBaseInfo', authorized: true }],
+            uiDescriptor: {
+              schemaVersion: '1',
+              moduleAlias: 'crm.customer',
+              page: page({ template: 'FLAT_MANAGEMENT' }),
+            },
+          });
+        }
+        if (request.url.endsWith('/platform.menu/customer-menu/entry?clientType=WEB')) {
+          return Response.json({
+            entry: { menuId: 'customer-menu', moduleAlias: 'crm.customer', pageMode: 'LIST' },
+            clientType: 'WEB',
+            mainEntityAlias: 'customer',
+            resolvedConfig: {
+              uiFields: [],
+              queryItems: [],
+              actionBlocks: [
+                {
+                  type: 'localEdit',
+                  key: 'base',
+                  actionCode: 'editBaseInfo',
+                  title: '编辑资料',
+                  submitPath: '/crm.customer/editBaseInfo/{recordId}',
+                  localEditForm: {
+                    uiConfigId: 'customer-local-form',
+                    fields: [{ fieldName: 'name', fieldTitle: '名称', visible: true }],
+                    submitContract: {
+                      recordRequired: true,
+                      recordVersionRequired: true,
+                      fieldNamesRequired: true,
+                      uiConfigIdPayloadKey: 'uiConfigId',
+                    },
+                  },
+                },
+              ],
+            },
+            openApiPath: '/crm.customer/openapi',
+          });
+        }
+        if (request.url.endsWith('/crm.customer/actions/customer-1'))
+          return Response.json({
+            recordId: 'customer-1',
+            actions: [{ actionCode: 'editBaseInfo', available: true }],
+          });
+        if (request.url.endsWith('/crm.customer/view/customer-1'))
+          return Response.json({ id: 'customer-1', title: '客户一', name: '旧名称', version: 7 });
+        if (request.url.endsWith('/crm.customer/editBaseInfo/customer-1'))
+          return Response.json(
+            { message: '名称不允许', targets: [{ kind: 'field', fieldName }] },
+            { status },
+          );
+        throw new Error(`Unexpected request: ${request.url}`);
+      };
+      configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+      const wrapper = shallowMount(ModulePageHost, {
+        props: {
+          descriptor: {
+            pageType: 'dynamic-module',
+            openMode: 'dynamic-runner',
+            hostType: 'dynamic-module-host',
+            tabPolicy: { identity: 'by-menu' },
+            menuId: 'customer-menu',
+            target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+          },
+        },
+        global: {
+          stubs: {
+            StaticManagementLayout: {
+              template: '<section><slot name="explorer" /><slot name="detail-actions" /><slot /></section>',
+            },
+            RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
+            UiModal: { name: 'UiModal', template: '<section><slot /></section>' },
+          },
+        },
+      });
+      await flushPromises();
+      wrapper.findComponent({ name: 'CrudRecordListExplorer' }).vm.$emit('select', { id: 'customer-1' });
+      await flushPromises();
+      const actionBar = wrapper
+        .findAllComponents({ name: 'RecordActionBar' })
+        .find((item) =>
+          (item.props('actions') as Array<{ actionCode?: string }>).some(
+            (action) => action.actionCode === 'editBaseInfo',
+          ),
+        );
+      actionBar!.vm.$emit('action', { key: 'page-local-edit:entry:base:0', actionCode: 'editBaseInfo' });
+      await flushPromises();
+      const localForm = wrapper.findComponent({ name: 'RecordFormFields' });
+      localForm.vm.$emit('validity-change', { valid: false, errors: { name: '请输入有效数字' } });
+      wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+      await flushPromises();
+      expect(requests.some((request) => request.url.endsWith('/crm.customer/editBaseInfo/customer-1'))).toBe(
+        false,
+      );
+
+      localForm.vm.$emit('validity-change', { valid: true, errors: {} });
+      wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+      await flushPromises();
+      expect(localForm.props('serverErrors')).toEqual({ name: '名称不允许' });
+      expect(localForm.props('record')).toMatchObject({ name: '旧名称', version: 7 });
+      expect(globalFeedback).not.toHaveBeenCalled();
+      localForm.vm.$emit('update:field', 'name', '新名称');
+      await flushPromises();
+      expect(localForm.props('serverErrors')).toEqual({});
+      fieldName = 'unknown';
+      wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+      await flushPromises();
+      expect(localForm.props('serverErrors')).toEqual({});
+      expect(wrapper.find('[role="alert"]').text()).toBe('名称不允许');
+      expect(globalFeedback).not.toHaveBeenCalled();
+      localForm.vm.$emit('update:field', 'name', '再次修改');
+      await flushPromises();
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+      wrapper.unmount();
+      globalFeedback.mockRestore();
+    },
+  );
+
   it('merges frontend-owned list enhancements into the standard descriptor runner', async () => {
     globalThis.fetch = async (input, init) => {
       const request = new Request(input, init);
