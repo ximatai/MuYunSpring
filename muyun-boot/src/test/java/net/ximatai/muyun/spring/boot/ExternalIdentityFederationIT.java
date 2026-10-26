@@ -1204,6 +1204,64 @@ class ExternalIdentityFederationIT {
     }
 
     @Test
+    void reviewEndpointsEnforceActionPermissionsAndTenantIsolationOverHttp() {
+        var fixture = provisioningFixture("http_review", ProvisioningMode.REVIEW);
+        for (String person : List.of("http-approved", "http-rejected"))
+            assertThat(provisioningScan(fixture.provider(), person).path("result").path("status").asText()).isEqualTo("reviewPending");
+        String approved = jdbcTemplate.queryForObject("select id from iam_join_application where provider_id=? and external_user_id='http-approved'", String.class, fixture.provider());
+        String rejected = jdbcTemplate.queryForObject("select id from iam_join_application where provider_id=? and external_user_id='http-rejected'", String.class, fixture.provider());
+        String otherTenant;
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("provisioning-it", "Test"));
+             var system = TenantContext.system("review HTTP fixtures")) {
+            var other = new Tenant(); other.setAlias("http_review_other"); other.setTitle("Other reviewer tenant"); tenantService.insert(other);
+            otherTenant = other.getId();
+            createReviewUser(TENANT, "http_viewer", List.of());
+            createReviewUser(TENANT, "http_approver", List.of("approve"));
+            createReviewUser(TENANT, "http_rejector", List.of("reject"));
+            createReviewUser(otherTenant, "http_other", List.of("approve", "reject"));
+        }
+        String viewerToken = passwordLogin("http_viewer");
+        String approveToken = passwordLogin("http_approver");
+        String rejectToken = passwordLogin("http_rejector");
+        var foreignLogin = post("/iam.auth/login", Map.of("tenantId", otherTenant, "username", "http_other", "password", PASSWORD), null);
+        assertThat(foreignLogin.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String foreignToken = foreignLogin.getBody().path("token").asText();
+        for (String action : List.of("approve", "reject")) {
+            String path = "/iam.join_application/" + (action.equals("approve") ? approved : rejected) + "/" + action;
+            assertThat(post(path, Map.of(), null).getStatusCode()).as("anonymous %s", action).isEqualTo(HttpStatus.UNAUTHORIZED);
+            assertThat(post(path, Map.of(), viewerToken).getStatusCode()).as("ungranted %s", action).isEqualTo(HttpStatus.FORBIDDEN);
+            assertThat(post(path, Map.of(), action.equals("approve") ? rejectToken : approveToken).getStatusCode())
+                    .as("wrong action %s", action).isEqualTo(HttpStatus.FORBIDDEN);
+            var foreign = post(path, Map.of(), foreignToken);
+            assertThat(foreign.getStatusCode().is4xxClientError()).as("foreign %s: %s", action, foreign.getBody()).isTrue();
+        }
+        assertThat(jdbcTemplate.queryForList("select status from iam_join_application where provider_id=?", String.class, fixture.provider()))
+                .containsOnly("pending");
+        assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isZero();
+        assertThat(post("/iam.join_application/" + approved + "/approve", Map.of(), approveToken).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post("/iam.join_application/" + rejected + "/reject", Map.of(), rejectToken).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(jdbcTemplate.queryForObject("select status from iam_join_application where id=?", String.class, approved)).isEqualTo("approved");
+        assertThat(jdbcTemplate.queryForObject("select status from iam_join_application where id=?", String.class, rejected)).isEqualTo("rejected");
+        assertThat(jdbcTemplate.queryForObject("select reviewer_id from iam_join_application where id=?", String.class, approved))
+                .isEqualTo(jdbcTemplate.queryForObject("select id from iam_user where tenant_id=? and username='http_approver'", String.class, TENANT));
+        assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isEqualTo(1);
+        assertThat(provisioningScan(fixture.provider(), "http-approved").path("result").path("login").path("token").asText()).isNotBlank();
+        assertThat(provisioningScan(fixture.provider(), "http-rejected").path("result").path("status").asText()).isEqualTo("reviewRejected");
+    }
+
+    private void createReviewUser(String tenantId, String username, List<String> actions) {
+        try (var tenant = TenantContext.use(tenantId)) {
+            createUser(username);
+            var user = userAccountService.list(Criteria.of().eq("username", username), new PageRequest(0, 1)).getFirst();
+            var role = new Role(); role.setTitle(username); role.setAssignmentType(RoleAssignmentType.ACCOUNT);
+            roles.insert(role);
+            roles.grantAction(role.getId(), JoinApplicationService.MODULE_ALIAS, "view");
+            for (String action : actions) roles.grantAction(role.getId(), JoinApplicationService.MODULE_ALIAS, action);
+            roles.grantAccountRoleResult(role.getId(), user.getId(), tenantId);
+        }
+    }
+
+    @Test
     void provisioningDoesNotReuseAnotherTenantsOrganizationFactsOrApplications() {
         var fixture = provisioningFixture("isolation_provision", ProvisioningMode.REVIEW);
         assertThat(provisioningScan(fixture.provider(), "tenant-isolated").path("result").path("status").asText()).isEqualTo("reviewPending");
