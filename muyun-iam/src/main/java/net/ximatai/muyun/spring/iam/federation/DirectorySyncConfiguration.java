@@ -54,6 +54,10 @@ public class DirectorySyncConfiguration {
                 : List.of(DirectorySyncStore.decode(text, Root[].class));
     }
 
+    boolean supports(IdentityProviderDescriptor provider) {
+        return protocols.containsKey(provider.providerType());
+    }
+
     ExternalDirectoryProtocol protocol(IdentityProviderDescriptor provider) {
         var protocol = protocols.get(provider.providerType());
         if (protocol == null) throw new IllegalArgumentException("Directory protocol unavailable");
@@ -95,6 +99,7 @@ public class DirectorySyncConfiguration {
                                                 .ancestorIds()
                                                 .stream()
                                                 .noneMatch(unique::containsKey))
+                        .sorted(Comparator.comparing(Root::externalDepartmentId))
                         .toList();
         policy.setSyncRoots(DirectorySyncStore.encode(normalized));
     }
@@ -109,6 +114,9 @@ public class DirectorySyncConfiguration {
             throw new IllegalArgumentException("Policy provider cannot change");
         policy.setSyncPlanId(old == null ? null : old.getSyncPlanId());
         policy.setSyncScopeId(old == null ? null : old.getSyncScopeId());
+        policy.setPendingSyncScopeId(old == null ? null : old.getPendingSyncScopeId());
+        if (old != null && old.getSyncScopeId() != null && policy.getSyncRoots() == null)
+            throw new IllegalArgumentException("Use an explicitly confirmed empty scope to remove roots");
         var roots = roots(policy.getSyncRoots());
         if (old != null
                 && (!Boolean.TRUE.equals(policy.getEnabled())
@@ -128,27 +136,44 @@ public class DirectorySyncConfiguration {
             positions.requireEnabled(
                     policy.getSyncPositionId(), "Default directory position required");
             if (policy.getSyncRoleId() != null) validateRole(policy.getSyncRoleId());
-            boolean changed =
-                    old == null
-                            || !Objects.equals(old.getSyncRoots(), policy.getSyncRoots())
-                            || !Objects.equals(old.getSyncPositionId(), policy.getSyncPositionId())
-                            || !Objects.equals(old.getSyncRoleId(), policy.getSyncRoleId());
+            var active = policy.getSyncScopeId() == null ? null : store.scopes.findById(policy.getSyncScopeId());
+            boolean changed = active == null || !matches(active, policy);
+            policy.setPendingSyncScopeId(old == null ? null : old.getPendingSyncScopeId());
             if (changed) {
-                var scope = new DirectorySyncScope();
-                scope.setTenantId(policy.getTenantId());
-                scope.setPolicyId(policy.getId());
-                scope.setProviderId(policy.getProviderId());
-                scope.setRoots(policy.getSyncRoots());
-                scope.setPositionId(policy.getSyncPositionId());
-                scope.setRoleId(policy.getSyncRoleId());
-                DirectorySyncStore.insert(store.scopes, scope);
-                policy.setSyncScopeId(scope.getId());
-            }
+                var pending = policy.getPendingSyncScopeId() == null ? null : store.scopes.findById(policy.getPendingSyncScopeId());
+                if (pending == null || !matches(pending, policy)) {
+                    var scope = new DirectorySyncScope();
+                    scope.setTenantId(policy.getTenantId());
+                    scope.setPolicyId(policy.getId());
+                    scope.setProviderId(policy.getProviderId());
+                    scope.setRoots(policy.getSyncRoots());
+                    scope.setPositionId(policy.getSyncPositionId());
+                    scope.setRoleId(policy.getSyncRoleId());
+                    scope.setBaseScopeId(policy.getSyncScopeId());
+                    DirectorySyncStore.insert(store.scopes, scope);
+                    if (active != null && !Objects.equals(active.getRoots(), scope.getRoots()))
+                        policy.setPendingSyncScopeId(scope.getId());
+                    else {
+                        policy.setSyncScopeId(scope.getId());
+                        policy.setPendingSyncScopeId(null);
+                    }
+                }
+            } else policy.setPendingSyncScopeId(null);
         }
-        if (policy.getSyncRoots() == null) policy.setSyncScopeId(null);
+        registerPlan(policy);
+    }
+
+    private boolean matches(DirectorySyncScope scope, TenantIdentityPolicy policy) {
+        return Objects.equals(scope.getRoots(), policy.getSyncRoots())
+                && Objects.equals(scope.getPositionId(), policy.getSyncPositionId())
+                && Objects.equals(scope.getRoleId(), policy.getSyncRoleId());
+    }
+
+    private void registerPlan(TenantIdentityPolicy policy) {
+        var active = policy.getSyncScopeId() == null ? null : store.scopes.findById(policy.getSyncScopeId());
         if (!Boolean.TRUE.equals(policy.getEnabled())
                 || !Boolean.TRUE.equals(policy.getSyncEnabled())
-                || roots.isEmpty()) {
+                || active == null || roots(active.getRoots()).isEmpty()) {
             deletePlan(policy);
             return;
         }
@@ -167,6 +192,150 @@ public class DirectorySyncConfiguration {
                                 plan,
                                 input(policy, "SYNC"))
                         .getId());
+    }
+
+    void requireActiveScope(DirectorySyncScope scope) {
+        var policy = storePolicy(scope);
+        if (policy == null || !Objects.equals(policy.getSyncScopeId(), scope.getId()))
+            throw new JobFailure("DIRECTORY_SCOPE_CHANGED", false);
+    }
+
+    /** Missing detection is safe only for the active, fully confirmed revision. */
+    boolean canFinalize(DirectorySyncScope scope) {
+        var policy = storePolicy(scope);
+        return policy != null && Boolean.TRUE.equals(policy.getEnabled())
+                && Objects.equals(policy.getSyncScopeId(), scope.getId())
+                && policy.getPendingSyncScopeId() == null;
+    }
+
+    private TenantIdentityPolicy storePolicy(DirectorySyncScope scope) {
+        if (scope == null) return null;
+        var policy = store.policy(scope.getPolicyId());
+        return policy != null && Objects.equals(scope.getTenantId(), policy.getTenantId()) ? policy : null;
+    }
+
+    /** Called by the existing preview job in its fenced final transaction. */
+    void completeScopePreview(DirectorySyncRun run) {
+        if (!"SCOPE_PREVIEW".equals(run.getMode()) || !Boolean.TRUE.equals(run.getCompleted())) return;
+        var scope = store.scopes.findById(run.getScopeId());
+        var policy = storePolicy(scope);
+        if (policy == null || !Objects.equals(policy.getPendingSyncScopeId(), scope.getId())
+                || !Objects.equals(policy.getSyncScopeId(), scope.getBaseScopeId())) return;
+        scope.setImpactReport(DirectorySyncStore.encode(impact(run, scope)));
+        scope.setReportRunId(run.getId());
+        DirectorySyncStore.save(store.scopes, scope);
+    }
+
+    void startScopePreview(TenantIdentityPolicy policy) {
+        if (policy.getPendingSyncScopeId() == null) return;
+        var scope = store.scopes.findById(policy.getPendingSyncScopeId());
+        scope.setImpactReport(null);
+        scope.setReportRunId(null);
+        DirectorySyncStore.save(store.scopes, scope);
+    }
+
+    Map<String, Object> impactReport(TenantIdentityPolicy policy) {
+        var pending = policy.getPendingSyncScopeId() == null ? null : store.scopes.findById(policy.getPendingSyncScopeId());
+        if (pending == null || pending.getImpactReport() == null) return Map.of();
+        return Map.of("scopeId", pending.getId(), "baseScopeId", pending.getBaseScopeId(),
+                "runId", pending.getReportRunId(), "counts", DirectorySyncStore.decode(pending.getImpactReport(), Map.class));
+    }
+
+    void lock(TenantIdentityPolicy policy) {
+        store.lock(Map.of("tenantId", policy.getTenantId(), "providerId", policy.getProviderId()));
+    }
+
+    void confirmScope(TenantIdentityPolicy policy, String expectedScopeId, String expectedRunId) {
+        store.lock(Map.of("tenantId", policy.getTenantId(), "providerId", policy.getProviderId()));
+        if (expectedScopeId == null || expectedRunId == null
+                || !Objects.equals(expectedScopeId, policy.getPendingSyncScopeId()))
+            throw new IllegalArgumentException("Scope proposal changed; preview the current proposal");
+        var pending = store.scopes.findById(expectedScopeId);
+        var report = pending == null || pending.getReportRunId() == null ? null : store.runs.findById(pending.getReportRunId());
+        if (pending == null || !Objects.equals(expectedRunId, pending.getReportRunId())
+                || !Objects.equals(pending.getBaseScopeId(), policy.getSyncScopeId())
+                || pending.getImpactReport() == null || report == null
+                || !Boolean.TRUE.equals(report.getCompleted()) || !"SUCCEEDED".equals(report.getStatus())
+                || Boolean.TRUE.equals(report.getRetentionStarted())
+                || !Objects.equals(pending.getImpactReport(), DirectorySyncStore.encode(impact(report, pending))))
+            throw new IllegalArgumentException("Complete a fresh successful scope preview before confirmation");
+        policy.setSyncScopeId(pending.getId());
+        policy.setPendingSyncScopeId(null);
+        registerPlan(policy);
+    }
+
+    private Map<String, Long> impact(DirectorySyncRun run, DirectorySyncScope scope) {
+        // Aggregate in PostgreSQL rather than loading an unbounded directory into JVM memory.
+        // Only this tenant/provider's source facts participate; manual employment/grants are excluded.
+        var result = store.database.query("""
+                with observed as (
+                    select external_department_id, organization_id, root_id from iam_directory_sync_department
+                    where tenant_id = ? and run_id = ? and deleted = false
+                ), managed as (
+                    select m.external_department_id, m.organization_id, m.root_id from iam_directory_department_mapping m
+                    join iam_directory_sync_scope s on s.id = ? and s.tenant_id = m.tenant_id
+                    cross join lateral jsonb_to_recordset(s.roots::jsonb)
+                      as root("externalDepartmentId" text, "organizationId" text)
+                    where m.tenant_id = ? and m.provider_id = ? and m.deleted = false
+                      and m.root_id = root."externalDepartmentId" and m.organization_id = root."organizationId"
+                ), changed_departments as (
+                    select coalesce(m.external_department_id, n.external_department_id) as external_department_id
+                    from managed m full join observed n using (external_department_id)
+                    where m.organization_id is distinct from n.organization_id
+                       or m.root_id is distinct from n.root_id
+                ), placements as (
+                    select seen.external_user_id, a.employee_id, d.external_department_id, d.organization_id,
+                      first_value(d.external_department_id) over (partition by seen.external_user_id
+                        order by case when d.external_department_id = seen.primary_department_id then 0 else 1 end,
+                        membership.ordinality) as primary_department_id
+                    from iam_directory_sync_seen seen
+                    cross join lateral jsonb_array_elements_text(coalesce(seen.department_ids, '[]')::jsonb) with ordinality membership(id, ordinality)
+                    join observed d on d.external_department_id = membership.id
+                    left join iam_external_identity i on i.tenant_id = seen.tenant_id
+                      and i.external_user_id = seen.external_user_id and i.provider_id = ?
+                      and i.deleted = false
+                    left join iam_employee_account a on a.tenant_id = seen.tenant_id and a.user_id = i.user_id and a.deleted = false
+                    where seen.tenant_id = ? and seen.run_id = ? and seen.source_status = 'active' and seen.deleted = false
+                ), owned as (
+                    select p.* from iam_employee_position p where p.tenant_id = ?
+                      and p.source = 'directory' and p.source_provider_id = ? and p.source_status = 'active' and p.deleted = false
+                ), retiring as (
+                    select p.* from owned p where not exists (
+                        select 1 from placements n where n.employee_id = p.employee_id
+                          and n.external_department_id = p.external_department_id
+                          and n.organization_id = p.organization_id and p.position_id = ?)
+                ), retiring_grants as (
+                    select g.id, p.employee_id from iam_employment_role_grant g join owned p on p.id = g.employee_position_id
+                    where g.tenant_id = ? and g.source = 'directory' and g.source_provider_id = ? and g.deleted = false
+                      and (exists (select 1 from retiring r where r.id = p.id) or g.role_id is distinct from ?
+                        or not exists (select 1 from placements n where n.employee_id = p.employee_id
+                          and n.primary_department_id = p.external_department_id))
+                ), changed_people as (
+                    select 'employee:' || employee_id as person from retiring
+                    union
+                    select 'employee:' || employee_id from retiring_grants
+                    union
+                    select coalesce('employee:' || n.employee_id, 'external:' || n.external_user_id)
+                    from placements n join changed_departments d using (external_department_id)
+                    union
+                    select coalesce('employee:' || n.employee_id, 'external:' || n.external_user_id)
+                    from placements n where not exists (
+                        select 1 from owned p where p.employee_id = n.employee_id
+                          and p.external_department_id = n.external_department_id
+                          and p.organization_id = n.organization_id and p.position_id = ?)
+                )
+                select
+                    (select count(*) from changed_departments) as departments,
+                    (select count(*) from changed_people) as people,
+                    (select count(*) from retiring) as positions,
+                    (select count(*) from retiring_grants) as grants
+                """, run.getTenantId(), run.getId(), scope.getBaseScopeId(), run.getTenantId(), scope.getProviderId(),
+                scope.getProviderId(), run.getTenantId(), run.getId(), run.getTenantId(), scope.getProviderId(),
+                scope.getPositionId(), run.getTenantId(), scope.getProviderId(), scope.getRoleId(), scope.getPositionId()).getFirst();
+        var counts = new LinkedHashMap<String, Long>();
+        for (String key : List.of("departments", "people", "positions", "grants"))
+            counts.put(key, ((Number) result.get(key)).longValue());
+        return counts;
     }
 
     void validateRole(String id) {
@@ -193,11 +362,13 @@ public class DirectorySyncConfiguration {
     static Map<String, Object> input(TenantIdentityPolicy policy, String mode) {
         if (policy.getSyncScopeId() == null)
             throw new IllegalArgumentException("Directory scope must be configured");
+        String scopeId = "SCOPE_PREVIEW".equals(mode) ? policy.getPendingSyncScopeId() : policy.getSyncScopeId();
+        if (scopeId == null) throw new IllegalArgumentException("Directory scope unavailable");
         return Map.of(
                 "policyId",
                 policy.getId(),
                 "scopeId",
-                policy.getSyncScopeId(),
+                scopeId,
                 "providerId",
                 policy.getProviderId(),
                 "tenantId",

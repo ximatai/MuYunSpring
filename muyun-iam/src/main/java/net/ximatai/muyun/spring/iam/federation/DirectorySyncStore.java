@@ -27,7 +27,7 @@ final class DirectorySyncStore {
     final DirectoryDepartmentMappingDao mappings;
     final DirectorySyncSeenDao seen;
     final DirectorySyncDepartmentDao departments;
-    private final IDatabaseOperations<?> database;
+    final IDatabaseOperations<?> database;
     private final TenantIdentityPolicyDao policies;
 
     DirectorySyncStore(
@@ -54,6 +54,8 @@ final class DirectorySyncStore {
                 "select pg_advisory_xact_lock(hashtextextended(?, 0))",
                 "iam.directory:" + input.get("tenantId") + ":" + input.get("providerId"));
     }
+
+    TenantIdentityPolicy policy(String id) { return policies.findById(id); }
 
     void stateChanged(JobRun job) {
         var rows =

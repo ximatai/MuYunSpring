@@ -23,6 +23,7 @@ import net.ximatai.muyun.spring.iam.user.PasswordStatus;
 import net.ximatai.muyun.spring.iam.user.UserAccount;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Runs external sign-in and binding as server-side transactions.
@@ -74,6 +76,9 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
     private final ExternalIdentityFederationSettings settings;
     private final Clock clock;
     private final ExternalIdentityAdmissionLocks admissionLocks;
+    private final DirectorySyncConfiguration directory;
+    private final DirectorySourceLifecycle sourceLifecycle;
+
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Autowired
@@ -85,9 +90,11 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                                 UserSessionService userSessionService,
                                 ActiveTenantVerifier activeTenantVerifier,
                                 ExternalIdentityFederationSettings settings,
-                                ExternalIdentityAdmissionLocks admissionLocks) {
+                                ExternalIdentityAdmissionLocks admissionLocks,
+                                DirectorySyncConfiguration directory,
+                                DirectorySourceLifecycle sourceLifecycle) {
         this(providers, policies, identities, transactionDao, userAccountService, userSessionService,
-                activeTenantVerifier, settings, Clock.systemUTC(), admissionLocks);
+                activeTenantVerifier, settings, Clock.systemUTC(), admissionLocks, directory, sourceLifecycle);
     }
 
     ExternalLoginService(IdentityProviderService providers,
@@ -99,7 +106,9 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                          ActiveTenantVerifier activeTenantVerifier,
                          ExternalIdentityFederationSettings settings,
                          Clock clock,
-                         ExternalIdentityAdmissionLocks admissionLocks) {
+                         ExternalIdentityAdmissionLocks admissionLocks,
+                         DirectorySyncConfiguration directory,
+                         DirectorySourceLifecycle sourceLifecycle) {
         this.providers = Objects.requireNonNull(providers, "providers");
         this.policies = Objects.requireNonNull(policies, "policies");
         this.identities = Objects.requireNonNull(identities, "identities");
@@ -112,6 +121,8 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         Objects.requireNonNull(settings.workbenchUrl(), "muyun.iam.federation.workbench-url is required");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.admissionLocks = Objects.requireNonNull(admissionLocks, "admissionLocks");
+        this.directory = Objects.requireNonNull(directory, "directory");
+        this.sourceLifecycle = Objects.requireNonNull(sourceLifecycle, "sourceLifecycle");
     }
 
     /** Providers a tenant's sign-in entry offers; empty for an unknown or inactive tenant. */
@@ -330,8 +341,29 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                 && !descriptor.externalEnterpriseId().equals(identity.externalEnterpriseId())) {
             return Outcome.denied(ExternalLoginFailure.ENTERPRISE_MISMATCH);
         }
-        // Provider I/O above is outside the transaction. All final facts below are re-read under row locks.
+        // Freeze the identity observation before I/O; an intervening sync must win over this snapshot.
+        ExternalIdentity observed;
+        try (TenantContext.Scope ignored = TenantContext.use(transaction.getTenantId())) {
+            observed = identities.findByExternalIdentity(descriptor.identityNamespace(),
+                    identity.externalEnterpriseId(), identity.externalUserId()).orElse(null);
+        }
+        ExternalDirectoryProtocol.Person refreshed = null;
+        Instant checkedAt = clock.instant();
+        if (transaction.getPurpose() == ExternalLoginPurpose.LOGIN && observed != null
+                && sourceExpired(observed, policy.get(), descriptor, checkedAt)) {
+            try {
+                refreshed = directory.protocol(descriptor).person(descriptor, identity.externalUserId());
+                if (!identity.externalUserId().equals(refreshed.id())
+                        || !Set.of("active", "disabled", "departed").contains(refreshed.status()))
+                    return Outcome.denied(ExternalLoginFailure.PROVIDER_REJECTED);
+            } catch (RuntimeException unavailable) {
+                return Outcome.denied(ExternalLoginFailure.PROVIDER_UNAVAILABLE);
+            }
+        }
+        var authoritative = refreshed;
+        // All final facts below are re-read under locks, with no external calls inside this transaction.
         return identities.inAdmissionTransaction(() -> {
+            identities.lockSource(transaction.getTenantId(), transaction.getProviderId());
             if (!admissionLocks.configuration(transaction.getTenantId(), transaction.getProviderId())) {
                 return Outcome.denied(ExternalLoginFailure.POLICY_DISABLED);
             }
@@ -356,6 +388,21 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                     if (!initiator.session()) return Outcome.denied(ExternalLoginFailure.SESSION_ENDED);
                     return resolveBind(transaction, descriptor, identity, existing);
                 }
+                if (existing.isPresent()) {
+                    var binding = existing.get();
+                    if (authoritative != null && observed != null
+                            && Objects.equals(binding.getVersion(), observed.getVersion())) {
+                        binding.setSourceStatus(authoritative.status());
+                        binding.setSourceCheckedAt(checkedAt);
+                        identities.update(binding);
+                        if (!"active".equals(authoritative.status()))
+                            sourceLifecycle.invalidate(binding, authoritative.status(), binding.getLastSyncRunId());
+                    }
+                    if (sourceExpired(binding, latestPolicy.get(), descriptor, clock.instant())
+                            || !sourceAllowsLogin(binding)
+                            || !admissionLocks.employeeAvailable(transaction.getTenantId(), binding.getUserId()))
+                        return Outcome.denied(ExternalLoginFailure.ACCOUNT_UNAVAILABLE);
+                }
                 Outcome outcome = resolveLogin(existing);
                 if (outcome.status() != ExternalLoginStatus.SUCCEEDED) return outcome;
                 LoginResult login = signIn(transaction, outcome, ip, userAgent, clock.instant());
@@ -363,6 +410,23 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                         : new Outcome(outcome.status(), outcome.failure(), outcome.userId(), outcome.identityId(), login);
             }
         });
+    }
+
+    private boolean sourceExpired(ExternalIdentity binding, TenantIdentityPolicy policy,
+                                  IdentityProviderDescriptor provider, Instant now) {
+        boolean directoryManaged = binding.getBindingSource() == ExternalIdentityBindingSource.DIRECTORY_SYNC
+                || (directory.supports(provider) && Boolean.TRUE.equals(policy.getSyncEnabled())
+                    && policy.getSyncScopeId() != null && binding.getSourceStatus() != null);
+        if (!directoryManaged) return false;
+        Instant checked = binding.getSourceCheckedAt() == null ? binding.getBoundAt() : binding.getSourceCheckedAt();
+        int seconds = policy.getSourceStatusMaxAgeSeconds() == null ? 86400 : policy.getSourceStatusMaxAgeSeconds();
+        return checked == null || !now.isBefore(checked.plusSeconds(seconds));
+    }
+
+    private static boolean sourceAllowsLogin(ExternalIdentity binding) {
+        return "active".equals(binding.getSourceStatus())
+                || (binding.getBindingSource() == ExternalIdentityBindingSource.SELF_BIND
+                    && binding.getSourceStatus() == null);
     }
 
     private Outcome resolveLogin(Optional<ExternalIdentity> existing) {
@@ -384,9 +448,11 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
             return Outcome.denied(ExternalLoginFailure.SESSION_ENDED);
         }
         if (existing.isPresent()) {
-            return existing.get().getUserId().equals(userId)
-                    ? new Outcome(ExternalLoginStatus.SUCCEEDED, null, userId, existing.get().getId())
-                    : Outcome.denied(ExternalLoginFailure.IDENTITY_CONFLICT);
+            if (!existing.get().getUserId().equals(userId)) {
+                return Outcome.denied(ExternalLoginFailure.IDENTITY_CONFLICT);
+            }
+            identities.clearAutoRebindBlock(provider.id(), identity.externalUserId());
+            return new Outcome(ExternalLoginStatus.SUCCEEDED, null, userId, existing.get().getId());
         }
         if (identities.bindingsOfUser(userId).stream().anyMatch(binding -> provider.id().equals(binding.getProviderId()))) {
             return Outcome.denied(ExternalLoginFailure.ALREADY_BOUND);
@@ -409,6 +475,7 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
             // A concurrent bind of the same identity or provider lost the unique-index race.
             return Outcome.denied(ExternalLoginFailure.IDENTITY_CONFLICT);
         }
+        identities.clearAutoRebindBlock(provider.id(), identity.externalUserId());
         return new Outcome(ExternalLoginStatus.SUCCEEDED, null, userId, binding.getId());
     }
 

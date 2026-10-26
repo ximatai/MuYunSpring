@@ -76,11 +76,13 @@ class DirectorySyncIT {
     @Autowired IdentityProviderDao providerRows;
     @Autowired TenantIdentityPolicyDao policyRows;
     @Autowired ExternalIdentityDao identityRows;
+    @Autowired DirectoryRebindBlockDao rebindBlocks;
     @Autowired ExternalLoginTransactionDao loginTransactions;
     @Autowired DepartmentDao departmentRows;
     @Autowired EmployeeDao employeeRows;
     @Autowired EmployeePositionDao positionRows;
     @Autowired UserAccountDao accountRows;
+    @Autowired UserSessionDao sessionRows;
     @Autowired EmployeeAccountDao employeeAccountRows;
     @Autowired OrganizationDao organizationRows;
     @Autowired PositionDao jobPositionRows;
@@ -98,6 +100,7 @@ class DirectorySyncIT {
     private TenantIdentityPolicy policy;
     private final List<BusinessNotification> alerts = new ArrayList<>();
     private DirectorySyncJob handler;
+    private DirectorySyncWriter writer;
     private ExternalDirectoryProtocol protocol;
 
     @BeforeEach
@@ -117,7 +120,9 @@ class DirectorySyncIT {
                                     "iam_directory_sync_scope",
                                     "platform_job_run",
                                     "platform_job_plan",
+                                    "iam_user_session",
                                     "iam_external_identity",
+                                    "iam_directory_rebind_block",
                                     "iam_employment_role_grant",
                                     "iam_role",
                                     "iam_external_login_transaction",
@@ -221,10 +226,12 @@ class DirectorySyncIT {
                         accountRows, t -> {}, mock(PasswordHashingService.class));
         var employeeAccounts =
                 new EmployeeAccountService(employeeAccountRows, t -> {}, employees, accounts);
-        var identities = new ExternalIdentityService(identityRows, t -> {});
         var store =
                 new DirectorySyncStore(
                         syncRuns, scopes, mappings, seen, observedDepartments, db, policyRows);
+        var revocations = new UserSessionRevocationService(
+                new UserSessionRecordService(sessionRows), event -> {}, Clock.systemUTC());
+        var identities = new ExternalIdentityService(identityRows, t -> {}, revocations, rebindBlocks, store);
         var jobPositionService = new PositionService(jobPositionRows, t -> {});
         var roles =
                 new RoleService(
@@ -268,21 +275,23 @@ class DirectorySyncIT {
                         jobPositionService,
                         roles,
                         beans.getBeanProvider(JobService.class));
-        handler =
-                new DirectorySyncJob(
+        writer =
+                new DirectorySyncWriter(
                         store,
-                        providers,
+                        departments,
+                        employees,
+                        positions,
+                        accounts,
+                        employeeAccounts,
+                        identities,
+                        roles,
                         config,
-                        new DirectorySyncWriter(
-                                store,
-                                departments,
-                                employees,
-                                positions,
-                                accounts,
+                        new DirectorySourceLifecycle(
                                 employeeAccounts,
-                                identities,
+                                positions,
                                 roles,
-                                config));
+                                revocations));
+        handler = new DirectorySyncJob(store, providers, config, writer);
         beans.registerSingleton("access", (JobManagementAccess) t -> {});
         beans.registerSingleton(
                 "recipients",
@@ -473,6 +482,252 @@ class DirectorySyncIT {
                             assertThat(r.getCompleted()).isTrue();
                             assertThat(r.getStatus()).isEqualTo("SUCCEEDED");
                         });
+    }
+
+    @Test
+    void completeMissingRetiresSourceAndSessionsAndRepeatedFinalizationIsIdempotent() {
+        enqueue(false);
+        execute();
+        String session = sessionFor("tenant-a");
+        setPeople(List.of(), List.of());
+        String id = enqueue(false);
+        execute();
+        tenant("tenant-a", () -> {
+            assertThat(identityRows.query(Criteria.of(), new PageRequest(0, 10))).singleElement()
+                    .satisfies(b -> assertThat(b.getSourceStatus()).isEqualTo("missing"));
+            assertThat(sessionRows.findById(session).getRevokedAt()).isNotNull();
+            assertThat(positionRows.query(Criteria.of(), new PageRequest(0, 10)))
+                    .allSatisfy(p -> {
+                        assertThat(p.getSourceStatus()).isEqualTo("missing");
+                        assertThat(p.getEnabled()).isTrue();
+                    });
+            assertThat(grantRows.query(Criteria.of(), new PageRequest(0, 10))).isEmpty();
+            assertThat(accountRows.query(Criteria.of(), new PageRequest(0, 10)).getFirst().getEnabled()).isTrue();
+            assertThat(employeeRows.query(Criteria.of(), new PageRequest(0, 10)).getFirst().getEnabled()).isTrue();
+            return null;
+        });
+        int version = global(() -> sessionRows.findById(session).getVersion());
+        // Replay the already committed finalization phase under a new valid job lease.
+        global(() -> {
+            var run = syncRuns.query(Criteria.of().eq("jobRunId", id), new PageRequest(0, 1)).getFirst();
+            var cursor = DirectorySyncStore.decode(run.getCursor(), DirectorySyncJob.Cursor.class);
+            cursor.phase = "FINALIZING";
+            cursor.bindingRow = null;
+            run.setCursor(DirectorySyncStore.encode(cursor));
+            DirectorySyncStore.save(syncRuns, run);
+            db.execute("update platform_job_run set status='FAILED' where id=?", id);
+            jobs.retry(id);
+            return null;
+        });
+        execute();
+        assertThat(global(() -> sessionRows.findById(session).getVersion())).isEqualTo(version);
+    }
+
+    @Test
+    void failedPageAndPreviewCannotInferMissing() {
+        enqueue(false);
+        execute();
+        String session = sessionFor("tenant-a");
+        setPeople(List.of(), List.of("people:a1:0"));
+        String partial = enqueue(false);
+        execute();
+        assertThat(jobRuns.findById(partial).getResultCode()).isEqualTo("DIRECTORY_PARTIAL");
+        setPeople(List.of(), List.of());
+        enqueue(true);
+        execute();
+        tenant("tenant-a", () -> {
+            assertThat(identityRows.query(Criteria.of(), new PageRequest(0, 10)).getFirst().getSourceStatus()).isEqualTo("active");
+            assertThat(sessionRows.findById(session).getRevokedAt()).isNull();
+            return null;
+        });
+    }
+
+    @Test
+    void departureRevokesOnlyThisTenantsSessions() {
+        var other = tenant("tenant-b", () -> seedPolicy("tenant-b"));
+        enqueue(false);
+        tenant("tenant-b", () -> policies.synchronize(other.getId(), false));
+        execute();
+        execute();
+        String a = sessionFor("tenant-a");
+        String b = sessionFor("tenant-b");
+        setPeople(List.of(person("a1", List.of("a1", "b"), "departed")), List.of());
+        enqueue(false);
+        execute();
+        assertThat(global(() -> sessionRows.findById(a).getRevokedAt())).isNotNull();
+        assertThat(global(() -> sessionRows.findById(b).getRevokedAt())).isNull();
+        assertThat(global(() -> accountRows.query(Criteria.of(), new PageRequest(0, 10))))
+                .allSatisfy(account -> assertThat(account.getEnabled()).isTrue());
+    }
+
+    @Test
+    void primaryMoveRetiresOldDerivedGrantsButPreservesManualPositionsAndGrants() {
+        enqueue(false);
+        execute();
+        String[] retained = tenant("tenant-a", () -> {
+            var old = positionRows.query(Criteria.of().eq("primaryPosition", true), new PageRequest(0, 1)).getFirst();
+            var manual = new EmployeePosition();
+            manual.setEmployeeId(old.getEmployeeId());
+            manual.setOrganizationId(old.getOrganizationId());
+            manual.setDepartmentId(old.getDepartmentId());
+            manual.setPositionId(old.getPositionId());
+            positions.insert(manual);
+            for (String position : List.of(old.getId(), manual.getId())) {
+                var grant = new EmploymentRoleGrant();
+                grant.setTenantId("tenant-a");
+                grant.setRoleId(policy.getSyncRoleId());
+                grant.setEmployeePositionId(position);
+                DirectorySyncStore.insert(grantRows, grant);
+            }
+            return new String[]{old.getId(), manual.getId()};
+        });
+        setPeople(List.of(person("b", List.of("b"), "active")), List.of());
+        String move = enqueue(false);
+        execute();
+        assertThat(jobRuns.findById(move).getResultCode()).isEqualTo("DIRECTORY_COMPLETED");
+        tenant("tenant-a", () -> {
+            assertThat(positionRows.findById(retained[0]).getSourceStatus()).isEqualTo("retired");
+            assertThat(positionRows.findById(retained[0]).getEnabled()).isTrue();
+            assertThat(positionRows.findById(retained[1]).getSource()).isEqualTo("manual");
+            var grants = grantRows.query(Criteria.of(), new PageRequest(0, 10));
+            assertThat(grants).filteredOn(g -> "manual".equals(g.getSource())).hasSize(2);
+            assertThat(grants).filteredOn(g -> "directory".equals(g.getSource())).singleElement()
+                    .satisfies(g -> assertThat(g.getEmployeePositionId()).isNotIn((Object[]) retained));
+            assertThat(positionRows.query(Criteria.of().eq("primaryPosition", true), new PageRequest(0, 10)))
+                    .singleElement().satisfies(p -> assertThat(p.getExternalDepartmentId()).isEqualTo("b"));
+            return null;
+        });
+    }
+
+    @Test
+    void manualPrimarySelectionRemainsAnExplicitConflict() {
+        enqueue(false);
+        execute();
+        tenant("tenant-a", () -> {
+            var old = positionRows.query(Criteria.of().eq("primaryPosition", true), new PageRequest(0, 1)).getFirst();
+            old.setPrimaryPosition(false);
+            positions.update(old);
+            var manual = new EmployeePosition();
+            manual.setEmployeeId(old.getEmployeeId());
+            manual.setOrganizationId(old.getOrganizationId());
+            manual.setDepartmentId(old.getDepartmentId());
+            manual.setPositionId(old.getPositionId());
+            manual.setPrimaryPosition(true);
+            positions.insert(manual);
+            return null;
+        });
+        String id = enqueue(false);
+        execute();
+        assertThat(jobRuns.findById(id).getResultCode()).isEqualTo("DIRECTORY_PARTIAL");
+        tenant("tenant-a", () -> {
+            assertThat(positionRows.query(Criteria.of().eq("primaryPosition", true), new PageRequest(0, 10)))
+                    .singleElement().satisfies(p -> assertThat(p.getSource()).isEqualTo("manual"));
+            return null;
+        });
+    }
+
+    @Test
+    void missingRetirementTraversesMultiplePositionBatches() {
+        enqueue(false);
+        execute();
+        tenant("tenant-a", () -> {
+            var original = positionRows.query(Criteria.of(), new PageRequest(0, 1)).getFirst();
+            for (int i = 0; i < 205; i++) {
+                var position = new EmployeePosition();
+                position.setTenantId("tenant-a");
+                position.setEmployeeId(original.getEmployeeId());
+                position.setOrganizationId(original.getOrganizationId());
+                position.setDepartmentId(original.getDepartmentId());
+                position.setPositionId("historical-position-" + i);
+                position.setSource("directory");
+                position.setSourceProviderId(provider.getId());
+                position.setSourceStatus("active");
+                DirectorySyncStore.insert(positionRows, position);
+            }
+            return null;
+        });
+        setPeople(List.of(), List.of());
+        String id = enqueue(false);
+        execute();
+        assertThat(jobRuns.findById(id).getResultCode()).isEqualTo("DIRECTORY_COMPLETED");
+        tenant("tenant-a", () -> {
+            assertThat(positionRows.query(Criteria.of(), new PageRequest(0, 300))).hasSize(207)
+                    .allSatisfy(p -> assertThat(p.getSourceStatus()).isEqualTo("missing"));
+            return null;
+        });
+    }
+
+    @Test
+    void deletingBindingBetweenFinalizationBatchesDoesNotReuseItsPositionCursor() {
+        setPeople(List.of(person("a1", List.of("a1"), "active"),
+                new ExternalDirectoryProtocol.Person("bob", "Bob", "002", "a1", List.of("a1"), "active", null, null)), List.of());
+        enqueue(false);
+        execute();
+        tenant("tenant-a", () -> {
+            var bindings = identityRows.query(Criteria.of(), new PageRequest(0, 10), Sort.asc("id"));
+            for (int i = 0; i < 2; i++) {
+                var link = employeeAccountRows.query(Criteria.of().eq("userId", bindings.get(i).getUserId()),
+                        new PageRequest(0, 1)).getFirst();
+                var position = positionRows.query(Criteria.of().eq("employeeId", link.getEmployeeId()),
+                        new PageRequest(0, 1)).getFirst();
+                var extra = new EmployeePosition();
+                extra.setId((i == 0 ? "z" : "a").repeat(32));
+                extra.setTenantId("tenant-a");
+                extra.setEmployeeId(link.getEmployeeId());
+                extra.setOrganizationId(position.getOrganizationId());
+                extra.setDepartmentId(position.getDepartmentId());
+                extra.setPositionId("history");
+                extra.setSource("directory");
+                extra.setSourceProviderId(provider.getId());
+                extra.setSourceStatus("active");
+                DirectorySyncStore.insert(positionRows, extra);
+            }
+            var run = new DirectorySyncRun();
+            run.setId("missing-round");
+            run.setTenantId("tenant-a");
+            var cursor = new DirectorySyncJob.Cursor();
+            cursor.phase = "FINALIZING";
+            var scope = scopes.findById(policy.getSyncScopeId());
+            var tx = new TransactionTemplate(transactions);
+            tx.executeWithoutResult(status -> writer.finalizeMissing(run, scope, cursor));
+            assertThat(cursor.bindingPositionRow).isEqualTo("z".repeat(32));
+            // The administrator's delete commits between two separately fenced finalization batches.
+            identityRows.deleteById(bindings.getFirst().getId());
+            while (!"FINISHED".equals(cursor.phase))
+                tx.executeWithoutResult(status -> writer.finalizeMissing(run, scope, cursor));
+            assertThat(positionRows.findById("a".repeat(32)).getSourceStatus()).isEqualTo("missing");
+            return null;
+        });
+    }
+
+    private String sessionFor(String tenantId) {
+        return tenant(tenantId, () -> {
+            var account = accountRows.query(Criteria.of(), new PageRequest(0, 1)).getFirst();
+            var session = new UserSession();
+            session.setTenantId(tenantId);
+            session.setUserId(account.getId());
+            session.setUsername(account.getUsername());
+            session.setTokenHash(UUID.randomUUID().toString());
+            session.setIssuedAt(Instant.now());
+            session.setExpiresAt(Instant.now().plusSeconds(3600));
+            session.setMaxExpiresAt(session.getExpiresAt());
+            DirectorySyncStore.insert(sessionRows, session);
+            return session.getId();
+        });
+    }
+
+    private static ExternalDirectoryProtocol.Person person(String primary, List<String> departments, String status) {
+        return new ExternalDirectoryProtocol.Person("alice", "Alice", "001", primary, departments, status, null, null);
+    }
+
+    private void setPeople(List<ExternalDirectoryProtocol.Person> people, List<String> failures) {
+        global(() -> {
+            var base = DirectorySyncStore.decode(fixture(List.of()), MockExternalDirectoryProtocol.Data.class);
+            provider.setConfiguration(DirectorySyncStore.encode(Map.of("directory", DirectorySyncStore.encode(
+                    new MockExternalDirectoryProtocol.Data(base.departments(), people, failures)))));
+            DirectorySyncStore.save(providerRows, provider);
+            return null;
+        });
     }
 
     @Test
@@ -820,7 +1075,10 @@ class DirectorySyncIT {
                     policies.update(policy);
                     return null;
                 });
-        assertThat(policy.getSyncScopeId()).isNotEqualTo(oldScope);
+        assertThat(policy.getSyncScopeId()).isEqualTo(oldScope);
+        assertThat(policy.getPendingSyncScopeId()).isNotNull();
+        assertThat(DirectorySyncStore.decode(jobPlans.findById(policy.getSyncPlanId()).getParametersJson(), Map.class))
+                .containsEntry("scopeId", oldScope);
         assertThat(scopes.findById(oldScope)).isNotNull();
         execute();
         execute();
@@ -837,6 +1095,244 @@ class DirectorySyncIT {
                                 .people)
                 .isZero();
         assertThat(fact.getCompleted()).isTrue();
+        assertThat(fact.getMode()).isEqualTo("SCOPE_PREVIEW");
+        tenant("tenant-a", () -> {
+            var report = policies.scopeImpact(policy.getId());
+            assertThat(((Map<?, ?>) report.get("counts")).get("departments")).isEqualTo(3);
+            String cleanup = policies.confirmScope(policy.getId(), (String) report.get("scopeId"), (String) report.get("runId"));
+            assertThat(jobRuns.findById(cleanup).getStatus()).isEqualTo("PENDING");
+            var latest = policyRows.findById(policy.getId());
+            assertThat(latest.getSyncScopeId()).isNotEqualTo(oldScope);
+            assertThat(latest.getPendingSyncScopeId()).isNull();
+            assertThat(latest.getSyncPlanId()).isNull();
+            return null;
+        });
+        execute();
+        tenant("tenant-a", () -> {
+            assertThat(identityRows.query(Criteria.of(), new PageRequest(0, 10)))
+                    .singleElement().satisfies(i -> assertThat(i.getSourceStatus()).isEqualTo("missing"));
+            return null;
+        });
+    }
+
+    @Test
+    void scopeRemovalNeedsSuccessfulImpactReportAndKeepsOldPlanUntilConfirmation() {
+        enqueue(false);
+        execute();
+        String oldScope = policy.getSyncScopeId();
+        String organization = DirectorySyncConfiguration.roots(policy.getSyncRoots()).getFirst().organizationId();
+        tenant("tenant-a", () -> {
+            policy.setSyncRoots(DirectorySyncStore.encode(List.of(new DirectorySyncConfiguration.Root("b", organization))));
+            policies.update(policy);
+            assertThat(policy.getSyncScopeId()).isEqualTo(oldScope);
+            assertThatThrownBy(() -> policies.confirmScope(policy.getId(), policy.getPendingSyncScopeId(), null))
+                    .isInstanceOf(IllegalArgumentException.class);
+            return null;
+        });
+        var pending = policy.getPendingSyncScopeId();
+        String unchanged = enqueue(false);
+        assertThat(DirectorySyncStore.decode(jobRuns.findById(unchanged).getParametersJson(), Map.class))
+                .containsEntry("scopeId", oldScope);
+        execute();
+        global(() -> {
+            provider.setConfiguration(DirectorySyncStore.encode(Map.of("directory", fixture(List.of("people:b:0")))));
+            DirectorySyncStore.save(providerRows, provider);
+            return null;
+        });
+        String failed = enqueue(true);
+        execute();
+        assertThat(jobRuns.findById(failed).getResultCode()).isEqualTo("DIRECTORY_PARTIAL");
+        tenant("tenant-a", () -> {
+            assertThat(policies.scopeImpact(policy.getId())).isEmpty();
+            assertThatThrownBy(() -> policies.confirmScope(policy.getId(), pending, null)).isInstanceOf(IllegalArgumentException.class);
+            return null;
+        });
+        global(() -> {
+            provider.setConfiguration(DirectorySyncStore.encode(Map.of("directory", fixture(List.of()))));
+            DirectorySyncStore.save(providerRows, provider);
+            return null;
+        });
+        enqueue(true);
+        execute();
+        String[] obsolete = new String[1];
+        tenant("tenant-a", () -> {
+            var report = policies.scopeImpact(policy.getId());
+            var counts = (Map<?, ?>) report.get("counts");
+            assertThat(counts.get("departments")).isEqualTo(2);
+            assertThat(counts.get("people")).isEqualTo(1);
+            assertThat(counts.get("positions")).isEqualTo(1);
+            assertThat(counts.get("grants")).isEqualTo(1);
+            assertThatThrownBy(() -> policies.confirmScope(policy.getId(), "stale-proposal", (String) report.get("runId"))).isInstanceOf(IllegalArgumentException.class);
+            obsolete[0] = policies.synchronize(policy.getId(), false);
+            assertThatThrownBy(() -> policies.confirmScope(policy.getId(), pending, "stale-report"))
+                    .isInstanceOf(IllegalArgumentException.class);
+            policies.confirmScope(policy.getId(), pending, (String) report.get("runId"));
+            policy = policyRows.findById(policy.getId());
+            assertThat(policy.getSyncScopeId()).isEqualTo(pending);
+            assertThat(policy.getPendingSyncScopeId()).isNull();
+            assertThat(DirectorySyncStore.decode(jobPlans.findById(policy.getSyncPlanId()).getParametersJson(), Map.class))
+                    .containsEntry("scopeId", pending);
+            return null;
+        });
+        execute();
+        assertThat(jobRuns.findById(obsolete[0]).getResultCode()).isEqualTo("DIRECTORY_SCOPE_CHANGED");
+        String applied = enqueue(false);
+        execute();
+        assertThat(jobRuns.findById(applied).getResultCode()).isEqualTo("DIRECTORY_COMPLETED");
+        tenant("tenant-a", () -> {
+            assertThat(positionRows.query(Criteria.of().eq("externalDepartmentId", "a1"), new PageRequest(0, 1)))
+                    .singleElement().satisfies(p -> assertThat(p.getSourceStatus()).isNotEqualTo("active"));
+            assertThat(positionRows.query(Criteria.of().eq("externalDepartmentId", "b"), new PageRequest(0, 1)))
+                    .singleElement().satisfies(p -> assertThat(p.getSourceStatus()).isEqualTo("active"));
+            return null;
+        });
+    }
+
+    @Test
+    void scopeNarrowingCountsReparentedDepartmentsWithinTheSameOrganization() {
+        enqueue(false);
+        execute();
+        String organization = DirectorySyncConfiguration.roots(policy.getSyncRoots()).getFirst().organizationId();
+        tenant("tenant-a", () -> {
+            policy.setSyncRoots(DirectorySyncStore.encode(List.of(
+                    new DirectorySyncConfiguration.Root("a1", organization),
+                    new DirectorySyncConfiguration.Root("b", organization))));
+            policies.update(policy);
+            return null;
+        });
+        enqueue(true);
+        execute();
+        tenant("tenant-a", () -> {
+            var report = policies.scopeImpact(policy.getId());
+            var counts = (Map<?, ?>) report.get("counts");
+            // A leaves the range; A1 becomes a root and is detached from A in the local tree.
+            assertThat(counts.get("departments")).isEqualTo(2);
+            assertThat(counts.get("people")).isEqualTo(1);
+            assertThat(counts.get("positions")).isEqualTo(0);
+            policies.confirmScope(policy.getId(), (String) report.get("scopeId"), (String) report.get("runId"));
+            return null;
+        });
+        execute();
+        tenant("tenant-a", () -> {
+            var mapping = mappings.query(Criteria.of().eq("externalDepartmentId", "a1"), new PageRequest(0, 1)).getFirst();
+            assertThat(mapping.getRootId()).isEqualTo("a1");
+            assertThat(departmentRows.findById(mapping.getDepartmentId()).getParentId()).isEqualTo(TreeAbility.ROOT_ID);
+            return null;
+        });
+    }
+
+    @Test
+    void scopeRemappingReportsOnlyOwnedEmploymentAndRequiresExplicitConfirmation() {
+        enqueue(false);
+        execute();
+        String originalOrganization = DirectorySyncConfiguration.roots(policy.getSyncRoots()).getFirst().organizationId();
+        var organization = new Organization();
+        organization.setTenantId("tenant-a");
+        organization.setCode("second");
+        organization.setTitle("Second");
+        tenant("tenant-a", () -> {
+            DirectorySyncStore.insert(organizationRows, organization);
+            policy.setSyncRoots(DirectorySyncStore.encode(List.of(
+                    new DirectorySyncConfiguration.Root("a", organization.getId()),
+                    new DirectorySyncConfiguration.Root("b", organization.getId()))));
+            policies.update(policy);
+            return null;
+        });
+        enqueue(true);
+        execute();
+        tenant("tenant-a", () -> {
+            var report = policies.scopeImpact(policy.getId());
+            var counts = (Map<?, ?>) report.get("counts");
+            assertThat(counts.get("departments")).isEqualTo(3);
+            assertThat(counts.get("people")).isEqualTo(1);
+            assertThat(counts.get("positions")).isEqualTo(2);
+            assertThat(counts.get("grants")).isEqualTo(1);
+            policies.confirmScope(policy.getId(), (String) report.get("scopeId"), (String) report.get("runId"));
+            policy = policyRows.findById(policy.getId());
+            return null;
+        });
+        String moved = enqueue(false);
+        execute();
+        assertThat(jobRuns.findById(moved).getResultCode()).isEqualTo("DIRECTORY_COMPLETED");
+        tenant("tenant-a", () -> {
+            assertThat(mappings.query(Criteria.of(), new PageRequest(0, 100)))
+                    .allSatisfy(m -> assertThat(m.getOrganizationId()).isEqualTo(organization.getId()));
+            assertThat(employeeRows.query(Criteria.of(), new PageRequest(0, 10)))
+                    .singleElement().satisfies(e -> assertThat(e.getOrganizationId()).isEqualTo(organization.getId()));
+            policy.setSyncRoots(DirectorySyncStore.encode(List.of(
+                    new DirectorySyncConfiguration.Root("a", originalOrganization),
+                    new DirectorySyncConfiguration.Root("b", originalOrganization))));
+            policies.update(policy);
+            return null;
+        });
+        enqueue(true);
+        execute();
+        tenant("tenant-a", () -> {
+            var report = policies.scopeImpact(policy.getId());
+            policies.confirmScope(policy.getId(), (String) report.get("scopeId"), (String) report.get("runId"));
+            policy = policyRows.findById(policy.getId());
+            return null;
+        });
+        String returned = enqueue(false);
+        execute();
+        assertThat(jobRuns.findById(returned).getResultCode()).isEqualTo("DIRECTORY_COMPLETED");
+        String repeated = enqueue(false);
+        execute();
+        assertThat(jobRuns.findById(repeated).getResultCode()).isEqualTo("DIRECTORY_COMPLETED");
+        tenant("tenant-a", () -> {
+            assertThat(mappings.query(Criteria.of(), new PageRequest(0, 100)))
+                    .allSatisfy(m -> assertThat(m.getOrganizationId()).isEqualTo(originalOrganization));
+            assertThat(employeeRows.query(Criteria.of(), new PageRequest(0, 10)))
+                    .singleElement().satisfies(e -> assertThat(e.getOrganizationId()).isEqualTo(originalOrganization));
+            return null;
+        });
+    }
+
+    @Test
+    void scopeAdditionReportsReclaimedPrimaryGrantEvenWhenOldEmploymentRemains() {
+        String originalRoots = policy.getSyncRoots();
+        String organization = DirectorySyncConfiguration.roots(originalRoots).getFirst().organizationId();
+        tenant("tenant-a", () -> {
+            policy.setSyncRoots(DirectorySyncStore.encode(List.of(new DirectorySyncConfiguration.Root("b", organization))));
+            policies.update(policy);
+            return null;
+        });
+        enqueue(true);
+        execute();
+        tenant("tenant-a", () -> {
+            var report = policies.scopeImpact(policy.getId());
+            policies.confirmScope(policy.getId(), (String) report.get("scopeId"), (String) report.get("runId"));
+            policy = policyRows.findById(policy.getId());
+            return null;
+        });
+        execute(); // Confirmation queued the initial b-only synchronization.
+        String oldPosition = tenant("tenant-a", () -> positionRows.query(Criteria.of(), new PageRequest(0, 10)).getFirst().getId());
+        tenant("tenant-a", () -> {
+            policy.setSyncRoots(originalRoots);
+            policies.update(policy);
+            return null;
+        });
+        enqueue(true);
+        execute();
+        tenant("tenant-a", () -> {
+            var report = policies.scopeImpact(policy.getId());
+            var counts = (Map<?, ?>) report.get("counts");
+            assertThat(counts.get("departments")).isEqualTo(2);
+            assertThat(counts.get("people")).isEqualTo(1);
+            assertThat(counts.get("positions")).isEqualTo(0);
+            assertThat(counts.get("grants")).isEqualTo(1);
+            policies.confirmScope(policy.getId(), (String) report.get("scopeId"), (String) report.get("runId"));
+            return null;
+        });
+        execute();
+        tenant("tenant-a", () -> {
+            assertThat(positionRows.findById(oldPosition).getSourceStatus()).isEqualTo("active");
+            assertThat(positionRows.findById(oldPosition).getPrimaryPosition()).isFalse();
+            assertThat(grantRows.query(Criteria.of().eq("employeePositionId", oldPosition), new PageRequest(0, 10))).isEmpty();
+            assertThat(grantRows.query(Criteria.of(), new PageRequest(0, 10))).singleElement().satisfies(g ->
+                    assertThat(positionRows.findById(g.getEmployeePositionId()).getExternalDepartmentId()).isEqualTo("a1"));
+            return null;
+        });
     }
 
     @Test

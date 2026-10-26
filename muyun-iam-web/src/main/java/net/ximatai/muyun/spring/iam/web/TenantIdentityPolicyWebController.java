@@ -19,6 +19,8 @@ import net.ximatai.muyun.spring.platform.web.StaticModuleWebControllerAdapter;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import java.util.Map;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Tenant administrators choose which identity providers their users may sign in or bind with. */
@@ -53,6 +55,20 @@ public class TenantIdentityPolicyWebController
     public String synchronize(@PathVariable String id) {
         return webScope(() -> service().synchronize(id, false));
     }
+    @PostMapping("/{id}/scopeImpact")
+    @CustomActionEndpoint(value = "scopeImpact", title = "查看范围变更影响", level = PlatformActionLevel.RECORD)
+    public Map<String, Object> scopeImpact(@PathVariable String id) {
+        return webScope(() -> service().scopeImpact(id));
+    }
+
+    public record ScopeConfirmation(String scopeId, String runId) {}
+
+    @PostMapping("/{id}/confirmScope")
+    @CustomActionEndpoint(value = "confirmScope", title = "确认范围变更", level = PlatformActionLevel.RECORD)
+    public String confirmScope(@PathVariable String id, @RequestBody ScopeConfirmation request) {
+        return webScope(() -> service().confirmScope(id, request.scopeId(), request.runId()));
+    }
+
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(TenantIdentityPolicyService.MODULE_ALIAS)
@@ -95,6 +111,7 @@ public class TenantIdentityPolicyWebController
                                                                                                         field.label(
                                                                                                                         "未绑定时处理")
                                                                                                                 .select())
+                                                                                        .field("sourceStatusMaxAgeSeconds", field -> field.label("来源状态最大年龄（秒）"))
                                                                                         .field(
                                                                                                 "syncRoots",
                                                                                                 field ->

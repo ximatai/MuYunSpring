@@ -5,15 +5,23 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.DisablePlatformOperations;
 import net.ximatai.muyun.spring.ability.TenantActiveScopedService;
+import net.ximatai.muyun.spring.ability.VersionedRecordMutation;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.iam.user.UserSessionRevocationService;
+
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Bindings between external identities and local accounts. Bindings are only created by verified
@@ -27,8 +35,17 @@ public class ExternalIdentityService extends TenantActiveScopedService<ExternalI
     public static final String MODULE_ALIAS = "iam.external_identity";
     private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
 
-    public ExternalIdentityService(ExternalIdentityDao dao, ActiveTenantVerifier activeTenantVerifier) {
+    private final UserSessionRevocationService revocations;
+    private final DirectoryRebindBlockDao rebindBlocks;
+    private final DirectorySyncStore directory;
+
+    public ExternalIdentityService(ExternalIdentityDao dao, ActiveTenantVerifier activeTenantVerifier,
+                                   UserSessionRevocationService revocations, DirectoryRebindBlockDao rebindBlocks,
+                                   DirectorySyncStore directory) {
         super(MODULE_ALIAS, ExternalIdentity.class, dao, activeTenantVerifier);
+        this.revocations = Objects.requireNonNull(revocations, "revocations");
+        this.rebindBlocks = Objects.requireNonNull(rebindBlocks, "rebindBlocks");
+        this.directory = Objects.requireNonNull(directory, "directory");
     }
 
     @Override
@@ -48,14 +65,53 @@ public class ExternalIdentityService extends TenantActiveScopedService<ExternalI
                 .eq("externalUserId", externalUserId)));
     }
 
-    <R> R inAdmissionTransaction(java.util.function.Supplier<R> work) {
+    <R> R inAdmissionTransaction(Supplier<R> work) {
         return inMutationTransaction(work);
     }
 
     /** Stamps a successful sign-in through the binding; internal state, not a business edit. */
-    void recordAuthentication(String identityId, java.time.Instant at) {
-        net.ximatai.muyun.spring.ability.VersionedRecordMutation.update(getDao(), () -> selectActiveRaw(identityId),
+    void recordAuthentication(String identityId, Instant at) {
+        VersionedRecordMutation.update(getDao(), () -> selectActiveRaw(identityId),
                 binding -> binding.setLastAuthenticatedAt(at));
+    }
+
+    void lockSource(String tenantId, String providerId) {
+        directory.lock(Map.of("tenantId", tenantId, "providerId", providerId));
+    }
+
+    /** Same tenant/source lock as synchronization, before CRUD takes the binding row lock. */
+    @Override
+    public void beforeDelete(String id) {
+        var binding = selectActiveRaw(id);
+        if (binding != null) {
+            lockSource(binding.getTenantId(), binding.getProviderId());
+        }
+    }
+
+    @Override
+    public void afterDelete(String id, ExternalIdentity binding, int deleted) {
+        if (deleted < 1 || binding == null) return;
+        if (!isAutoRebindBlocked(binding.getProviderId(), binding.getExternalUserId())) {
+            var block = new DirectoryRebindBlock();
+            block.setTenantId(binding.getTenantId());
+            block.setProviderId(binding.getProviderId());
+            block.setExternalUserId(binding.getExternalUserId());
+            DirectorySyncStore.insert(rebindBlocks, block);
+        }
+        revocations.revokeUserSessions(binding.getUserId(), "external identity unbound");
+    }
+
+    public boolean isAutoRebindBlocked(String providerId, String externalUserId) {
+        return !rebindBlocks.query(Criteria.of().eq("tenantId", TenantContext.currentTenantId().orElseThrow())
+                .eq("providerId", providerId).eq("externalUserId", externalUserId), new PageRequest(0, 1)).isEmpty();
+    }
+
+    /** A verified explicit bind restores consent to subsequent directory management. Caller owns the source lock. */
+    void clearAutoRebindBlock(String providerId, String externalUserId) {
+        rebindBlocks.query(Criteria.of()
+                        .eq("tenantId", TenantContext.currentTenantId().orElseThrow())
+                        .eq("providerId", providerId).eq("externalUserId", externalUserId), new PageRequest(0, 1))
+                .forEach(block -> rebindBlocks.deleteById(block.getId()));
     }
 
     /** Bindings of one account in the current tenant scope. */

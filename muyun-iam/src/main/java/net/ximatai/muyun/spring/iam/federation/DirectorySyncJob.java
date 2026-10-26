@@ -90,6 +90,9 @@ public class DirectorySyncJob implements JobHandler {
         public String page;
         public String departmentRow;
         public String department;
+        public String bindingRow;
+        public String bindingPositionRow;
+        public String processingBindingRow;
     }
 
     public static class Statistics {
@@ -178,6 +181,17 @@ public class DirectorySyncJob implements JobHandler {
                                 stats.failedPages),
                         stats.failedPages > 0 || stats.conflicts > 0);
             }
+            if ("FINALIZING".equals(cursor.phase)) {
+                commit(context, run, cursor, stats, () -> {
+                    if (!configuration.canFinalize(scope)) {
+                        cursor.phase = "FINISHED";
+                        return;
+                    }
+                    providers.requireDirectoryAuthority(context.tenantId(), provider);
+                    writer.finalizeMissing(run, scope, cursor);
+                });
+                continue;
+            }
             if ("PEOPLE".equals(cursor.phase) && !peopleProgressReported) {
                 context.progress(50);
                 peopleProgressReported = true;
@@ -250,7 +264,7 @@ public class DirectorySyncJob implements JobHandler {
                                     seen.setRootId(root.externalDepartmentId());
                                     seen.setOrganizationId(root.organizationId());
                                     DirectorySyncStore.insert(store.departments, seen);
-                                    if ("PREVIEW".equals(run.getMode())) {
+                                    if (!"SYNC".equals(run.getMode())) {
                                         if (writer.departmentConflict(run, scope, root, department))
                                             stats.conflicts++;
                                     } else writer.department(run, scope, root, department);
@@ -284,9 +298,10 @@ public class DirectorySyncJob implements JobHandler {
                     var next =
                             store.departments.query(query, new PageRequest(0, 1), Sort.asc("id"));
                     if (next.isEmpty()) {
-                        cursor.phase = "FINISHED";
                         run.setCompleted(stats.failedPages == 0 && stats.conflicts == 0);
-                        commit(context, run, cursor, stats, () -> {});
+                        cursor.phase = Boolean.TRUE.equals(run.getCompleted()) && "SYNC".equals(run.getMode())
+                                ? "FINALIZING" : "FINISHED";
+                        commit(context, run, cursor, stats, () -> configuration.completeScopePreview(run));
                         continue;
                     }
                     cursor.departmentRow = next.getFirst().getId();
@@ -355,6 +370,9 @@ public class DirectorySyncJob implements JobHandler {
                                     seen.setTenantId(currentRun.getTenantId());
                                     seen.setRunId(currentRun.getId());
                                     seen.setExternalUserId(id);
+                                    seen.setDepartmentIds(DirectorySyncStore.encode(people.get(id).departmentIds()));
+                                    seen.setSourceStatus(people.get(id).status());
+                                    seen.setPrimaryDepartmentId(people.get(id).primaryDepartmentId());
                                     DirectorySyncStore.insert(store.seen, seen);
                                     currentStats.people++;
                                     if (!writer.person(currentRun, scope, provider, people.get(id)))
@@ -420,6 +438,9 @@ public class DirectorySyncJob implements JobHandler {
         context.transaction(
                 () -> lockBusiness(context.parameters()),
                 () -> {
+                    if ("SYNC".equals(run.getMode())) {
+                        configuration.requireActiveScope(store.scopes.findById(run.getScopeId()));
+                    }
                     writes.run();
                     run.setCursor(DirectorySyncStore.encode(cursor));
                     run.setStatistics(DirectorySyncStore.encode(stats));

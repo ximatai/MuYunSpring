@@ -83,4 +83,12 @@ public class TenantIdentityPolicy extends StandardEnabledSortableEntity {
     private String syncScopeId;
     @Column(name = "sync_plan_id", type = ColumnType.VARCHAR, length = 32, comment = "Managed job plan")
     private String syncPlanId;
+
+    @Column(name = "pending_sync_scope_id", type = ColumnType.VARCHAR, length = 32,
+            comment = "Directory scope awaiting impact review")
+    private String pendingSyncScopeId;
+
+    @Column(name = "source_status_max_age_seconds", type = ColumnType.INT, nullable = false,
+            defaultVal = @Default(number = 86400), comment = "Maximum authoritative source status age")
+    private Integer sourceStatusMaxAgeSeconds = 86400;
 }
