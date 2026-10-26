@@ -16,6 +16,7 @@ dependencies {
     implementation(project(":muyun-spring-boot-starter"))
     runtimeOnly(libs.postgresql)
 
+    testImplementation(project(":muyun-iam-welink"))
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.boot.starter.webmvc.test)
     testImplementation(libs.spring.boot.starter.restclient.test)
@@ -105,4 +106,9 @@ tasks.register<BootRun>("collaborationDemoBootRun") {
             entry.toPath().startsWith(buildDirectory.get().asFile.toPath())
         }
     }
+}
+
+// Public fixture credential only, supplied through the same environment-reference path as deployments.
+tasks.named<Test>("integrationTest") {
+    environment("MUYUN_WELINK_IT_SECRET", "welink-integration-test-secret")
 }

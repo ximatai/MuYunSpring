@@ -15,6 +15,7 @@ public interface ExternalDirectoryProtocol {
     }
 
     Department department(IdentityProviderDescriptor provider, String id);
+    /** Includes the requested root (also available through department), then its descendants parent-first. */
     Page<Department> departments(IdentityProviderDescriptor provider, String rootId, String cursor, int limit);
     /** Each item observes membership in the requested department; main/all departments are optional. */
     Page<Person> departmentPeople(IdentityProviderDescriptor provider, String departmentId, String cursor, int limit);

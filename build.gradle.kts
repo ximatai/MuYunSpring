@@ -58,6 +58,7 @@ val publicArtifactProjectNames = listOf(
     "muyun-dynamic",
     "muyun-platform",
     "muyun-iam",
+    "muyun-iam-welink",
     "muyun-web-adapter",
     "muyun-platform-web",
     "muyun-iam-web",
@@ -443,6 +444,7 @@ val coreModulePaths = setOf(
     ":muyun-dynamic",
     ":muyun-platform",
     ":muyun-iam",
+    ":muyun-iam-welink",
     ":muyun-demo",
 )
 val deliveryModulePaths = setOf(
@@ -466,6 +468,7 @@ val allowedProductionProjectDependencies = mapOf(
     ":muyun-ability" to setOf(":muyun-common"),
     ":muyun-dynamic" to setOf(":muyun-common", ":muyun-ability"),
     ":muyun-platform" to setOf(":muyun-ability", ":muyun-dynamic"),
+    ":muyun-iam-welink" to setOf(":muyun-iam"),
     ":muyun-iam" to setOf(":muyun-ability", ":muyun-platform"),
     ":muyun-demo" to setOf(":muyun-ability", ":muyun-platform", ":muyun-iam"),
     ":muyun-web-adapter" to setOf(":muyun-ability"),

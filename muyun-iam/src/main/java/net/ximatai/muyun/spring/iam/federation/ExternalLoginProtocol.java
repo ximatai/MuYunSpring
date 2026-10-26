@@ -45,6 +45,14 @@ public interface ExternalLoginProtocol {
      */
     URI authorizationUri(IdentityProviderDescriptor provider, ExternalAuthorizationContext context);
 
+    /** Optional recognized OAuth QR presentation; never includes credentials or a PKCE verifier. */
+    default QrCode qrCode(IdentityProviderDescriptor provider, ExternalAuthorizationContext context) {
+        return null;
+    }
+
+    record QrCode(String providerType, String scriptUrl, String authorizationUrl, String clientId,
+                  String redirectUri, String state, String scope, String messageOrigin) { }
+
     /**
      * Verifies the callback parameters on the server and returns the authenticated identity. Values
      * delivered through the browser are untrusted until the provider confirms them.

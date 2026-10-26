@@ -308,7 +308,8 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         URI authorizationUri = providers.protocolOf(provider)
                 .authorizationUri(providers.descriptorOf(provider), context(state, codeVerifier));
         return new ExternalLoginResults.Start(transaction.getId(), state, authorizationUri.toString(), browserProof,
-                transaction.getExpiresAt());
+                transaction.getExpiresAt(), providers.protocolOf(provider)
+                        .qrCode(providers.descriptorOf(provider), context(state, codeVerifier)));
     }
 
     private Outcome resolve(ExternalLoginTransaction transaction, String state, Map<String, String> parameters,
