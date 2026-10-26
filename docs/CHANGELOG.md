@@ -8,6 +8,7 @@
 
 - 前端根包公开 `useExternalLoginHost` 及宿主类型、`CurrentUserProfileDialog`、`ExternalIdentityBindings`；自有工作台壳可复用外部登录回调完成、失败提示、地址清理、会话交接与登录/绑定二维码，standalone App 使用同一入口。事务凭证继续保留于当前标签页会话，不进入 URL。
 - 登录会话历史新增平台级 `iam.user-session-retention` 作业：滑动/绝对过期及已撤销会话默认结束后保留 30 天，每小时有界分批物理清理；支持 `muyun.iam.session.retention.retention-days`、`batch-size`、`max-batches` 部署配置并在启动时拒绝非法值。逐批租约事务、结束原因计数和部分成功结果复用平台作业机制，不补发历史逐会话事件；`iam_user_session` 新增三个时间与 ID 的清理索引，需按平台 schema 流程建立。收口 TD-021。
+- 后台作业补齐真实 PostgreSQL 双节点集成验证，覆盖并发扫描去重、有效租约互斥与续租、失联到期接管、旧执行者写入及完成结果隔离、优雅停机释放与尝试次数，以及跨租户专题键与幂等入队隔离。
 
 - WeLink 分页按真实只读探测校准为 `hasMore=0` 继续、`1` 或短页结束；部门快照超过行数/页数上限明确失败并提示缩小同步根，补充 5000 以上部门树契约测试及凭据到位后的联调手册。
 
