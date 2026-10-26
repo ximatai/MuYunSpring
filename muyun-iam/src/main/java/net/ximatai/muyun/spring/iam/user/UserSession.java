@@ -15,6 +15,9 @@ import java.time.Instant;
 @Table(name = "iam_user_session", comment = "User login session")
 @CompositeIndex(columns = {"token_hash"}, unique = true)
 @CompositeIndex(columns = {"tenant_id", "user_id", "revoked_at"})
+@CompositeIndex(columns = {"revoked_at", "id"})
+@CompositeIndex(columns = {"expires_at", "id"})
+@CompositeIndex(columns = {"max_expires_at", "id"})
 public class UserSession extends StandardEntity {
     @Column(name = "user_id", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "User id")
     private String userId;

@@ -34,8 +34,14 @@ import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
  */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({MuYunSpringInitialAdminProperties.class, MuYunSpringLoginLockoutProperties.class,
-        MuYunSpringExternalIdentityFederationProperties.class})
+        MuYunSpringExternalIdentityFederationProperties.class, MuYunSpringSessionRetentionProperties.class})
 public class MuYunSpringIdentityConfiguration {
+    @Bean
+    net.ximatai.muyun.spring.iam.user.UserSessionRetentionPolicy userSessionRetentionPolicy(
+            MuYunSpringSessionRetentionProperties properties) {
+        return properties.policy();
+    }
+
     @Bean
     DisposableBean dataScopeAbilityRuntime(
             ObjectProvider<DataScopeCriteriaService> service) {
