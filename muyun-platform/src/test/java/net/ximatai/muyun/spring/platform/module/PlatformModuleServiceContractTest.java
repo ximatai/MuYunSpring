@@ -24,7 +24,7 @@ class PlatformModuleServiceContractTest {
         module.setTitle("Customer");
 
         assertThatThrownBy(() -> service.insert(module))
-                .isInstanceOf(NullPointerException.class)
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.DeclarationValidationException.class)
                 .hasMessageContaining("moduleAlias");
     }
 

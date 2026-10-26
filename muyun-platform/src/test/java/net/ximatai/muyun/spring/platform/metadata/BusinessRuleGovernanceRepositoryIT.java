@@ -293,6 +293,14 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
         assertThat(preview.valid()).isFalse();
         assertThat(preview.errors()).extracting(BusinessRuleIssue::code).contains("INVALID_RULE_INPUT");
         assertThat(preview.errors()).extracting(BusinessRuleIssue::field).contains("id");
+        var diagnostic = preview.errors().stream().filter(issue -> issue.code().equals("INVALID_RULE_INPUT")).findFirst().orElseThrow();
+        assertThat(diagnostic.textSource().sourceId()).isEqualTo("platform.rules.diagnostic.invalid-rule-input");
+        assertThat(diagnostic.messageArgs()).containsEntry("field", "id");
+        var loader = getClass().getClassLoader();
+        var resources = net.ximatai.muyun.spring.common.i18n.TextResources.load(loader,
+                net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(loader, "zh-CN"));
+        assertThat(resources.resolve(diagnostic.textSource(), diagnostic.messageArgs(), "en").text())
+                .isEqualTo("Business rule inputs must come from the field catalog: id");
         assertThatThrownBy(() -> governance.apply(moduleAlias, new BusinessRuleApplyCommand(List.of(disabled),
                 baseline.baselineFingerprint(), preview.proposalFingerprint())))
                 .isInstanceOf(PlatformException.class)
@@ -511,6 +519,19 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
                     Map.of("lines", List.of(Map.of("quantity", invalid, "price", 3.5)))));
             assertThat(badChild.errors()).extracting(BusinessRuleIssue::code).contains("FORMULA_TYPE_MISMATCH");
             assertThat(badChild.errors()).extracting(BusinessRuleIssue::field).contains("lines.quantity");
+            var childIssue = badChild.errors().stream().filter(issue -> "lines.quantity".equals(issue.field()))
+                    .findFirst().orElseThrow();
+            assertThat(childIssue.textSource().sourceId()).isEqualTo("platform.rules.diagnostic.trial-type-integer-row");
+            assertThat(childIssue.messageArgs()).containsEntry("row", 1);
+            var loader = getClass().getClassLoader();
+            var resources = net.ximatai.muyun.spring.common.i18n.TextResources.load(loader,
+                    net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(loader, "zh-CN"));
+            for (String language : List.of("en", "zh-CN")) {
+                var text = resources.resolve(childIssue.textSource(), childIssue.messageArgs(), language);
+                assertThat(text.missing()).isFalse();
+                assertThat(text.fallback()).isFalse();
+                assertThat(text.text()).contains("1");
+            }
             assertThat(badChild.changedFields()).isEmpty();
             var badMain = governance.trial(moduleAlias, new BusinessRuleTrialCommand(rules,
                     Map.of("quantity", invalid), sample));

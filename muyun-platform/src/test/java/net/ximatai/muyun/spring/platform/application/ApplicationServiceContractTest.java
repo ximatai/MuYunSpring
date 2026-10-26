@@ -70,7 +70,7 @@ class ApplicationServiceContractTest {
         application.setTitle("CRM");
 
         assertThatThrownBy(() -> service.insert(application))
-                .isInstanceOf(NullPointerException.class)
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.DeclarationValidationException.class)
                 .hasMessageContaining("applicationAlias");
     }
 

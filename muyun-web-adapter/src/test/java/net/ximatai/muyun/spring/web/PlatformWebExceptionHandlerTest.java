@@ -43,6 +43,27 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 
 class PlatformWebExceptionHandlerTest {
     @Test
+    void declarationFailuresUseTheExistingWebErrorBoundary() {
+        var loader = getClass().getClassLoader();
+        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(loader, "zh-CN");
+        var handler = new PlatformWebExceptionHandler();
+        handler.setLanguageCatalog(catalog);
+        handler.setTextResolver(net.ximatai.muyun.spring.common.i18n.TextResources.load(loader, catalog));
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(
+                net.ximatai.muyun.spring.common.exception.DeclarationValidationException.class,
+                () -> net.ximatai.muyun.spring.common.util.PlatformNameRules.requireFieldName("bad_name", "columnName"));
+        try (var ignored = net.ximatai.muyun.spring.common.i18n.LanguageContext.use("zh-CN")) {
+            var response = handler.handleBadRequest(failure);
+            assertThat(response.getStatusCode().value()).isEqualTo(400);
+            assertThat(response.getBody().message()).isEqualTo("无效的 columnName：bad_name");
+            assertThat(response.getBody().code()).isEqualTo("VALIDATION_FAILED");
+            assertThat(failure.getMessage()).isEqualTo("invalid columnName: bad_name");
+        }
+        assertThat(handler.handleBadRequest(new IllegalArgumentException("external raw {name}"))
+                .getBody().message()).isEqualTo("external raw {name}");
+    }
+
+    @Test
     void shouldTreatDisconnectedAsyncClientsAsACompletedTransport() {
         PlatformWebExceptionHandler handler = new PlatformWebExceptionHandler();
 

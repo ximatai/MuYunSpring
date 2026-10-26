@@ -31,6 +31,10 @@ public record MetadataChangeSetValidationIssue(Severity severity, String code, S
             return new MetadataChangeSetValidationIssue(Severity.ERROR, code, subject,
                     declared.getMessage(), declared.textSource(), declared.messageArgs());
         }
+        if (failure instanceof net.ximatai.muyun.spring.common.exception.DeclarationValidationException declared) {
+            return new MetadataChangeSetValidationIssue(Severity.ERROR, code, subject,
+                    declared.getMessage(), declared.textSource(), declared.messageArgs());
+        }
         return new MetadataChangeSetValidationIssue(Severity.ERROR, code, subject, failure.getMessage());
     }
 }

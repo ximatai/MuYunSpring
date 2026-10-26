@@ -5,7 +5,8 @@ import {
   parseBusinessRuleTrial,
   type BusinessRuleAssistantAdapter,
 } from '@/views/businessRuleAssistantSurface';
-import { createAssistantSurfaceRegistry } from '@/web-core';
+import { createAssistantSurfaceRegistry, createLanguageContext, codeOperationErrorMessage } from '@/web-core';
+import type { TextPresentation } from '@/web-contracts';
 
 it('rejects unsupported commands and oversized samples without evaluating expressions', () => {
   expect(() =>
@@ -315,4 +316,54 @@ it('rejects rule identifiers that the standard governance compiler cannot apply'
     expect(() =>
       parseBusinessRuleProposal({ code, kind: 'VALIDATION', expression: '{amount} >= 0', enabled: true }),
     ).toThrow('小写字母');
+});
+
+it('projects preview and trial diagnostics in the assistant language while retaining user originals', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const source = codeOperationErrorMessage(language, 'test.diagnostic', '输入错误').source;
+  const messageText: TextPresentation = {
+    source,
+    languages: Object.fromEntries(
+      ['en', 'zh-CN'].map((tag) => [
+        tag,
+        {
+          text: tag === 'en' ? 'Invalid input' : '输入错误',
+          requestedTag: tag,
+          resourceTag: tag,
+          missing: false,
+          fallback: false,
+        },
+      ]),
+    ),
+  };
+  const adapter = {
+    language,
+    summary: () => ({ editable: true }),
+    catalog: () => [],
+  } as unknown as BusinessRuleAssistantAdapter;
+  const surface = createBusinessRuleAssistantSurface(adapter, vi.fn());
+  const errors = [
+    { code: 'INVALID_INPUT', field: 'amount', message: '输入错误', messageText },
+    { code: 'USER_RULE', message: '用户原文 {amount}' },
+  ];
+  for (const code of ['rules.preview', 'rules.trial']) {
+    const capability = surface.capabilities().find((item) => item.descriptor.code === code)!;
+    const output = {
+      valid: false,
+      errors,
+      values: {},
+      children: {},
+      changedFields: [],
+      sample: { sampleValues: {}, sampleChildren: {} },
+    };
+    expect(capability.present!(output).lines).toEqual(
+      expect.arrayContaining(['Invalid input', '用户原文 {amount}']),
+    );
+    language.setLanguage('zh-CN');
+    expect(capability.present!(output).lines).toEqual(
+      expect.arrayContaining(['输入错误', '用户原文 {amount}']),
+    );
+    language.setLanguage('en');
+  }
+  expect(errors[0].message).toBe('输入错误');
 });

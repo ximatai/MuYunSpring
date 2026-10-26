@@ -916,6 +916,7 @@ export interface BusinessRuleProposal {
 
 export interface BusinessRuleIssue {
   readonly messageSources?: readonly OperationErrorMessage[];
+  readonly messageText?: TextPresentation | null;
   code: string;
   ruleCode?: string;
   field?: string;
@@ -930,7 +931,7 @@ export function businessRuleIssueMessage(
     ? issue.messageSources
         .map((source) => resolveOperationErrorMessage(new OperationUsageError(source), language))
         .join(language.t('platform.rules.issue-separator', '；'))
-    : issue.message;
+    : presentationLabel(issue.message, issue.messageText ?? undefined, language);
 }
 
 export interface BusinessRulePreview {

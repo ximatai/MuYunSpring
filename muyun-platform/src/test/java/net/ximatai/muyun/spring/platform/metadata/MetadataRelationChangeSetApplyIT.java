@@ -209,6 +209,20 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     }
 
     @Test
+    void invalidFieldDeclarationRetainsItsSourceInTheRealPreview() {
+        var checked = previewService.preview(moduleAlias, relationId,
+                proposal("bad_name", "bad_name", stringSpecAlias, false));
+        assertThat(checked.valid()).isFalse();
+        assertThat(checked.errors()).anySatisfy(issue -> {
+            assertThat(issue.code()).isEqualTo("INVALID_FIELD_DRAFT");
+            assertThat(issue.severity()).isEqualTo(MetadataChangeSetValidationIssue.Severity.ERROR);
+            assertThat(issue.textSource().sourceId()).isEqualTo("platform.declaration.name.invalid");
+            assertThat(issue.messageArgs()).containsEntry("name", "fieldName").containsEntry("value", "bad_name");
+            assertThat(issue.message()).isEqualTo("invalid fieldName: bad_name");
+        });
+    }
+
+    @Test
     void contentPolicyPreflightRejectsLegacyReferencesOwnedByAnotherRelationBeforePublication() {
         applyNewStringField("companyId", "company_id");
         var saved = field("companyId");

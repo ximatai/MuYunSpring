@@ -129,7 +129,7 @@ public class BusinessRuleGovernanceService {
             } catch (FormulaEvaluationException exception) {
                 errors.add(issue(exception, null));
             } catch (RuntimeException exception) {
-                errors.add(new BusinessRuleIssue("MODULE_DEFINITION_INVALID", null, null, exception.getMessage()));
+                errors.add(BusinessRuleIssue.failure("MODULE_DEFINITION_INVALID", null, null, exception));
             }
         }
         return new BusinessRulePreview(snapshot, fingerprint(rules), order, List.copyOf(errors));
@@ -153,8 +153,8 @@ public class BusinessRuleGovernanceService {
         if (command != null && command.sampleValues() != null) {
             command.sampleValues().forEach((field, value) -> {
                 if (field != null && field.contains(".")) {
-                    errors.add(new BusinessRuleIssue("FORMULA_REFERENCE_INPUT_FORBIDDEN", null, field,
-                            "引用路径由服务端按根引用实时读取，不能提交 dotted sample 值"));
+                    errors.add(BusinessRuleIssue.declared("FORMULA_REFERENCE_INPUT_FORBIDDEN", null, field, TextReference.code(
+                        "platform.rules.diagnostic.formula-reference-input-forbidden", "引用路径由服务端按根引用实时读取，不能提交 dotted sample 值"), Map.of()));
                 } else {
                     values.put(field, value);
                 }
@@ -170,8 +170,8 @@ public class BusinessRuleGovernanceService {
             FormulaReferenceContext references = trialReferences(moduleAlias, rules);
             fields.addAll(references.fields());
             if (!references.isEmpty() && (referenceTenantId == null || referenceTenantId.isBlank())) {
-                errors.add(new BusinessRuleIssue("FORMULA_REFERENCE_TENANT_REQUIRED", null, null,
-                        "引用试算需要请求租户上下文"));
+                errors.add(BusinessRuleIssue.declared("FORMULA_REFERENCE_TENANT_REQUIRED", null, null, TextReference.code(
+                        "platform.rules.diagnostic.formula-reference-tenant-required", "引用试算需要请求租户上下文"), Map.of()));
                 return new BusinessRuleTrialResult(preview, immutableValues(values), List.of(), List.copyOf(errors));
             }
             FormulaExecutionResult result = FormulaRuleExecutionPlan.forAggregateRecord(rules, fields, childRelations(preview.snapshot()))
@@ -186,7 +186,7 @@ public class BusinessRuleGovernanceService {
             errors.add(issue(exception, null));
             return new BusinessRuleTrialResult(preview, immutableValues(values), List.of(), List.copyOf(errors));
         } catch (IllegalArgumentException exception) {
-            errors.add(new BusinessRuleIssue("FORMULA_REFERENCE_PATH_INVALID", null, null, exception.getMessage()));
+            errors.add(BusinessRuleIssue.failure("FORMULA_REFERENCE_PATH_INVALID", null, null, exception));
             return new BusinessRuleTrialResult(preview, immutableValues(values), List.of(), List.copyOf(errors));
         }
     }
@@ -220,17 +220,30 @@ public class BusinessRuleGovernanceService {
             values.put(name, field.normalizeValue(value));
         } catch (FormulaEvaluationException exception) {
             String path = field.fieldPath().dataIndex();
-            String expected = switch (field.type()) {
-                case INTEGER, LONG -> "整数";
-                case DECIMAL -> "数值";
-                case BOOLEAN -> "布尔值";
-                case DATE -> "日期";
-                case TIMESTAMP -> "时间";
-                default -> "字段声明的类型";
+            String type = switch (field.type()) {
+                case INTEGER, LONG -> "integer";
+                case DECIMAL -> "decimal";
+                case BOOLEAN -> "boolean";
+                case DATE -> "date";
+                case TIMESTAMP -> "timestamp";
+                default -> "declared";
             };
-            errors.add(new BusinessRuleIssue(exception.code(), null, path,
-                    "试算输入「" + titles.getOrDefault(path, path) + "」必须是" + expected
-                            + (rowNumber == null ? "" : "（第" + rowNumber + "行）")));
+            String original = switch (type) {
+                case "integer" -> "试算输入「{title}」必须是整数";
+                case "decimal" -> "试算输入「{title}」必须是数值";
+                case "boolean" -> "试算输入「{title}」必须是布尔值";
+                case "date" -> "试算输入「{title}」必须是日期";
+                case "timestamp" -> "试算输入「{title}」必须是时间";
+                default -> "试算输入「{title}」必须是字段声明的类型";
+            };
+            Map<String, Object> arguments = new LinkedHashMap<>();
+            arguments.put("title", titles.getOrDefault(path, path));
+            if (rowNumber != null) {
+                original += "（第{row}行）";
+                arguments.put("row", rowNumber);
+            }
+            errors.add(BusinessRuleIssue.declared(exception.code(), null, path, TextReference.code(
+                    "platform.rules.diagnostic.trial-type-" + type + (rowNumber == null ? "" : "-row"), original), arguments));
         }
     }
 
@@ -246,20 +259,21 @@ public class BusinessRuleGovernanceService {
                 ? Map.of() : command.sampleChildren();
         Map<String, List<Map<String, Object>>> result = new LinkedHashMap<>();
         if (supplied.size() > 20) {
-            errors.add(new BusinessRuleIssue("TRIAL_CHILD_LIMIT", null, null, "试算最多提供20个子表"));
+            errors.add(BusinessRuleIssue.declared("TRIAL_CHILD_LIMIT", null, null, TextReference.code(
+                        "platform.rules.diagnostic.trial-child-limit", "试算最多提供20个子表"), Map.of()));
             return result;
         }
         supplied.forEach((relation, rows) -> {
             if (!allowed.containsKey(relation) || rows == null || rows.size() > 100) {
-                errors.add(new BusinessRuleIssue("INVALID_TRIAL_CHILD", null, relation,
-                        "子表必须来自当前汇总字段目录，每个子表最多100行"));
+                errors.add(BusinessRuleIssue.declared("INVALID_TRIAL_CHILD", null, relation, TextReference.code(
+                        "platform.rules.diagnostic.invalid-trial-child", "子表必须来自当前汇总字段目录，每个子表最多100行"), Map.of()));
                 return;
             }
             List<Map<String, Object>> copies = new ArrayList<>();
             for (Map<String, Object> row : rows) {
                 if (row == null || !allowed.get(relation).containsAll(row.keySet())) {
-                    errors.add(new BusinessRuleIssue("INVALID_TRIAL_CHILD_FIELD", null, relation,
-                            "明细样例只接受目录中声明的直接子表业务字段"));
+                    errors.add(BusinessRuleIssue.declared("INVALID_TRIAL_CHILD_FIELD", null, relation, TextReference.code(
+                        "platform.rules.diagnostic.invalid-trial-child-field", "明细样例只接受目录中声明的直接子表业务字段"), Map.of()));
                     continue;
                 }
                 copies.add(new LinkedHashMap<>(row));
@@ -273,8 +287,8 @@ public class BusinessRuleGovernanceService {
                         .filter(path -> snapshot.aggregateFields().stream().anyMatch(field -> field.fieldName().equals(path)))
                         .map(path -> path.substring(0, path.indexOf('.'))).distinct()
                         .filter(relation -> !supplied.containsKey(relation))
-                        .forEach(relation -> errors.add(new BusinessRuleIssue("TRIAL_CHILD_REQUIRED", rule.id(), relation,
-                                "请提供子表样例；空明细请显式传入空列表，不能把未提供数据当作零条记录"))));
+                        .forEach(relation -> errors.add(BusinessRuleIssue.declared("TRIAL_CHILD_REQUIRED", rule.id(), relation, TextReference.code(
+                        "platform.rules.diagnostic.trial-child-required", "请提供子表样例；空明细请显式传入空列表，不能把未提供数据当作零条记录"), Map.of()))));
         return result;
     }
 
@@ -397,30 +411,36 @@ public class BusinessRuleGovernanceService {
         for (BusinessRuleProposal proposal : proposals) {
             String code = proposal == null ? null : proposal.code();
             if (code == null || !code.matches(RULE_CODE_PATTERN) || !codes.add(code)) {
-                errors.add(new BusinessRuleIssue("INVALID_RULE_CODE", code, null, "规则编码必须唯一且符合平台编码规则"));
+                errors.add(BusinessRuleIssue.declared("INVALID_RULE_CODE", code, null, TextReference.code(
+                        "platform.rules.diagnostic.invalid-rule-code", "规则编码必须唯一且符合平台编码规则"), Map.of()));
                 continue;
             }
             BusinessRuleSnapshotRule existing = snapshot.rules().stream().filter(rule -> code.equals(rule.code())).findFirst().orElse(null);
             if (existingCodes.contains(code) && (existing == null || !existing.editable())) {
-                errors.add(new BusinessRuleIssue("READ_ONLY_RULE_CODE", code, null, "该规则保留为只读，不能被业务规则编辑器覆盖"));
+                errors.add(BusinessRuleIssue.declared("READ_ONLY_RULE_CODE", code, null, TextReference.code(
+                        "platform.rules.diagnostic.read-only-rule-code", "该规则保留为只读，不能被业务规则编辑器覆盖"), Map.of()));
                 continue;
             }
             if (proposal.kind() != FormulaRuleKind.CALCULATION && proposal.kind() != FormulaRuleKind.VALIDATION) {
-                errors.add(new BusinessRuleIssue("UNSUPPORTED_RULE_KIND", code, null, "首期仅支持计算和校验规则"));
+                errors.add(BusinessRuleIssue.declared("UNSUPPORTED_RULE_KIND", code, null, TextReference.code(
+                        "platform.rules.diagnostic.unsupported-rule-kind", "首期仅支持计算和校验规则"), Map.of()));
                 continue;
             }
             if (proposal.expression() == null || proposal.expression().isBlank() || proposal.expression().length() > 4000) {
-                errors.add(new BusinessRuleIssue("INVALID_RULE_EXPRESSION", code, proposal.targetField(), "表达式不能为空或超过4000字符"));
+                errors.add(BusinessRuleIssue.declared("INVALID_RULE_EXPRESSION", code, proposal.targetField(), TextReference.code(
+                        "platform.rules.diagnostic.invalid-rule-expression", "表达式不能为空或超过4000字符"), Map.of()));
                 continue;
             }
             if (proposal.kind() == FormulaRuleKind.CALCULATION && !fields.contains(proposal.targetField())) {
-                errors.add(new BusinessRuleIssue("INVALID_RULE_TARGET", code, proposal.targetField(), "计算目标必须来自主表或直接子表的可写字段目录"));
+                errors.add(BusinessRuleIssue.declared("INVALID_RULE_TARGET", code, proposal.targetField(), TextReference.code(
+                        "platform.rules.diagnostic.invalid-rule-target", "计算目标必须来自主表或直接子表的可写字段目录"), Map.of()));
                 continue;
             }
             String expression = storedExpression(proposal);
             try {
                 if (engine.containsAssignment(proposal.expression())) {
-                    errors.add(new BusinessRuleIssue("INVALID_RULE_EXPRESSION", code, proposal.targetField(), "表达式不能为空且不能包含赋值"));
+                    errors.add(BusinessRuleIssue.declared("INVALID_RULE_EXPRESSION", code, proposal.targetField(), TextReference.code(
+                        "platform.rules.diagnostic.invalid-rule-expression-assignment", "表达式不能为空且不能包含赋值"), Map.of()));
                     continue;
                 }
                 if (proposal.kind() == FormulaRuleKind.CALCULATION) {
@@ -440,8 +460,8 @@ public class BusinessRuleGovernanceService {
                         .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
                 if (!scalarChildInputs.isEmpty() && (proposal.targetField() == null || !snapshot.childFields().stream()
                         .anyMatch(field -> field.fieldName().equals(proposal.targetField())))) {
-                    scalarChildInputs.forEach(field -> errors.add(new BusinessRuleIssue("SUBTABLE_AGGREGATE_REQUIRED", code, field,
-                            "子表字段只能作为 COUNT、SUM、AVG、MAX 或 MIN 的汇总参数")));
+                    scalarChildInputs.forEach(field -> errors.add(BusinessRuleIssue.declared("SUBTABLE_AGGREGATE_REQUIRED", code, field, TextReference.code(
+                        "platform.rules.diagnostic.subtable-aggregate-required", "子表字段只能作为 COUNT、SUM、AVG、MAX 或 MIN 的汇总参数"), Map.of())));
                     continue;
                 }
                 List<BusinessRuleIssue> aggregateTypeErrors = aggregateTypeErrors(engine, expression, snapshot.aggregateFields(), code);
@@ -450,8 +470,8 @@ public class BusinessRuleGovernanceService {
                     continue;
                 }
                 if (!invalidInputs.isEmpty()) {
-                    invalidInputs.forEach(field -> errors.add(new BusinessRuleIssue("INVALID_RULE_INPUT", code, field,
-                            "业务规则输入必须来自字段目录: " + field)));
+                    invalidInputs.forEach(field -> errors.add(BusinessRuleIssue.declared("INVALID_RULE_INPUT", code, field, TextReference.code(
+                            "platform.rules.diagnostic.invalid-rule-input", "业务规则输入必须来自字段目录: {field}"), Map.of("field", field))));
                     continue;
                 }
                 result.add(new FormulaRule(code, expression, proposal.kind(), FormulaRulePhase.BEFORE_SAVE,
@@ -550,8 +570,8 @@ public class BusinessRuleGovernanceService {
         List<BusinessRuleIssue> errors = new ArrayList<>();
         engine.aggregateValueFieldReferences(expression).forEach((field, functions) -> functions.forEach(function -> {
             if (allowedFunctions.containsKey(field) && !allowedFunctions.get(field).contains(function)) {
-                errors.add(new BusinessRuleIssue("AGGREGATE_FIELD_TYPE_UNSUPPORTED", code, field,
-                        function + " 仅支持数值型子表字段；COUNT 可用于任意可读业务子表字段"));
+                errors.add(BusinessRuleIssue.declared("AGGREGATE_FIELD_TYPE_UNSUPPORTED", code, field, TextReference.code(
+                        "platform.rules.diagnostic.aggregate-field-type-unsupported", "{function} 仅支持数值型子表字段；COUNT 可用于任意可读业务子表字段"), Map.of("function", function)));
             }
         }));
         return List.copyOf(errors);
