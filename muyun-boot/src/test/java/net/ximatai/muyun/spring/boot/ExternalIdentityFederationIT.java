@@ -1,6 +1,24 @@
 package net.ximatai.muyun.spring.boot;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
+import net.ximatai.muyun.spring.common.model.EntityLifecycle;
+import net.ximatai.muyun.spring.iam.user.PasswordHashingService;
+import net.ximatai.muyun.spring.iam.organization.Organization;
+import net.ximatai.muyun.spring.iam.organization.OrganizationDao;
+import net.ximatai.muyun.spring.iam.position.Position;
+import net.ximatai.muyun.spring.iam.position.PositionDao;
+import net.ximatai.muyun.spring.iam.role.Role;
+import net.ximatai.muyun.spring.iam.role.RoleDao;
+import net.ximatai.muyun.spring.iam.role.RoleAction;
+import net.ximatai.muyun.spring.iam.role.RoleActionDao;
+import net.ximatai.muyun.spring.iam.role.RoleService;
+import net.ximatai.muyun.spring.platform.job.JobService;
+import net.ximatai.muyun.spring.starter.configuration.platform.JobNodeExecutor;
+import net.ximatai.muyun.spring.iam.federation.MockExternalDirectoryProtocol;
+
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
@@ -126,6 +144,8 @@ class ExternalIdentityFederationIT {
 
     @BeforeAll
     void seed() {
+        // Drive directory jobs explicitly so the HTTP regression has deterministic transaction boundaries.
+        applicationContext.getBean(JobNodeExecutor.class).stop();
         try (var user = CurrentUserContext.use(CurrentUser.systemUser("federation-it", "federation-it"));
              var system = TenantContext.system("external identity federation integration test")) {
             Tenant tenant = new Tenant();
@@ -340,6 +360,195 @@ class ExternalIdentityFederationIT {
         try (var tenant = TenantContext.use(TENANT)) {
             assertThat(externalIdentityService.isAutoRebindBlocked(PROVIDER, externalId)).isTrue();
         }
+    }
+
+    @Test
+    void directoryUnbindPasswordLoginAndExplicitRebindKeepSourcePermissionsUnderSyncControl() throws Exception {
+        String providerId = "audit_directory";
+        var json = new ObjectMapper();
+        var organizationRows = applicationContext.getBean(OrganizationDao.class);
+        var positionRows = applicationContext.getBean(PositionDao.class);
+        var roleRows = applicationContext.getBean(RoleDao.class);
+        var roleActions = applicationContext.getBean(RoleActionDao.class);
+        var roles = applicationContext.getBean(RoleService.class);
+        var jobs = applicationContext.getBean(JobService.class);
+        TenantIdentityPolicy policy;
+        String userId;
+        String username;
+        String bindingId;
+        var sourceRole = new Role();
+        try (var current = CurrentUserContext.use(CurrentUser.systemUser("audit-it", "audit-it"));
+             var tenant = TenantContext.use(TENANT)) {
+            var organization = new Organization();
+            organization.setCode("audit"); organization.setTitle("Audit");
+            insertFixture(organizationRows, organization);
+            var position = new Position();
+            position.setCode("audit"); position.setTitle("Audit"); position.setCategoryId("audit");
+            insertFixture(positionRows, position);
+            sourceRole.setTitle("Source access"); sourceRole.setOwnerScopeKey("tenant:");
+            insertFixture(roleRows, sourceRole);
+            var permission = new RoleAction();
+            permission.setRoleId(sourceRole.getId()); permission.setModuleAlias("audit.resource"); permission.setActionCode("view"); // query inherits view
+            insertFixture(roleActions, permission);
+            var provider = new IdentityProvider();
+            provider.setId(providerId); provider.setTitle("Audit directory"); provider.setProviderType("mock");
+            provider.setExternalEnterpriseId("audit-corp"); provider.setIdentityNamespace("audit-directory");
+            provider.setConfiguration(directoryFixture("active"));
+            try (var global = TenantContext.system("create audit provider")) { identityProviderService.insert(provider); }
+            policy = new TenantIdentityPolicy(); policy.setProviderId(providerId); policy.setEnabled(true);
+            policy.setSyncEnabled(true); policy.setSyncScopeConfirmed(true); policy.setSyncPositionId(position.getId());
+            policy.setSyncRoleId(sourceRole.getId()); policy.setSyncExpression("0 0 * * * *");
+            policy.setSyncRoots(json.writeValueAsString(List.of(Map.of("externalDepartmentId", "team", "organizationId", organization.getId()))));
+            tenantIdentityPolicyService.insert(policy);
+            tenantIdentityPolicyService.synchronize(policy.getId(), false);
+        }
+        assertThat(jobs.runOne("directory-sync", "audit-node")).isTrue();
+        try (var tenant = TenantContext.use(TENANT)) {
+            var binding = externalIdentityService.list(Criteria.of().eq("providerId", providerId), new PageRequest(0, 1)).getFirst();
+            bindingId = binding.getId(); userId = binding.getUserId();
+            username = userAccountService.select(userId).getUsername();
+            jdbcTemplate.update("update iam_user set password_hash=?, password_status='normal', password_changed_at=current_timestamp where id=?",
+                    applicationContext.getBean(PasswordHashingService.class).hash(PASSWORD), userId);
+            assertThat(roles.hasActionPermission(userId, "audit.resource", "query")).isTrue();
+        }
+        String token = passwordLogin(username);
+        assertThat(post("/iam.auth/external/identities/" + bindingId + "/delete", Map.of(), token).getStatusCode()).isEqualTo(HttpStatus.OK);
+        try (var tenant = TenantContext.use(TENANT)) {
+            assertThat(roles.hasActionPermission(userId, "audit.resource", "query")).isFalse();
+            assertThat(userSessionDao.query(Criteria.of().eq("userId", userId), new PageRequest(0, 100)))
+                    .allMatch(session -> session.getRevokedAt() != null);
+        }
+        // A departed observation after physical deletion cannot leave stale access behind.
+        try (var current = CurrentUserContext.use(CurrentUser.systemUser("audit-it", "audit-it"));
+             var tenant = TenantContext.use(TENANT)) {
+            try (var global = TenantContext.system("change audit directory")) {
+                var provider = identityProviderService.select(providerId);
+                provider.setConfiguration(directoryFixture("departed")); identityProviderService.update(provider);
+            }
+            tenantIdentityPolicyService.synchronize(policy.getId(), false);
+        }
+        assertThat(jobs.runOne("directory-sync", "audit-node")).isTrue();
+        token = passwordLogin(username);
+        try (var tenant = TenantContext.use(TENANT)) {
+            assertThat(roles.hasActionPermission(userId, "audit.resource", "query")).isFalse();
+        }
+        // Explicit consent restores management, while fresh source facts determine actual access.
+        var rebound = completeFlow(providerId, post("/iam.auth/external/" + providerId + "/bind", Map.of(), token), "audit-alice");
+        assertThat(rebound.path("status").asText()).isEqualTo("succeeded");
+        try (var tenant = TenantContext.use(TENANT)) {
+            assertThat(externalIdentityService.select(rebound.path("binding").path("id").asText()).getBindingSource())
+                    .isEqualTo(ExternalIdentityBindingSource.DIRECTORY_SYNC);
+            assertThat(roles.hasActionPermission(userId, "audit.resource", "query")).isFalse();
+        }
+        jdbcTemplate.update("update iam_external_identity set bound_at=current_timestamp-interval '4 days' where id=?",
+                rebound.path("binding").path("id").asText());
+        assertThat(completeFlow(providerId, post("/iam.auth/external/" + providerId + "/login", Map.of("tenantId", TENANT), null),
+                "audit-alice").path("failure").asText()).isEqualTo("accountUnavailable");
+        for (String status : List.of("departed", "active", "absent")) {
+            try (var current = CurrentUserContext.use(CurrentUser.systemUser("audit-it", "audit-it"));
+                 var tenant = TenantContext.use(TENANT)) {
+                try (var global = TenantContext.system("change audit directory")) {
+                    var provider = identityProviderService.select(providerId);
+                    provider.setConfiguration(directoryFixture(status)); identityProviderService.update(provider);
+                }
+                tenantIdentityPolicyService.synchronize(policy.getId(), false);
+            }
+            assertThat(jobs.runOne("directory-sync", "audit-node")).isTrue();
+            passwordLogin(username);
+            try (var tenant = TenantContext.use(TENANT)) {
+                assertThat(roles.hasActionPermission(userId, "audit.resource", "query")).isEqualTo(status.equals("active"));
+                assertThat(jdbcTemplate.queryForObject("select count(*) from iam_employment_role_grant where tenant_id=? and source='directory' and role_id=?",
+                        Long.class, TENANT, sourceRole.getId())).isEqualTo(status.equals("active") ? 1L : 0L);
+            }
+        }
+        token = passwordLogin(username);
+        assertThat(post("/iam.auth/external/identities/" + rebound.path("binding").path("id").asText() + "/delete",
+                Map.of(), token).getStatusCode()).isEqualTo(HttpStatus.OK);
+        try (var current = CurrentUserContext.use(CurrentUser.systemUser("audit-it", "audit-it"));
+             var tenant = TenantContext.use(TENANT)) { createUser("audit-other-account"); }
+        var otherBinding = completeFlow(providerId, post("/iam.auth/external/" + providerId + "/bind", Map.of(), passwordLogin("audit-other-account")), "audit-alice");
+        assertThat(otherBinding.path("status").asText()).isEqualTo("succeeded");
+        try (var tenant = TenantContext.use(TENANT)) {
+            var other = externalIdentityService.select(otherBinding.path("binding").path("id").asText());
+            assertThat(other.getBindingSource()).isEqualTo(ExternalIdentityBindingSource.SELF_BIND);
+            assertThat(roles.hasActionPermission(other.getUserId(), "audit.resource", "query")).isFalse();
+            assertThat(roles.hasActionPermission(userId, "audit.resource", "query")).isFalse();
+        }
+    }
+
+    @Test
+    void staleLoginObservationCannotRefreshARecreatedUnboundIdentity() {
+        String providerId = "rebind_race";
+        String username = "rebind-race-user";
+        String userId;
+        String oldId;
+        try (var current = CurrentUserContext.use(CurrentUser.systemUser("audit-it", "audit-it"));
+             var global = TenantContext.system("seed rebind race")) {
+            var provider = new IdentityProvider();
+            provider.setId(providerId); provider.setTitle("Rebind race"); provider.setProviderType(StatusProtocol.TYPE);
+            provider.setExternalEnterpriseId("status-corp"); provider.setIdentityNamespace("rebind-race");
+            identityProviderService.insert(provider);
+            try (var tenant = TenantContext.use(TENANT)) {
+                var policy = new TenantIdentityPolicy(); policy.setProviderId(providerId);
+                tenantIdentityPolicyService.insert(policy);
+                createUser(username);
+                userId = userAccountService.list(Criteria.of().eq("username", username), new PageRequest(0, 1)).getFirst().getId();
+                var binding = new ExternalIdentity();
+                binding.setUserId(userId); binding.setProviderId(providerId); binding.setIdentityNamespace("rebind-race");
+                binding.setExternalEnterpriseId("status-corp"); binding.setExternalUserId(username);
+                binding.setBindingSource(ExternalIdentityBindingSource.DIRECTORY_SYNC);
+                binding.setSourceStatus("active"); binding.setBoundAt(Instant.now().minusSeconds(4 * 86400));
+                externalIdentityService.insert(binding); oldId = binding.getId();
+            }
+        }
+        String token = passwordLogin(username);
+        statusProtocol.status = "active"; statusProtocol.fail = false; statusProtocol.lookupSupported = true;
+        statusProtocol.omitEnterprise = false;
+        statusProtocol.lookupHook = () -> {
+            statusProtocol.lookupHook = () -> {};
+            assertThat(post("/iam.auth/external/identities/" + oldId + "/delete", Map.of(), token).getStatusCode()).isEqualTo(HttpStatus.OK);
+            var rebound = statusFlow(providerId, username, passwordLogin(username));
+            assertThat(rebound.path("status").asText()).isEqualTo("succeeded");
+            // The new row has version zero just as the deleted row did.
+            try (var tenant = TenantContext.use(TENANT)) {
+                var binding = externalIdentityService.select(rebound.path("binding").path("id").asText());
+                assertThat(binding.getId()).isNotEqualTo(oldId);
+                assertThat(binding.getVersion()).isZero();
+                assertThat(binding.getSourceStatus()).isEqualTo("unbound");
+            }
+        };
+        try {
+            assertThat(statusFlow(providerId, username, null).path("failure").asText()).isEqualTo("accountUnavailable");
+            try (var tenant = TenantContext.use(TENANT)) {
+                assertThat(externalIdentityService.bindingsOfUser(userId)).singleElement()
+                        .satisfies(binding -> assertThat(binding.getSourceStatus()).isEqualTo("unbound"));
+            }
+        } finally { statusProtocol.lookupHook = () -> {}; }
+    }
+
+    private JsonNode statusFlow(String providerId, String externalId, String token) {
+        var start = post("/iam.auth/external/" + providerId + (token == null ? "/login" : "/bind"),
+                token == null ? Map.of("tenantId", TENANT) : Map.of(), token).getBody();
+        String state = start.path("state").asText();
+        return post("/iam.auth/external/" + providerId + "/complete", Map.of("state", state,
+                "browserProof", start.path("browserProof").asText(), "parameters", Map.of("state", state, "code", externalId)), null).getBody();
+    }
+
+    private String directoryFixture(String status) throws Exception {
+        var departments = List.of(new ExternalDirectoryProtocol.Department("company", null, "Company"),
+                new ExternalDirectoryProtocol.Department("team", "company", "Team"));
+        var people = status.equals("absent") ? List.<ExternalDirectoryProtocol.Person>of() : List.of(
+                new ExternalDirectoryProtocol.Person("audit-alice", "Audit Alice", "audit-001", "team", List.of("team"), status, null, null));
+        var json = new ObjectMapper();
+        return json.writeValueAsString(Map.of("directory", json.writeValueAsString(
+                new MockExternalDirectoryProtocol.Data(departments, people, List.of()))));
+    }
+
+    private <T extends StandardEntity> void insertFixture(
+            BaseDao<T, String> rows, T row) {
+        row.setTenantId(TENANT);
+        EntityLifecycle.prepareInsert(row, Instant.now());
+        rows.insert(row);
     }
 
     private JsonNode statusCompletion() {
@@ -738,6 +947,14 @@ class ExternalIdentityFederationIT {
         return start.getBody();
     }
 
+    private JsonNode completeFlow(String providerId, ResponseEntity<JsonNode> start, String externalUserId) throws Exception {
+        assertThat(start.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var body = start.getBody();
+        var completion = complete(providerId, body, authorize(body, externalUserId), body.path("browserProof").asText());
+        assertThat(completion.getStatusCode()).as("%s", completion.getBody()).isEqualTo(HttpStatus.OK);
+        return completion.getBody();
+    }
+
     private JsonNode completeFlow(ResponseEntity<JsonNode> start, String externalUserId) throws Exception {
         assertThat(start.getStatusCode()).isEqualTo(HttpStatus.OK);
         return completeFlow(start.getBody(), externalUserId);
@@ -770,8 +987,12 @@ class ExternalIdentityFederationIT {
 
     /** What the workbench submits after the provider returned the browser with state and code. */
     private ResponseEntity<JsonNode> complete(JsonNode start, String code, String browserProof) {
+        return complete(start.path("providerId").asText(PROVIDER), start, code, browserProof);
+    }
+
+    private ResponseEntity<JsonNode> complete(String providerId, JsonNode start, String code, String browserProof) {
         String state = start.path("state").asText();
-        return post("/iam.auth/external/" + start.path("providerId").asText(PROVIDER) + "/complete", Map.of(
+        return post("/iam.auth/external/" + providerId + "/complete", Map.of(
                 "state", state, "browserProof", browserProof, "parameters", Map.of("state", state, "code", code)), null);
     }
 
@@ -848,6 +1069,7 @@ class ExternalIdentityFederationIT {
         volatile boolean omitEnterprise;
         volatile boolean singleEnterprise;
         volatile int calls;
+        volatile Runnable lookupHook = () -> {};
         @Override public void validateConfiguration(Map<String, String> configuration) { }
         @Override public Set<String> identityScopeConfigurationKeys() { return Set.of(); }
         @Override public String providerType() { return TYPE; }
@@ -864,7 +1086,9 @@ class ExternalIdentityFederationIT {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             calls++;
             if (fail) throw new IllegalStateException("status unavailable");
-            return new Person(id, id, null, "root", List.of("root"), status, null, null);
+            String observedStatus = status;
+            lookupHook.run();
+            return new Person(id, id, null, "root", List.of("root"), observedStatus, null, null);
         }
         @Override public Department department(IdentityProviderDescriptor provider, String id) { throw new UnsupportedOperationException(); }
         @Override public Page<Department> departments(IdentityProviderDescriptor provider, String root, String cursor, int limit) { throw new UnsupportedOperationException(); }

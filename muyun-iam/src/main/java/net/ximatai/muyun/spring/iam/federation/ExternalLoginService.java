@@ -356,6 +356,10 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
             observed = identities.findByExternalIdentity(descriptor.identityNamespace(),
                     identity.externalEnterpriseId(), identity.externalUserId()).orElse(null);
         }
+        // Consent resumes directory management, but only a formal sync may restore source access.
+        if (transaction.getPurpose() == ExternalLoginPurpose.LOGIN && observed != null
+                && "unbound".equals(observed.getSourceStatus()))
+            return Outcome.denied(ExternalLoginFailure.ACCOUNT_UNAVAILABLE);
         ExternalDirectoryProtocol.Person refreshed = null;
         Instant checkedAt = clock.instant();
         if (transaction.getPurpose() == ExternalLoginPurpose.LOGIN && observed != null
@@ -402,7 +406,10 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
                 }
                 if (existing.isPresent()) {
                     var binding = existing.get();
+                    if ("unbound".equals(binding.getSourceStatus()))
+                        return Outcome.denied(ExternalLoginFailure.ACCOUNT_UNAVAILABLE);
                     if (authoritative != null && observed != null
+                            && Objects.equals(binding.getId(), observed.getId())
                             && Objects.equals(binding.getVersion(), observed.getVersion())) {
                         binding.setSourceStatus(authoritative.status());
                         binding.setSourceCheckedAt(checkedAt);
@@ -476,7 +483,9 @@ public class ExternalLoginService implements TenantLoginMethodContributor {
         binding.setExternalEnterpriseId(identity.externalEnterpriseId());
         binding.setExternalUserId(identity.externalUserId());
         binding.setDisplayName(identity.displayName());
-        binding.setBindingSource(ExternalIdentityBindingSource.SELF_BIND);
+        boolean resumeDirectory = identities.resumesDirectoryManagement(provider.id(), identity.externalUserId(), userId);
+        binding.setBindingSource(resumeDirectory ? ExternalIdentityBindingSource.DIRECTORY_SYNC : ExternalIdentityBindingSource.SELF_BIND);
+        if (resumeDirectory) binding.setSourceStatus("unbound");
         binding.setBoundAt(clock.instant());
         try {
             identities.insert(binding);

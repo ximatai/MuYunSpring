@@ -38,14 +38,16 @@ public class ExternalIdentityService extends TenantActiveScopedService<ExternalI
     private final UserSessionRevocationService revocations;
     private final DirectoryRebindBlockDao rebindBlocks;
     private final DirectorySyncStore directory;
+    private final DirectorySourceLifecycle sourceLifecycle;
 
     public ExternalIdentityService(ExternalIdentityDao dao, ActiveTenantVerifier activeTenantVerifier,
                                    UserSessionRevocationService revocations, DirectoryRebindBlockDao rebindBlocks,
-                                   DirectorySyncStore directory) {
+                                   DirectorySyncStore directory, DirectorySourceLifecycle sourceLifecycle) {
         super(MODULE_ALIAS, ExternalIdentity.class, dao, activeTenantVerifier);
         this.revocations = Objects.requireNonNull(revocations, "revocations");
         this.rebindBlocks = Objects.requireNonNull(rebindBlocks, "rebindBlocks");
         this.directory = Objects.requireNonNull(directory, "directory");
+        this.sourceLifecycle = Objects.requireNonNull(sourceLifecycle, "sourceLifecycle");
     }
 
     @Override
@@ -96,14 +98,25 @@ public class ExternalIdentityService extends TenantActiveScopedService<ExternalI
             block.setTenantId(binding.getTenantId());
             block.setProviderId(binding.getProviderId());
             block.setExternalUserId(binding.getExternalUserId());
+            if (binding.getBindingSource() == ExternalIdentityBindingSource.DIRECTORY_SYNC)
+                block.setDirectoryUserId(binding.getUserId());
             DirectorySyncStore.insert(rebindBlocks, block);
         }
-        revocations.revokeUserSessions(binding.getUserId(), "external identity unbound");
+        if (binding.getBindingSource() == ExternalIdentityBindingSource.DIRECTORY_SYNC)
+            sourceLifecycle.invalidate(binding, "unbound", null);
+        else revocations.revokeUserSessions(binding.getUserId(), "external identity unbound");
     }
 
     public boolean isAutoRebindBlocked(String providerId, String externalUserId) {
         return !rebindBlocks.query(Criteria.of().eq("tenantId", TenantContext.currentTenantId().orElseThrow())
                 .eq("providerId", providerId).eq("externalUserId", externalUserId), new PageRequest(0, 1)).isEmpty();
+    }
+
+    /** Only the original account may resume ownership of previously synchronized employment. */
+    boolean resumesDirectoryManagement(String providerId, String externalUserId, String userId) {
+        return rebindBlocks.query(Criteria.of().eq("tenantId", TenantContext.currentTenantId().orElseThrow())
+                .eq("providerId", providerId).eq("externalUserId", externalUserId)
+                .eq("directoryUserId", userId), new PageRequest(0, 1)).size() == 1;
     }
 
     /** A verified explicit bind restores consent to subsequent directory management. Caller owns the source lock. */

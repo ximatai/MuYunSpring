@@ -18,4 +18,7 @@ public class DirectoryRebindBlock extends StandardEntity {
     private String providerId;
     @Column(name = "external_user_id", type = ColumnType.VARCHAR, length = 128, nullable = false)
     private String externalUserId;
+    /** Durable source ownership survives physical deletion of the login binding. */
+    @Column(name = "directory_user_id", type = ColumnType.VARCHAR, length = 32)
+    private String directoryUserId;
 }
