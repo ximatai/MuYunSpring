@@ -306,7 +306,7 @@ class AiModelConfigurationServiceTest {
         var service = service(mock(BaseDao.class));
         var configuration = input("model", null);
         configuration.setCredentialSource(AiModelCredentialSource.ENVIRONMENT);
-        configuration.setApiKeyEnvironmentVariable("MUYUN_AI_TEST_KEY");
+        configuration.setApiKeyEnvironmentVariable("MUYUN_AI_TEST_API_KEY");
         try (var user = CurrentUserContext.use(CurrentUser.tenantUser("u", "u", "tenant"));
              var tenant = TenantContext.use("tenant");
              var bypass = TenantContext.bypassTenantFilter("contract")) {
@@ -326,7 +326,7 @@ class AiModelConfigurationServiceTest {
         provider.setProtocol(AiModelProtocol.OPENAI_COMPATIBLE);
         provider.setBaseUrl("http://127.0.0.1:1234/v1");
         when(providers.requireEnabled(AiModelProviderService.LM_STUDIO_ID)).thenReturn(provider);
-        return new AiModelConfigurationService(dao, providers,
+        return new AiModelConfigurationService(dao, providers, new AiModelCredentialResolver(),
                 beans.getBeanProvider(FieldCryptoProvider.class), beans.getBeanProvider(FieldSigner.class));
     }
 

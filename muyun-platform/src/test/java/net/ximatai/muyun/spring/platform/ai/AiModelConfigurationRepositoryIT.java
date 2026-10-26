@@ -48,6 +48,14 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
             provider.setTitle("Local contract provider");
             providers.update(provider);
             assertThat(providers.requireEnabled(provider.getId()).getTitle()).isEqualTo("Local contract provider");
+            AiModelConfiguration unauthorized = environmentInput();
+            unauthorized.setApiKeyEnvironmentVariable("DATABASE_PASSWORD");
+            assertThatThrownBy(() -> configurations.insert(unauthorized)).hasMessageContaining("环境变量名须");
+            provider.setBaseUrl("https://attacker.test/v1");
+            providers.update(provider);
+            assertThatThrownBy(() -> configurations.insert(environmentInput())).hasMessageContaining("目标地址授权");
+            provider.setBaseUrl("http://127.0.0.1:1234/v1");
+            providers.update(provider);
             // Reproduce a retained column from the retired availability-scope model.
             var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
             jdbc.execute("ALTER TABLE platform_ai_model_configuration ADD COLUMN availability_scope varchar(32) NOT NULL");
@@ -70,7 +78,14 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
             assertThat(dao.findById(platformId).getApiKeySignature()).isNull();
             var credential = new java.util.concurrent.atomic.AtomicReference<>("environment-key");
             var resolver = new DefaultAiModelRouteResolver(configurations, providers,
-                    new AiModelCredentialResolver(name -> credential.get()));
+                    new AiModelCredentialResolver(name -> name.endsWith("_BASE_URL") ? "http://127.0.0.1:1234/v1" : credential.get()));
+            provider.setBaseUrl("https://attacker.test/v1");
+            providers.update(provider);
+            assertThatThrownBy(resolver::resolveCurrent).hasMessageContaining("目标地址授权");
+            AiModelConfiguration deniedUpdate = configurations.select(platformId);
+            assertThatThrownBy(() -> configurations.update(deniedUpdate)).hasMessageContaining("目标地址授权");
+            provider.setBaseUrl("http://127.0.0.1:1234/v1");
+            providers.update(provider);
             var client = org.mockito.Mockito.mock(AiModelClient.class);
             var gateway = new DefaultAiModelGateway(resolver, client);
             gateway.generate(AiTextRequest.userText("contract"));
@@ -95,12 +110,12 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
             exerciseCredentialUpdates(platformId);
             AiModelConfiguration environment = configurations.select(platformId);
             environment.setCredentialSource(AiModelCredentialSource.ENVIRONMENT);
-            environment.setApiKeyEnvironmentVariable("MUYUN_AI_CONTRACT_KEY");
+            environment.setApiKeyEnvironmentVariable("MUYUN_AI_CONTRACT_API_KEY");
             configurations.update(environment);
             assertThat(dao.findById(platformId).getApiKey()).isNull();
             assertThat(dao.findById(platformId).getApiKeySignature()).isNull();
             assertThat(configurations.select(platformId).getApiKeyEnvironmentVariable())
-                    .isEqualTo("MUYUN_AI_CONTRACT_KEY");
+                    .isEqualTo("MUYUN_AI_CONTRACT_API_KEY");
             configurations.disable(platformId);
             configurations.enable(platformId);
             AiModelConfiguration direct = configurations.select(platformId);
@@ -216,7 +231,7 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
     private static AiModelConfiguration environmentInput() {
         AiModelConfiguration record = input(null);
         record.setCredentialSource(AiModelCredentialSource.ENVIRONMENT);
-        record.setApiKeyEnvironmentVariable("SHARED_MODEL_KEY");
+        record.setApiKeyEnvironmentVariable("MUYUN_AI_SHARED_API_KEY");
         record.setTenantFallbackEnabled(Boolean.TRUE);
         return record;
     }
@@ -236,6 +251,9 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
     static class TestApplication {
         private static final byte[] KEY = "0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.UTF_8);
 
+        @Bean AiModelCredentialResolver credentialResolver() {
+            return new AiModelCredentialResolver(name -> name.endsWith("_BASE_URL") ? "http://127.0.0.1:1234/v1" : "contract-key");
+        }
         @Bean DataSource dataSource() {
             return DataSourceBuilder.create().url(postgres.getJdbcUrl()).username(postgres.getUsername())
                     .password(postgres.getPassword()).driverClassName(postgres.getDriverClassName()).build();

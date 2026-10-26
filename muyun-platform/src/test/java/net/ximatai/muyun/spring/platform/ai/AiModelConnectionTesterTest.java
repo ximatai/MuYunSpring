@@ -78,7 +78,7 @@ class AiModelConnectionTesterTest {
         provider.setBaseUrl("https://example.test/v1");
         when(providers.requireEnabled("test")).thenReturn(provider);
         AiModelRouteResolver routes = new DefaultAiModelRouteResolver(configurations, providers,
-                new AiModelCredentialResolver(name -> "environment-secret"));
+                new AiModelCredentialResolver(name -> name.endsWith("_BASE_URL") ? "https://example.test/v1" : "environment-secret"));
         AiModelClient client = mock(AiModelClient.class);
         when(client.generate(any(), any())).thenReturn(new AiTextResponse("OK", "stop", null));
         AiModelConnectionTester tester = new AiModelConnectionTester(configurations, routes, client);
@@ -86,7 +86,7 @@ class AiModelConnectionTesterTest {
         draft.setProvider("test");
         draft.setModelId("test-model");
         draft.setCredentialSource(AiModelCredentialSource.ENVIRONMENT);
-        draft.setApiKeyEnvironmentVariable("MUYUN_AI_TEST_KEY");
+        draft.setApiKeyEnvironmentVariable("MUYUN_AI_TEST_API_KEY");
         assertThatThrownBy(() -> tester.testDraft(draft)).hasMessageContaining("只有平台管理员");
         try (var user = net.ximatai.muyun.spring.common.identity.CurrentUserContext.use(
                 net.ximatai.muyun.spring.common.identity.CurrentUser.systemUser("root", "root"))) {
@@ -97,6 +97,33 @@ class AiModelConnectionTesterTest {
         assertThat(route.getValue().apiKey()).isEqualTo("environment-secret");
         assertThat(draft.getApiKey()).isNull();
         org.mockito.Mockito.verifyNoInteractions(configurations);
+    }
+
+    @Test
+    void draftAndStoredTestsRejectUnauthorizedEnvironmentRoutesBeforeClientInvocation() {
+        var configurations = mock(AiModelConfigurationService.class);
+        var providers = mock(AiModelProviderService.class);
+        var provider = new AiModelProvider();
+        provider.setBaseUrl("https://attacker.test/v1");
+        when(providers.requireEnabled("test")).thenReturn(provider);
+        var routes = new DefaultAiModelRouteResolver(configurations, providers,
+                new AiModelCredentialResolver(name -> name.endsWith("_BASE_URL") ? "https://trusted.test/v1" : "secret"));
+        var client = mock(AiModelClient.class);
+        var tester = new AiModelConnectionTester(configurations, routes, client);
+        var draft = new AiModelConfiguration();
+        draft.setProvider("test"); draft.setModelId("model");
+        draft.setCredentialSource(AiModelCredentialSource.ENVIRONMENT);
+        when(configurations.select("stored")).thenReturn(draft);
+        try (var user = net.ximatai.muyun.spring.common.identity.CurrentUserContext.use(
+                net.ximatai.muyun.spring.common.identity.CurrentUser.systemUser("root", "root"))) {
+            for (String name : new String[]{"DATABASE_PASSWORD", "MUYUN_AI_TEST_API_KEY"}) {
+                draft.setApiKeyEnvironmentVariable(name);
+                assertThatThrownBy(() -> tester.testDraft(draft)).isInstanceOf(RuntimeException.class);
+                assertThatThrownBy(() -> tester.test("stored")).isInstanceOf(RuntimeException.class);
+                assertThatThrownBy(() -> routes.resolveCandidate(draft)).isInstanceOf(RuntimeException.class);
+            }
+        }
+        org.mockito.Mockito.verifyNoInteractions(client);
     }
 
     @Test

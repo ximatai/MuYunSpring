@@ -37,15 +37,18 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
     private static final ReferenceTarget TENANT_TARGET = ReferenceTarget.of("iam", "tenant");
 
     private final AiModelProviderService providerService;
+    private final AiModelCredentialResolver credentialResolver;
     private final FieldCryptoProvider cryptoProvider;
     private final FieldSigner signer;
 
     public AiModelConfigurationService(BaseDao<AiModelConfiguration, String> dao,
                                        AiModelProviderService providerService,
+                                       AiModelCredentialResolver credentialResolver,
                                        ObjectProvider<FieldCryptoProvider> cryptoProvider,
                                        ObjectProvider<FieldSigner> signer) {
         super(MODULE_ALIAS, AiModelConfiguration.class, dao);
         this.providerService = providerService;
+        this.credentialResolver = java.util.Objects.requireNonNull(credentialResolver);
         this.cryptoProvider = cryptoProvider.getIfAvailable(() -> FieldCryptoProvider.UNAVAILABLE);
         this.signer = signer.getIfAvailable(() -> FieldSigner.UNAVAILABLE);
     }
@@ -175,6 +178,8 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
             String name = configuration.getApiKeyEnvironmentVariable();
             configuration.setApiKeyEnvironmentVariable(AiModelCredentialResolver.requireEnvironmentVariable(
                     name == null ? null : name.trim()));
+            credentialResolver.requireAuthorizedReference(configuration,
+                    providerService.requireEnabled(configuration.getProvider()).getBaseUrl());
             configuration.setApiKey(null);
             configuration.setApiKeySignature(null);
             configuration.setApiKeyInput(null);
