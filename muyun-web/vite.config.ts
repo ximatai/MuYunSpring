@@ -16,6 +16,8 @@ export function createViteConfig(mode = 'development') {
         'ant-design-vue/es/locale/zh_CN',
         'ant-design-vue/es/date-picker/generatePicker',
         'ant-design-vue/es/vc-picker/generate/dayjs',
+        // Discovered lazily during browser tests otherwise; the resulting reload stalls Vitest.
+        'pinia',
       ],
     },
     resolve: {
