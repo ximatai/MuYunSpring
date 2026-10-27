@@ -46,3 +46,26 @@ it('keeps close protection active as its localized source and dialog text change
   expect(await confirmDiscardWorkspaceViewState([key], 'close', language)).toBe(true);
   expect(feedback.confirm).toHaveBeenCalledOnce();
 });
+
+it('uses sign-out wording for draft confirmation and busy-operation feedback', async () => {
+  const language = createLanguageContext({ languageTag: 'zh-CN' });
+  let busy = false;
+  registerWorkspaceViewUnsavedState(
+    key,
+    '记录详情',
+    () => true,
+    () => busy,
+  );
+  feedback.confirm.mockResolvedValue(true);
+  expect(await confirmDiscardWorkspaceViewState([key], 'logout', language)).toBe(true);
+  const [options] = feedback.confirm.mock.calls[0]!;
+  expect(options).toMatchObject({ title: '退出登录', okText: '退出登录' });
+  expect(options.content).toContain('退出登录后将丢失');
+  language.setLanguage('en');
+  expect(options.presentation()).toMatchObject({ title: 'Sign out', okText: 'Sign out' });
+  busy = true;
+  language.setLanguage('zh-CN');
+  expect(await confirmDiscardWorkspaceViewState([key], 'logout', language)).toBe(false);
+  expect(feedback.error).toHaveBeenLastCalledWith('“记录详情”正在处理操作，请完成后再退出登录。');
+  expect(feedback.confirm).toHaveBeenCalledOnce();
+});

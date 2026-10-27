@@ -8,6 +8,8 @@ import RecordDetailDrawer from '@/platform-components/RecordDetailDrawer.vue';
 import '@/styles.css';
 import '@muyun/vue-ui-antdv/styles.css';
 import UiThemeProvider from '@/vue-ui-antdv/components/UiThemeProvider.vue';
+import { useWorkspaceViewUnsavedState } from '@muyun/web-core';
+import { hasWorkspaceViewDiscardProtection, tabKeyOf, withPageInstanceKey } from '@muyun/platform-workbench';
 
 it('anchors drawers outside page scrolling and isolates their DOM with cached tabs', async () => {
   await page.viewport(1920, 1080);
@@ -22,10 +24,23 @@ it('anchors drawers outside page scrolling and isolates their DOM with cached ta
   const firstRoute = router.currentRoute.value;
   await router.push('/second');
   const secondRoute = router.currentRoute.value;
+  const descriptor = (route: string) =>
+    withPageInstanceKey({
+      pageType: 'business-route',
+      openMode: 'workbench-route',
+      hostType: 'business-route-host',
+      target: { route },
+      tabPolicy: { identity: 'by-target' },
+    });
+  const firstDescriptor = descriptor('/first');
+  const secondDescriptor = descriptor('/second');
+  const firstKeys = [tabKeyOf(firstDescriptor)];
   const afterClose = vi.fn();
   const content = defineComponent({
     setup() {
       const open = ref(false);
+      const draft = ref('');
+      useWorkspaceViewUnsavedState('流程规则', () => Boolean(draft.value));
       return () =>
         h('div', [
           h('button', { onClick: () => (open.value = true) }, '打开流程属性'),
@@ -42,7 +57,13 @@ it('anchors drawers outside page scrolling and isolates their DOM with cached ta
             {
               default: () =>
                 h('div', { style: 'height:1800px' }, [
-                  h('input', { 'aria-label': '配置草稿' }),
+                  h('input', {
+                    'aria-label': '配置草稿',
+                    value: draft.value,
+                    onInput: (event: Event) => {
+                      draft.value = (event.target as HTMLInputElement).value;
+                    },
+                  }),
                   '长属性内容',
                 ]),
               operation: () => h('button', '完成配置'),
@@ -64,6 +85,7 @@ it('anchors drawers outside page scrolling and isolates their DOM with cached ta
                 key: first.value ? 'first' : 'second',
                 route: first.value ? firstRoute : secondRoute,
                 component: first.value ? content : secondContent,
+                pageDescriptor: first.value ? firstDescriptor : secondDescriptor,
               }),
             ),
           ]),
@@ -85,6 +107,7 @@ it('anchors drawers outside page scrolling and isolates their DOM with cached ta
   expect(drawer.getBoundingClientRect().top).toBe(host.getBoundingClientRect().top);
   expect(drawer.getBoundingClientRect().height).toBe(host.getBoundingClientRect().height);
   await page.getByRole('textbox', { name: '配置草稿' }).fill('未保存的流程规则');
+  expect(hasWorkspaceViewDiscardProtection(firstKeys)).toBe(true);
   const workspace = wrapper.get('.workspace-fixture').element as HTMLElement;
   workspace.style.width = '640px';
   await expect.poll(() => Math.round(drawer.getBoundingClientRect().width)).toBe(640);
@@ -99,6 +122,7 @@ it('anchors drawers outside page scrolling and isolates their DOM with cached ta
   await expect.element(page.getByRole('button', { name: '完成配置', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '切换页签' }).click();
   await expect.element(page.getByText('第二页签', { exact: true })).toBeVisible();
+  expect(hasWorkspaceViewDiscardProtection(firstKeys)).toBe(true);
   await expect.element(page.getByRole('heading', { name: '流程属性', exact: true })).not.toBeInTheDocument();
   await page.getByRole('button', { name: '切换页签' }).click();
   await expect.element(page.getByRole('heading', { name: '流程属性', exact: true })).toBeVisible();
@@ -108,4 +132,5 @@ it('anchors drawers outside page scrolling and isolates their DOM with cached ta
   await page.getByRole('button', { name: '关闭', exact: true }).click();
   await expect.poll(() => afterClose.mock.calls.length).toBe(1);
   wrapper.unmount();
+  expect(hasWorkspaceViewDiscardProtection(firstKeys)).toBe(false);
 });

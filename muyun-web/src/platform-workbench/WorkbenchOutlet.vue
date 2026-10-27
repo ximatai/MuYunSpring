@@ -93,12 +93,14 @@ const externalDescriptor = computed(() =>
 </script>
 
 <template>
-  <PlatformRouteHost v-if="routeDescriptor" :descriptor="routeDescriptor" />
-  <BusinessRouteHost v-else-if="businessRouteDescriptor" :descriptor="businessRouteDescriptor" />
-  <ModulePageHost v-else-if="dynamicDescriptor" :descriptor="dynamicDescriptor" />
-  <ExternalPageHost v-else-if="externalDescriptor" :descriptor="externalDescriptor" />
-  <UiEmpty
-    v-else
-    :description="language.t('platform.screen.WorkbenchOutlet.no-page-available', '暂无页面')"
-  />
+  <slot>
+    <PlatformRouteHost v-if="routeDescriptor" :descriptor="routeDescriptor" />
+    <BusinessRouteHost v-else-if="businessRouteDescriptor" :descriptor="businessRouteDescriptor" />
+    <ModulePageHost v-else-if="dynamicDescriptor" :descriptor="dynamicDescriptor" />
+    <ExternalPageHost v-else-if="externalDescriptor" :descriptor="externalDescriptor" />
+    <UiEmpty
+      v-else
+      :description="language.t('platform.screen.WorkbenchOutlet.no-page-available', '暂无页面')"
+    />
+  </slot>
 </template>

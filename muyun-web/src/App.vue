@@ -665,7 +665,7 @@ function beforeAccountCommand(command: { key: string }) {
     command.key !== 'logout' ||
     confirmDiscardWorkspaceViewState(
       (startup.value?.tabs ?? []).map((tab) => tab.key),
-      'close',
+      'logout',
       platformLanguageContext,
     )
   );

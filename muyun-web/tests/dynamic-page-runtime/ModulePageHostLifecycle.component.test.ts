@@ -4,6 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { computed, defineComponent, h, onMounted, provide, ref } from 'vue';
 import { assistantBusinessScopeKey } from '@/dynamic-page-runtime/assistantBusinessScope';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
+import WorkbenchOutlet from '@/platform-workbench/WorkbenchOutlet.vue';
+import { hasWorkspaceViewDiscardProtection } from '@/platform-workbench/workspaceViewDiscardGuard';
+import { tabKeyOf } from '@/platform-workbench/menuNavigation';
 import ModuleBusinessPreview from '@/views/ModuleBusinessPreview.vue';
 import {
   configureModuleContext,
@@ -102,6 +105,39 @@ function controlSessionUid(wrapper: ReturnType<typeof mount>) {
 }
 
 describe('ModulePageHost lifecycle boundaries', () => {
+  it('registers standard business form dirty and busy states with its workbench host', async () => {
+    const http: HttpClient = {
+      async request(options) {
+        if (options.path === '/crm.customer/query') return { records: [], total: 0 } as never;
+        return runtime('crm.customer') as never;
+      },
+    };
+    configureModuleContext({ http });
+    const page = descriptor('crm.customer', { menuId: 'customer-menu' });
+    const key = tabKeyOf(page);
+    const wrapper = mount(WorkbenchOutlet, {
+      props: { descriptor: page },
+      global: { stubs: hostStubs },
+    });
+    try {
+      await flushPromises();
+      const session = wrapper.findComponent({ name: 'ModulePageHostSession' });
+      const business = session.findComponent({ name: 'ModulePageBusinessSession' });
+      expect(hasWorkspaceViewDiscardProtection([key])).toBe(false);
+      business.vm.$emit('interaction-state-change', { editing: true, dirty: true, busy: false });
+      expect(hasWorkspaceViewDiscardProtection([key])).toBe(true);
+      expect(hasWorkspaceViewDiscardProtection(['another-page'])).toBe(false);
+      business.vm.$emit('interaction-state-change', { editing: false, dirty: false, busy: true });
+      expect(hasWorkspaceViewDiscardProtection([key])).toBe(true);
+      business.vm.$emit('interaction-state-change', { editing: false, dirty: false, busy: false });
+      expect(hasWorkspaceViewDiscardProtection([key])).toBe(false);
+      business.vm.$emit('interaction-state-change', { editing: true, dirty: true, busy: false });
+    } finally {
+      wrapper.unmount();
+    }
+    expect(hasWorkspaceViewDiscardProtection([key])).toBe(false);
+  });
+
   it('keeps a flat business page ready after choosing its tenant', async () => {
     const http: HttpClient = {
       async request(options) {

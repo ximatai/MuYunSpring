@@ -646,3 +646,33 @@ it('owns standard account actions while delegating business commands and guarded
     wrapper.unmount();
   }
 });
+
+it('protects account logout with sign-out wording before consulting the business guard', async () => {
+  registerWorkspaceViewUnsavedState('menu:A', '草稿', () => true);
+  const guard = vi.fn().mockResolvedValue(true);
+  const wrapper = mount(AppWorkbenchShell, {
+    props: {
+      startup: startup(),
+      location: '/a',
+      accountContext: {
+        http: { request: vi.fn().mockResolvedValue({ canCreate: false }) },
+        token: 'consumer-session',
+        preferencePersistence: 'local',
+      },
+      beforeAccountCommand: guard,
+    },
+  });
+  try {
+    await flushPromises();
+    wrapper.findComponent(Workbench).vm.$emit('userCommand', 'logout');
+    await flushPromises();
+    expect(discardFeedback.confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '退出登录', okText: '退出登录' }),
+      expect.anything(),
+    );
+    expect(guard).not.toHaveBeenCalled();
+    expect(wrapper.emitted('logout')).toBeUndefined();
+  } finally {
+    wrapper.unmount();
+  }
+});

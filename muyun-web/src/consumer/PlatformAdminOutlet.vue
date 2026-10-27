@@ -12,6 +12,9 @@ defineProps<{
 </script>
 
 <template>
-  <PlatformAdminRouteOutlet v-if="isPlatformAdminRoutePage(descriptor)" :descriptor="descriptor" />
-  <WorkbenchOutlet v-else :descriptor="descriptor" />
+  <WorkbenchOutlet :descriptor="descriptor">
+    <template v-if="isPlatformAdminRoutePage(descriptor)" #default>
+      <PlatformAdminRouteOutlet :descriptor="descriptor" />
+    </template>
+  </WorkbenchOutlet>
 </template>

@@ -116,7 +116,7 @@ async function guardAccountCommand(command: {
     command.key === 'logout' &&
     !(await confirmDiscardWorkspaceViewState(
       (props.startup.tabs ?? []).map((tab) => tab.key),
-      'close',
+      'logout',
       language,
     ))
   )

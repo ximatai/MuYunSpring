@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   useLanguageContext,
+  useWorkspaceViewUnsavedState,
   provideRecordReadRefreshGuard,
   createAssistantTurnRequester,
   ModuleHttpProvider,
@@ -56,6 +57,12 @@ const controlContext = useModuleContext<QueryListRecord>({
   moduleAlias: props.descriptor.target.moduleAlias,
 });
 const blocked = ref(false);
+const interaction = ref({ dirty: false, busy: false });
+useWorkspaceViewUnsavedState(
+  () => props.descriptor.title ?? props.descriptor.target.moduleAlias,
+  () => interaction.value.dirty,
+  () => interaction.value.busy,
+);
 const configurationChanged = ref(false);
 usePageDataChange({
   moduleAlias: props.descriptor.target.moduleAlias,
@@ -123,6 +130,7 @@ function rejectSession(session: ModulePageSessionView, message: string) {
   pending.value = false;
 }
 function interactionChanged(state: { editing: boolean; busy: boolean; dirty?: boolean }) {
+  interaction.value = { dirty: state.dirty === true, busy: state.busy };
   blocked.value = state.editing || state.busy;
   emit('interaction-state-change', state);
   reloadConfigurationWhenIdle();

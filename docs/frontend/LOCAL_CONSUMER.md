@@ -97,6 +97,27 @@ npm link <muyun-spring-repository>/build/consumer-npm/staging/web-app
 
 需要自行编排页签的宿主可使用公开的 `WorkbenchAccountCenter` 包裹低层 `Workbench`，一次连接插槽的 `items` → `managedAccountMenuItems`、`select` → `userCommand`、`refresh` → `accountMenuOpen`，并处理 `logout` 与 `update:skinId`。账号功能与弹窗仍由平台维护，无需为每个新增功能重复接线。未提供 accountContext 的既有 `AppWorkbenchShell` 保留命令转发；低层 `Workbench.accountMenuItems` 仍兼容已有附加入口，推荐新接入采用标准账号宿主。
 
+自定义宿主在销毁页签或主动退出前调用 `confirmDiscardWorkspaceViewState(pageKeys, operation, language)`，仅返回 `true` 时继续操作。`operation` 支持 `close`（默认）、`refresh`、`logout`，分别呈现关闭、刷新和退出提示；`hasWorkspaceViewDiscardProtection(pageKeys)` 只同步查询当前保护状态，不能代替异步确认。
+
+守卫只检查已经注册的状态，不会扫描组件或自动发现未保存内容：
+
+- 标准页面经 `WorkbenchOutlet` 承载；已声明的工作视图经 `WorkspaceViewOutlet` 承载。`PlatformAdminOutlet` 与默认 App 的 `StaticRoutePageHost` 内部复用 `WorkbenchOutlet`，平台管理路由、静态页面与普通动态页采用相同注册链路。页面使用 `useWorkspaceViewUnsavedState(source, isDirty, isBusy)` 注册草稿和处理中状态，卸载时自动释放。自定义业务组件可放入 `WorkbenchOutlet` 的默认插槽，复用状态宿主并替换默认页面内容。
+- `pageKeys` 必须与承载页面使用的 `tabKeyOf(descriptor)` 一致，保留实例标识；不能使用菜单 ID 或仅用路由代替。主动退出应传入所有仍挂载的页签，包括缓存中的非活动页签。
+- 自定义工作台优先复用标准 Outlet。完全自行承载的业务组件若未通过平台宿主注册状态，须由业务宿主另行保护；不要假定调用平台守卫便覆盖了自有状态表。
+
+例如，标准工作视图宿主退出前执行：
+
+```ts
+const allowed = await confirmDiscardWorkspaceViewState(
+  mountedDescriptors.map(tabKeyOf),
+  'logout',
+  language,
+);
+if (allowed) await logout();
+```
+
+处理中的操作会阻止退出；草稿确认期间若开始处理操作，守卫会再次检查并阻止退出。确认丢弃不会清空页面状态，实际销毁由宿主执行。强制失效的登录会话仍应按安全恢复流程清理，不能被草稿确认阻止。
+
 ## 自有壳的外部登录与个人绑定
 
 根包公开 `useExternalLoginHost`、`ExternalLoginHostOptions`、`ExternalLoginHost`、
