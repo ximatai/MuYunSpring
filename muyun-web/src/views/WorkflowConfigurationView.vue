@@ -1,11 +1,17 @@
 <script setup lang="ts">
-import { normalizeError, userFacingErrorMessage, useLanguageContext } from '@muyun/web-core';
+import {
+  normalizeError,
+  userFacingErrorMessage,
+  useLanguageContext,
+  createWorkflowDefinitionClient,
+} from '@muyun/web-core';
 import {
   workflowParticipantRules,
   hasWorkflowParticipants,
 } from '../platform-components/workflowParticipantPolicy';
-import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useWorkflowDesignHistory } from '../platform-components/useWorkflowDesignHistory';
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
+import { useWorkflowDesignSession } from '../platform-components/useWorkflowDesignSession';
+import { useWorkflowConfigurationAssistant } from './useWorkflowConfigurationAssistant';
 import { copyWorkflowFragment, pasteWorkflowFragment } from '../platform-components/workflowDesignClipboard';
 import { usePageDataChange } from '../platform-admin-runtime/pageRealtime';
 
@@ -13,7 +19,6 @@ import type {
   WorkflowConfigurationCatalog,
   WorkflowDefinition,
   WorkflowVersion,
-  WorkflowDesign,
   WorkflowNode,
   WorkflowRoute,
 } from '@muyun/web-contracts';
@@ -52,7 +57,6 @@ import {
   insertWorkflowBranch,
   appendWorkflowBranchPath,
   removeWorkflowBranch,
-  updateWorkflowRoute,
 } from '../platform-components/workflowDesignEditing';
 
 import { useWorkflowConfigurationContext } from './useWorkflowConfigurationContext';
@@ -63,9 +67,10 @@ function workflowTitle(value?: string) {
 }
 defineOptions({ name: 'WorkflowConfigurationView' });
 const props = defineProps<{ moduleAlias: string; moduleTitle?: string; definitionId: string }>();
-const { context, client, businessRuntime, fields, conditionTools } = useWorkflowConfigurationContext(
-  props.moduleAlias,
+const { context, businessRuntime, businessLoading, fields, conditionTools } = useWorkflowConfigurationContext(
+  () => props.moduleAlias,
 );
+let client = createWorkflowDefinitionClient(context.http, props.moduleAlias);
 const catalog = ref<WorkflowConfigurationCatalog>({
   tasks: [],
   queries: [],
@@ -191,15 +196,80 @@ const definitionLoadError = ref<() => string>();
 const versions = ref<WorkflowVersion[]>([]);
 const selected = ref<WorkflowDefinition>(),
   version = ref<WorkflowVersion>();
-const design = ref<WorkflowDesign>({ nodes: [], links: [] });
+const session = useWorkflowDesignSession();
+const { design, history } = session;
 const selectedNodeKey = ref(''),
   selectedRouteKey = ref('');
 const busy = ref(false);
-const history = useWorkflowDesignHistory(design);
 const dirty = history.dirty;
 const selectedNodeKeys = ref<string[]>([]);
 const frozen = computed(() => ['published', 'archived'].includes(version.value?.publishStatus ?? ''));
 const editable = computed(() => version.value?.publishStatus === 'draft' && !busy.value);
+const loadedScope = ref('');
+const interactionRevision = ref(0);
+const assistant: ReturnType<typeof useWorkflowConfigurationAssistant> = useWorkflowConfigurationAssistant({
+  http: context.http,
+  moduleAlias: () => props.moduleAlias,
+  definitionId: () => props.definitionId,
+  interactionRevision: () => String(interactionRevision.value),
+  revision: () =>
+    JSON.stringify([
+      assistant.scope.value,
+      loadedScope.value,
+      version.value,
+      selected.value,
+      design.value,
+      fields.value,
+      selectedNodeKeys.value,
+      selectedRouteKey.value,
+      busy.value,
+      loadingDefinition.value,
+      businessLoading.value,
+      assistant.readable.value,
+      assistant.writable.value,
+      assistant.active.value,
+    ]),
+  adapter: {
+    language: workflowLanguage,
+    validateCondition: (expression) => client.validateCondition(expression),
+    state: () => ({
+      ready:
+        assistant.active.value &&
+        assistant.readable.value &&
+        loadedScope.value === assistant.scope.value &&
+        Boolean(selected.value && version.value && businessRuntime.value) &&
+        !loadingDefinition.value &&
+        !definitionLoadError.value &&
+        !busy.value,
+      editable: editable.value && assistant.writable.value,
+      busy: busy.value || loadingDefinition.value || businessLoading.value,
+      moduleAlias: props.moduleAlias,
+      definition: selected.value,
+      version: version.value,
+      design: design.value,
+      fields: fields.value,
+      selectedNodeKeys: selectedNodeKeys.value,
+      selectedRouteKey: selectedRouteKey.value,
+      dirty: dirty.value,
+    }),
+    prepare: (batch) => {
+      const expected = assistant.scope.value;
+      return session.prepare(
+        batch,
+        fields.value,
+        () =>
+          assistant.scope.value === expected &&
+          assistant.active.value &&
+          assistant.readable.value &&
+          assistant.writable.value &&
+          editable.value &&
+          loadedScope.value === expected &&
+          !loadingDefinition.value &&
+          !definitionLoadError.value,
+      );
+    },
+  },
+});
 const node = computed(() => design.value.nodes.find((item) => item.nodeKey === selectedNodeKey.value));
 const route = computed(() => design.value.links.find((item) => item.routeKey === selectedRouteKey.value));
 const deleting = ref(false);
@@ -242,8 +312,54 @@ onMounted(() => {
 let metadataRevision = 0;
 let metadataRefreshPending = false;
 let disposed = false;
+let actionGeneration = 0;
+let scopeGeneration = 0;
+let persistencePending = false;
+function persistenceCheckpoint() {
+  const generation = scopeGeneration;
+  return () => !disposed && scopeGeneration === generation;
+}
+function actionCheckpoint() {
+  const generation = actionGeneration;
+  const scope = assistant.scope.value;
+  return () =>
+    !disposed && assistant.active.value && actionGeneration === generation && assistant.scope.value === scope;
+}
+function editCheckpoint() {
+  const current = actionCheckpoint();
+  const unchanged = history.checkpoint();
+  return () => current() && unchanged();
+}
+watch(
+  assistant.scope,
+  () => {
+    actionGeneration++;
+    scopeGeneration++;
+    persistencePending = false;
+    metadataRevision++;
+    loadedScope.value = '';
+    selected.value = undefined;
+    version.value = undefined;
+    versions.value = [];
+    history.reset({ nodes: [], links: [] });
+    selectedNodeKeys.value = [];
+    selectedNodeKey.value = selectedRouteKey.value = '';
+    propertyOpen.value = publishReviewOpen.value = false;
+    busy.value = false;
+    client = createWorkflowDefinitionClient(context.http, props.moduleAlias);
+    if (assistant.active.value) void reload();
+  },
+  { flush: 'sync' },
+);
+onDeactivated(() => {
+  actionGeneration++;
+  metadataRevision++;
+  if (!persistencePending) busy.value = false;
+  loadingDefinition.value = false;
+});
 onBeforeUnmount(() => {
   disposed = true;
+  actionGeneration++;
   metadataRevision++;
 });
 async function refreshDefinition() {
@@ -253,33 +369,40 @@ async function refreshDefinition() {
     return;
   }
   const revision = ++metadataRevision;
+  const current = actionCheckpoint();
   try {
     const definition = await client.view(props.definitionId);
-    if (revision === metadataRevision) selected.value = definition;
+    if (current() && revision === metadataRevision) selected.value = definition;
   } catch (cause) {
-    if (revision === metadataRevision)
+    if (current() && revision === metadataRevision)
       presentPlatformError(cause, { source: 'workflow-design', phase: 'load' });
   }
 }
 onActivated(() => {
-  void refreshDefinition();
+  if (!selected.value) void reload();
+  else void refreshDefinition();
 });
 usePageDataChange({
   moduleAlias: 'platform.workflow.definition',
   recordId: () => props.definitionId,
   handler: refreshDefinition,
 });
-async function run(operation: () => Promise<void>) {
+async function run(operation: (current: () => boolean) => Promise<void>, persistent = false) {
   if (busy.value) return;
   metadataRevision++;
   busy.value = true;
+  const current = persistent ? persistenceCheckpoint() : actionCheckpoint();
+  persistencePending = persistent;
   try {
-    await operation();
+    await operation(current);
   } catch (cause) {
-    presentPlatformError(cause, { source: 'workflow-design', phase: 'action' });
+    if (current()) presentPlatformError(cause, { source: 'workflow-design', phase: 'action' });
   } finally {
-    busy.value = false;
-    if (metadataRefreshPending) {
+    if (current()) {
+      busy.value = false;
+      persistencePending = false;
+    }
+    if (current() && metadataRefreshPending) {
       metadataRefreshPending = false;
       await refreshDefinition();
     }
@@ -289,33 +412,47 @@ async function reload() {
   if (busy.value || dirty.value) return;
   loadingDefinition.value = true;
   definitionLoadError.value = undefined;
-  await run(async () => {
+  const currentLoad = actionCheckpoint();
+  const currentClient = client;
+  const definitionId = props.definitionId;
+  await run(async (current) => {
     try {
-      const definition = await client.view(props.definitionId);
-      const nextCatalog = await client.catalog(definition.id);
-      const nextVersions = (await client.versions(definition.id)).sort((a, b) => b.versionNo - a.versionNo);
-      const latest = nextVersions[0] ?? (await client.upgrade(definition.id));
+      const definition = await currentClient.view(definitionId);
+      if (!current()) return;
+      const nextCatalog = await currentClient.catalog(definition.id);
+      if (!current()) return;
+      const nextVersions = (await currentClient.versions(definition.id)).sort(
+        (a, b) => b.versionNo - a.versionNo,
+      );
+      if (!current()) return;
+      const latest = nextVersions[0] ?? (await currentClient.upgrade(definition.id));
+      if (!current()) return;
       if (!nextVersions.length) nextVersions.push(latest);
-      let nextDesign = await client.design(definition.id, latest.id);
+      let nextDesign = await currentClient.design(definition.id, latest.id);
+      if (!current()) return;
       const initialize = latest.publishStatus === 'draft' && !nextDesign.nodes.length;
-      if (initialize) nextDesign = createWorkflowDesign(definition.approvalEnabled);
+      if (initialize) nextDesign = createWorkflowDesign(definition.approvalEnabled, workflowLanguage);
       selected.value = definition;
       catalog.value = nextCatalog;
       versions.value = nextVersions;
       version.value = latest;
       history.reset(nextDesign, initialize ? { nodes: [], links: [] } : nextDesign);
+      loadedScope.value = assistant.scope.value;
       selectedNodeKeys.value = [];
       selectedNodeKey.value = '';
       selectedRouteKey.value = '';
       propertyOpen.value = false;
     } catch (cause) {
-      definitionLoadError.value = () => userFacingErrorMessage(normalizeError(cause), workflowLanguage);
+      if (current())
+        definitionLoadError.value = () => userFacingErrorMessage(normalizeError(cause), workflowLanguage);
     }
   });
-  loadingDefinition.value = false;
+  if (currentLoad()) loadingDefinition.value = false;
 }
 async function loadVersion(next: WorkflowVersion) {
+  const current = actionCheckpoint();
   const nextDesign = await client.design(selected.value!.id, next.id);
+  if (!current()) return;
   version.value = next;
   history.reset(nextDesign);
   selectedNodeKeys.value = [];
@@ -326,31 +463,39 @@ async function loadVersion(next: WorkflowVersion) {
 async function switchVersion(id: string) {
   if (dirty.value) return;
   const next = versions.value.find((item) => item.id === id);
-  if (next) await run(() => loadVersion(next));
+  if (next) {
+    interactionRevision.value++;
+    await run(() => loadVersion(next));
+  }
 }
 async function save() {
   if (!version.value || !selected.value) return;
-  await run(async () => {
-    version.value = await client.saveDesign(
+  await run(async (current) => {
+    const saved = await client.saveDesign(
       selected.value!.id,
       version.value!.id,
       version.value!.version,
       design.value,
     );
+    if (!current()) return;
+    version.value = saved;
     versions.value = versions.value.map((item) => (item.id === version.value!.id ? version.value! : item));
     history.markSaved();
     showSuccessMessage(workflowLanguage.t('platform.workflow-config.draft-saved', '流程草稿已保存'));
-  });
+  }, true);
 }
 async function validate() {
+  const current = actionCheckpoint();
   if (dirty.value) await save();
-  if (dirty.value || !version.value) return;
-  await run(async () => {
+  if (!current() || dirty.value || !version.value) return;
+  await run(async (isCurrent) => {
     await client.validate(selected.value!.id, version.value!.id);
+    if (!isCurrent()) return;
     showSuccessMessage(workflowLanguage.t('platform.workflow-config.validated', '流程发布校验通过'));
   });
 }
 async function publish() {
+  const current = actionCheckpoint();
   if (
     design.value.nodes.some(
       (node) =>
@@ -372,32 +517,37 @@ async function publish() {
     return;
   }
   if (dirty.value) await save();
-  if (dirty.value || !selected.value || !version.value) return;
-  await run(async () => {
-    version.value = await client.publish(
+  if (!current() || dirty.value || !selected.value || !version.value) return;
+  await run(async (isCurrent) => {
+    const published = await client.publish(
       selected.value!.id,
       version.value!.id,
       selected.value!.version,
       version.value!.version,
     );
+    if (!isCurrent()) return;
+    version.value = published;
     versions.value = versions.value.map((item) => (item.id === version.value!.id ? version.value! : item));
-    selected.value = await client.view(selected.value!.id);
+    const definition = await client.view(selected.value!.id);
+    if (!isCurrent()) return;
+    selected.value = definition;
     history.markSaved();
     publishReviewOpen.value = false;
     showSuccessMessage(
       workflowLanguage.t('platform.workflow-config.published', '流程已发布，后续新申请使用该版本'),
     );
-  });
-  await reload();
+  }, true);
 }
 async function upgrade() {
   if (!selected.value) return;
-  await run(async () => {
+  await run(async (current) => {
     const next = await client.upgrade(selected.value!.id);
+    if (!current()) return;
     versions.value = [next, ...versions.value.filter((item) => item.id !== next.id)];
     await loadVersion(next);
+    if (!current()) return;
     if (!design.value.nodes.length) {
-      design.value = createWorkflowDesign(selected.value!.approvalEnabled);
+      design.value = createWorkflowDesign(selected.value!.approvalEnabled, workflowLanguage);
       selectNode('approval');
     }
   });
@@ -422,17 +572,12 @@ function updateLayout(layoutJson: string) {
 }
 function updateNode(patch: Partial<WorkflowNode>) {
   if (node.value && editable.value) {
-    design.value = {
-      ...design.value,
-      nodes: design.value.nodes.map((item) =>
-        item.nodeKey === selectedNodeKey.value ? { ...item, ...patch } : item,
-      ),
-    };
+    session.updateNode(selectedNodeKey.value, patch);
   }
 }
 function updateRoute(patch: Partial<WorkflowRoute>) {
   if (route.value && editable.value) {
-    design.value = updateWorkflowRoute(design.value, route.value.routeKey, patch);
+    session.updateRoute(route.value.routeKey, patch);
   }
 }
 function insertionRoute() {
@@ -443,7 +588,7 @@ function addBranch() {
   if (!editable.value) return;
   const key = `branch_${Date.now().toString(36)}`;
   try {
-    design.value = insertWorkflowBranch(design.value, insertionRoute(), key);
+    design.value = insertWorkflowBranch(design.value, insertionRoute(), key, workflowLanguage);
     selectNode(key);
   } catch (cause) {
     presentPlatformError(cause, { source: 'workflow-design', phase: 'validation' });
@@ -456,6 +601,7 @@ function appendBranchPath() {
       design.value,
       selectedNodeKey.value,
       `path_${Date.now().toString(36)}`,
+      workflowLanguage,
     );
   } catch (cause) {
     presentPlatformError(cause, { source: 'workflow-design', phase: 'validation' });
@@ -464,8 +610,8 @@ function appendBranchPath() {
 async function deleteBranch() {
   if (!editable.value) return;
   try {
-    const isCurrent = history.checkpoint();
-    const next = removeWorkflowBranch(design.value, selectedNodeKey.value);
+    const isCurrent = editCheckpoint();
+    const next = removeWorkflowBranch(design.value, selectedNodeKey.value, workflowLanguage);
     if (
       !(await confirmAction(
         {
@@ -499,7 +645,11 @@ function addNode() {
     design.value = insertWorkflowNode(
       design.value,
       route ?? '',
-      createWorkflowApprovalNode(key, '新审批节点'),
+      createWorkflowApprovalNode(
+        key,
+        workflowLanguage.t('platform.workflow-config.new-approval-node', '新审批节点'),
+      ),
+      workflowLanguage,
     );
     selectNode(key);
   } catch (cause) {
@@ -509,7 +659,7 @@ function addNode() {
 function removeNode() {
   if (!editable.value) return;
   try {
-    design.value = removeWorkflowNode(design.value, selectedNodeKey.value);
+    design.value = removeWorkflowNode(design.value, selectedNodeKey.value, workflowLanguage);
     selectedNodeKey.value = '';
     propertyOpen.value = false;
   } catch (cause) {
@@ -525,6 +675,13 @@ function selectNodes(keys: string[]) {
   selectedRouteKey.value = '';
   propertyOpen.value = false;
 }
+watch(
+  () => JSON.stringify([design.value, selectedNodeKeys.value, selectedRouteKey.value]),
+  () => {
+    if (!busy.value && !loadingDefinition.value) interactionRevision.value++;
+  },
+  { flush: 'sync' },
+);
 watch(
   () =>
     [
@@ -546,7 +703,7 @@ watch(
   { flush: 'sync' },
 );
 function mayApplyAsyncEdit(isCurrent: () => boolean) {
-  if (disposed) return false;
+  if (disposed || !assistant.active.value) return false;
   if (editable.value && isCurrent()) return true;
   showInfoMessage(
     workflowLanguage.t('platform.workflow-config.stale-edit', '流程已变更，本次操作未应用，请重新操作。'),
@@ -624,7 +781,7 @@ async function copyShortcut() {
 }
 async function pasteShortcut() {
   if (!editable.value) return;
-  const isCurrent = history.checkpoint();
+  const isCurrent = editCheckpoint();
   const target = pasteTarget();
   try {
     if (!navigator.clipboard) throw new Error('当前浏览器不支持访问剪贴板');
