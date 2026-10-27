@@ -5,6 +5,9 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.AuthenticatedUser;
+import net.ximatai.muyun.spring.common.identity.RequestAuthenticationContext;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.identity.CurrentUserProvider;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
@@ -62,7 +65,21 @@ public class CurrentUserWebFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        Optional<CurrentUser> currentUser = currentUserProvider.currentUser();
+        Optional<AuthenticatedUser> authentication;
+        try {
+            authentication = currentUserProvider.authenticatedUser();
+        } catch (PlatformException rejected) {
+            if (rejected.httpStatus() != 401 && rejected.httpStatus() != 403) throw rejected;
+            var error = PlatformWebError.of(rejected).presented(textResolver, languageCatalog);
+            response.setStatus(error.status());
+            response.setContentType("application/json");
+            response.setCharacterEncoding("UTF-8");
+            response.setHeader("Cache-Control", "no-store");
+            response.getWriter().write(objectMapper.writeValueAsString(error));
+            RequestErrorLogRecorder.markFilterResponse(request, error.code(), error.status(), error.message());
+            return;
+        }
+        Optional<CurrentUser> currentUser = authentication.map(AuthenticatedUser::user);
         if (currentUser.isEmpty()) {
             if (request.getHeader(TENANT_HEADER) != null) {
                 rejectAuthenticationRequired(request, response);
@@ -76,11 +93,13 @@ public class CurrentUserWebFilter extends OncePerRequestFilter {
             return;
         }
         RequestErrorLogRecorder.snapshotCurrentUser(request, currentUser.get());
+        RequestErrorLogRecorder.snapshotAuthentication(request, authentication.orElseThrow());
         if (currentUser.get().passwordChangeRequired() && !isPasswordChangeAllowed(request)) {
             rejectPasswordChangeRequired(request, response);
             return;
         }
-        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(currentUser.get())) {
+        try (var provenance = RequestAuthenticationContext.use(authentication.orElseThrow());
+             CurrentUserContext.Scope ignored = CurrentUserContext.use(currentUser.get())) {
             doFilterWithTenantScope(currentUser.get(), request, response, filterChain);
         }
     }

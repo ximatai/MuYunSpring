@@ -59,16 +59,26 @@ describe('ExternalIdentityBindings', () => {
     wrapper.unmount();
   });
 
-  it('stays hidden when the deployment does not enable federation', async () => {
+  it.each([404, 405])('stays hidden when federation has no GET endpoint (%s)', async (status) => {
     const client = externalLoginClient({
       identities: vi
         .fn()
-        .mockRejectedValue(new AppError('not found', { code: platformErrorCodes.httpError, status: 404 })),
+        .mockRejectedValue(new AppError('not found', { code: platformErrorCodes.httpError, status })),
     });
     const wrapper = mount(ExternalIdentityBindings, { props: { client, token: 'token-1' } });
     await flushPromises();
 
     expect(wrapper.find('.external-bindings').exists()).toBe(false);
+  });
+
+  it('keeps genuine federation failures visible', async () => {
+    const client = externalLoginClient({
+      identities: vi.fn().mockRejectedValue(new AppError('身份服务暂不可用', { status: 503 })),
+    });
+    const wrapper = mount(ExternalIdentityBindings, { props: { client, token: 'token-1' } });
+    await flushPromises();
+    expect(wrapper.get('.external-bindings-error').text()).not.toBe('');
+    wrapper.unmount();
   });
 
   it('lists bindings and starts a bind transaction for an unbound provider', async () => {

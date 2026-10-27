@@ -7,6 +7,7 @@ import WorkbenchLanguageSettings from './WorkbenchLanguageSettings.vue';
 
 const props = defineProps<{
   currentUser?: CurrentUser;
+  accountMenuItems?: UiDropdownItem[];
   employeeName?: string;
   assistantAvailable: boolean;
   assistantOpen: boolean;
@@ -19,6 +20,7 @@ defineSlots<{
 const emit = defineEmits<{
   toggleAssistant: [];
   userCommand: [key: string];
+  accountMenuOpen: [];
 }>();
 const language = useLanguageContext();
 const languageSettingsOpen = ref(false);
@@ -67,6 +69,7 @@ const userMenuItems = computed<UiDropdownItem[]>(() => [
     title: language.t('platform.screen.Workbench.change-password', '修改密码'),
   },
   { key: 'profile', iconName: 'user', title: language.t('platform.screen.Workbench.my-profile', '个人信息') },
+  ...(props.accountMenuItems ?? []),
   {
     key: 'logout',
     iconName: 'power',
@@ -113,7 +116,10 @@ function handleMenuSelect(key: string) {
         :title="currentUser ? `${displayName} · ${identityLabel}` : displayName"
         aria-haspopup="menu"
         :aria-expanded="open"
-        @click.stop="toggle"
+        @click.stop="
+          !open && emit('accountMenuOpen');
+          toggle();
+        "
       >
         <span class="avatar" aria-hidden="true">{{ initial }}</span>
         <span class="user-meta">

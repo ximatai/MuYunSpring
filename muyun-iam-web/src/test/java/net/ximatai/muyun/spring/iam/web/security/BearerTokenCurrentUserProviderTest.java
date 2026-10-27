@@ -33,4 +33,18 @@ class BearerTokenCurrentUserProviderTest {
 
         assertThat(provider.currentUser()).contains(currentUser);
     }
+
+    @Test
+    void shouldResolvePersonalTokenProvenanceWithoutCreatingASession() {
+        var sessions = mock(UserSessionService.class);
+        var tokens = mock(net.ximatai.muyun.spring.iam.user.PersonalAccessTokenService.class);
+        var expected = new net.ximatai.muyun.spring.common.identity.AuthenticatedUser(
+                CurrentUser.systemUser("admin", "admin"), "personal_access_token", "key-1");
+        when(tokens.authenticate("muyun_pat_secret")).thenReturn(expected);
+        var request = new MockHttpServletRequest(); request.addHeader("Authorization", "Bearer muyun_pat_secret");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        var provider = new BearerTokenCurrentUserProvider(sessions, Optional.of(tokens));
+        assertThat(provider.authenticatedUser()).contains(expected);
+        org.mockito.Mockito.verifyNoInteractions(sessions);
+    }
 }

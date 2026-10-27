@@ -115,6 +115,7 @@ class DynamicRecordWebMvcSliceTest {
 
     @BeforeEach
     void setUpCurrentUser() {
+        org.mockito.Mockito.doCallRealMethod().when(currentUserProvider).authenticatedUser();
         ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
                 ModuleUiDefinition.builder(MODULE).build(), ModuleKind.DYNAMIC, "Contract");
         ModuleExecutionPlan plan = new ModuleExecutionPlan(MODULE, "test", descriptor,

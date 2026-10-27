@@ -57,7 +57,11 @@ public final class RuntimeActionBusinessLogEventListener implements RuntimeEvent
         BusinessLogContext context = BusinessLogContext.capturedNow(
                 event.eventId(), event.occurredAt(), safeTraceId(event.traceId()), event.tenantId(),
                 event.operatorId(), operatorAccount(event), operatorOrganizationId(event), operatorDepartmentId(event),
-                event.moduleAlias(), event.actionCode());
+                event.moduleAlias(), event.actionCode()).withAuthentication(
+                net.ximatai.muyun.spring.ability.event.RuntimeEventAuditContext.text(event.auditContext(),
+                        net.ximatai.muyun.spring.ability.event.RuntimeEventAuditContext.AUTHENTICATION_METHOD),
+                net.ximatai.muyun.spring.ability.event.RuntimeEventAuditContext.text(event.auditContext(),
+                        net.ximatai.muyun.spring.ability.event.RuntimeEventAuditContext.AUTHENTICATION_CREDENTIAL_ID));
         ActionLogDetails details = new ActionLogDetails(
                 failed ? ActionLogDetails.ActionOutcome.FAILURE : ActionLogDetails.ActionOutcome.SUCCESS,
                 ActionEventPayload.text(event.payload(), ActionEventPayload.EXECUTOR_TYPE),

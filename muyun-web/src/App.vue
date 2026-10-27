@@ -52,6 +52,7 @@ import {
   createMenuClient,
   createLoginContextClient,
   createExternalLoginClient,
+  createPersonalAccessTokenClient,
   invokeBusinessNotificationRecordAction,
   businessNotificationExpired,
   provideModuleContextConfig,
@@ -101,6 +102,8 @@ import { connectAppRealtime, disconnectAppRealtime } from './platform-admin-runt
 import './platform-admin-runtime/workspaceViews';
 import ChangeOwnPasswordDialog from './app/ChangeOwnPasswordDialog.vue';
 import CurrentUserProfileDialog from './app/CurrentUserProfileDialog.vue';
+import PersonalAccessTokenDialog from './app/PersonalAccessTokenDialog.vue';
+import { usePersonalAccessTokenAccess } from './app/usePersonalAccessTokenAccess';
 import { useCurrentUserProfile } from './app/useCurrentUserProfile';
 import { useAssistantAvailability } from './app/useAssistantAvailability';
 import LoginView from './app/LoginView.vue';
@@ -416,6 +419,7 @@ const logoutLoading = ref(false);
 const changePasswordOpen = ref(false);
 const changePasswordSaving = ref(false);
 const changePasswordError = ref<() => string>();
+const accessTokensOpen = ref(false);
 const profileOpen = ref(false);
 const profileLoading = ref(false);
 const profileSaving = ref(false);
@@ -525,6 +529,32 @@ const assistantAvailability = useAssistantAvailability({
 });
 const loginContextClient = createLoginContextClient(anonymousHttpClient);
 const externalLoginClient = createExternalLoginClient(anonymousHttpClient);
+const personalAccessTokenClient = createPersonalAccessTokenClient(anonymousHttpClient);
+const accessTokenSession = () =>
+  currentUser.value ? effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN) : undefined;
+const accessTokenAccess = usePersonalAccessTokenAccess({
+  client: personalAccessTokenClient,
+  sessionToken: accessTokenSession,
+});
+const accountMenuItems = computed(() =>
+  accessTokenAccess.available.value
+    ? [
+        {
+          key: 'accessTokens',
+          iconName: 'lock' as const,
+          title: platformLanguageContext.t('platform.access-tokens.title', '个人访问密钥'),
+        },
+      ]
+    : [],
+);
+watch(
+  [accessTokenAccess.sessionToken, accessTokenAccess.available],
+  ([session, available], [previousSession]) => {
+    if (session !== previousSession || !available) accessTokensOpen.value = false;
+  },
+  { flush: 'sync' },
+);
+
 const externalLoginHost = useExternalLoginHost({
   client: externalLoginClient,
   router,
@@ -691,6 +721,11 @@ async function handleUserCommand(command: string) {
   }
   if (command === 'themeSkin') {
     openThemeSkinPreferences();
+    return;
+  }
+  if (command === 'accessTokens') {
+    await accessTokenAccess.refresh();
+    if (accessTokenAccess.available.value) accessTokensOpen.value = true;
     return;
   }
   if (command === 'profile') {
@@ -1604,6 +1639,7 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
         v-model:active-tab-key="activeTabKey"
         :startup="startup"
         :current-user-employee-name="profile?.employee?.title"
+        :account-menu-items="accountMenuItems"
         :loading="loading"
         :error="error"
         :realtime-status="realtimeStatus"
@@ -1615,6 +1651,7 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
         :assistant-workspace-contribution="configurationWorkspace"
         :assistant-conversation-client="assistantConversationClient"
         :assistant-wait-for-page-ready="waitForAssistantPageReady"
+        @account-menu-open="accessTokenAccess.refresh()"
         @select-menu="handleSelectMenu"
         @change-tab="handleChangeTab"
         @close-tab="handleCloseTab"
@@ -1669,6 +1706,12 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
         :error="changePasswordError?.()"
         @close="closeChangeOwnPasswordDialog"
         @submit="submitChangeOwnPassword"
+      />
+      <PersonalAccessTokenDialog
+        :open="accessTokensOpen"
+        :client="personalAccessTokenClient"
+        :session-token="accessTokenAccess.sessionToken.value"
+        @close="accessTokensOpen = false"
       />
       <CurrentUserProfileDialog
         :open="profileOpen"

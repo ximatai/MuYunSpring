@@ -19,6 +19,9 @@ public final class RuntimeEventAuditContext {
     public static final String ACTING_PRINCIPAL_DEPARTMENT_ID = "actingPrincipalDepartmentId";
     public static final String ACTING_PRINCIPAL_EMPLOYEE_POSITION_ID = "actingPrincipalEmployeePositionId";
 
+    public static final String AUTHENTICATION_METHOD = "authenticationMethod";
+    public static final String AUTHENTICATION_CREDENTIAL_ID = "authenticationCredentialId";
+
     public static final String JOB_TYPE = "jobType";
     public static final String JOB_PLAN_ID = "jobPlanId";
     public static final String JOB_RUN_ID = "jobRunId";
@@ -32,6 +35,10 @@ public final class RuntimeEventAuditContext {
                 .filter(acting -> matches(acting, moduleAlias, actionCode))
                 .map(RuntimeEventAuditContext::actingContext)
                 .orElse(Map.of()));
+        net.ximatai.muyun.spring.common.identity.RequestAuthenticationContext.current().ifPresent(authentication -> {
+            putText(context, AUTHENTICATION_METHOD, authentication.method());
+            putText(context, AUTHENTICATION_CREDENTIAL_ID, authentication.credentialId());
+        });
         JobExecutionContext.current().ifPresent(job -> {
             context.put(JOB_TYPE, job.jobType());
             putText(context, JOB_PLAN_ID, job.planId());

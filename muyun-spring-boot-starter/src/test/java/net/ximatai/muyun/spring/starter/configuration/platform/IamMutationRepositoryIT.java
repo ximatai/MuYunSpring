@@ -337,7 +337,7 @@ class IamMutationRepositoryIT {
         Users(UserAccountDao dao, Access access) {
             super(dao, tenant -> {}, new PasswordHashingService(), mock(AccountRoleGrantDao.class),
                     new UserAccountSecurityServices(Optional.empty(), UserSecurityEventPublisher.NOOP,
-                            mock(UserSessionRevocationService.class), mock(UserSessionPresenceService.class)));
+                            mock(UserSessionRevocationService.class), mock(UserSessionPresenceService.class), mock(net.ximatai.muyun.spring.iam.user.PersonalAccessTokenStore.class)));
             this.access = access;
         }
         private final Access access;

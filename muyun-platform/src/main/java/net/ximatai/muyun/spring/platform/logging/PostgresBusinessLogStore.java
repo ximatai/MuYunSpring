@@ -64,13 +64,13 @@ public class PostgresBusinessLogStore implements BusinessLogStore, BusinessLogRe
                 (event_id, event_type, occurred_at, captured_at, trace_id, tenant_id, operator_id,
                  operator_account, operator_organization_id, operator_department_id, module_alias, action_code,
                  error_code, login_outcome, login_account, http_status, action_outcome, entity_alias,
-                 record_id, mutation_source, details_json)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb))
+                 record_id, mutation_source, details_json, authentication_method, authentication_credential_id)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb), ?, ?)
             on conflict (event_id) do nothing
             """;
     private static final String EVENT_COLUMNS = "event_id, event_type, occurred_at, captured_at, trace_id, "
             + "tenant_id, operator_id, operator_account, operator_organization_id, operator_department_id, "
-            + "module_alias, action_code, details_json";
+            + "module_alias, action_code, details_json, authentication_method, authentication_credential_id";
 
     private final SqlConnectionExecutor connections;
     private final ObjectMapper objectMapper;
@@ -490,6 +490,8 @@ public class PostgresBusinessLogStore implements BusinessLogStore, BusinessLogRe
         statement.setString(19, actionRecordId(event));
         statement.setString(20, actionMutationSource(event));
         statement.setString(21, serialize(event.details()));
+        statement.setString(22, context.authenticationMethod());
+        statement.setString(23, context.authenticationCredentialId());
         int updated = statement.executeUpdate();
         return new BusinessLogWriteResult(context.eventId(), updated == 1
                 ? BusinessLogWriteResult.Status.APPENDED : BusinessLogWriteResult.Status.DUPLICATE_IGNORED);
@@ -516,7 +518,9 @@ public class PostgresBusinessLogStore implements BusinessLogStore, BusinessLogRe
                 resultSet.getString("operator_organization_id"),
                 resultSet.getString("operator_department_id"),
                 resultSet.getString("module_alias"),
-                resultSet.getString("action_code"));
+                resultSet.getString("action_code"),
+                resultSet.getString("authentication_method"),
+                resultSet.getString("authentication_credential_id"));
         String detailsJson = resultSet.getString("details_json");
         return switch (type) {
             case LOGIN -> new LoginLogEvent(context, deserialize(detailsJson, LoginLogDetails.class));

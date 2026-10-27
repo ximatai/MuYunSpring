@@ -11,6 +11,7 @@ const props = withDefaults(
     value?: string;
     placeholder?: string;
     disabled?: boolean;
+    readonly?: boolean;
     invalid?: boolean;
     rows?: number;
     maxlength?: number;
@@ -21,6 +22,7 @@ const props = withDefaults(
     value: '',
     placeholder: undefined,
     disabled: false,
+    readonly: false,
     invalid: false,
     rows: 4,
     maxlength: undefined,
@@ -162,7 +164,8 @@ const { hovered: dropHovered, rejected: dropRejected } = useUiDropTarget(dropRoo
     dropSelection.value = selectionAtPoint(x ?? 0, y);
     return { instanceId, kind: 'root', position: 'inside' } as UiDropTarget;
   },
-  allow: (event: UiTreeDropEvent) => !props.disabled && Boolean(props.acceptDrop?.(event.source)),
+  allow: (event: UiTreeDropEvent) =>
+    !props.disabled && !props.readonly && Boolean(props.acceptDrop?.(event.source)),
   drop: (event: UiTreeDropEvent) => {
     const current = dropSelection.value ?? selection();
     dropSelection.value = undefined;
@@ -202,6 +205,7 @@ defineExpose({ selection, focusSelection });
       :value="value"
       :placeholder="placeholder"
       :disabled="disabled"
+      :readonly="readonly"
       :rows="rows"
       :maxlength="maxlength"
       :status="invalid ? 'error' : undefined"

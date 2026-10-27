@@ -3,6 +3,22 @@ import { describe, expect, it } from 'vitest';
 import UiTextArea from '@/vue-ui-antdv/components/UiTextArea.vue';
 
 describe('UiTextArea', () => {
+  it('keeps read-only values selectable without disabling the control', async () => {
+    const wrapper = mount(UiTextArea, {
+      attachTo: document.body,
+      props: { value: 'issued-secret', readonly: true },
+    });
+    const textarea = wrapper.get('textarea').element as HTMLTextAreaElement;
+    expect(textarea.readOnly).toBe(true);
+    expect(textarea.disabled).toBe(false);
+    wrapper.vm.focusSelection(0, textarea.value.length);
+    expect(document.activeElement).toBe(textarea);
+    expect([textarea.selectionStart, textarea.selectionEnd]).toEqual([0, textarea.value.length]);
+    await wrapper.setProps({ readonly: false });
+    expect(textarea.readOnly).toBe(false);
+    wrapper.unmount();
+  });
+
   it('exposes the current selection and restores focus at a requested range', async () => {
     const wrapper = mount(UiTextArea, {
       attachTo: document.body,

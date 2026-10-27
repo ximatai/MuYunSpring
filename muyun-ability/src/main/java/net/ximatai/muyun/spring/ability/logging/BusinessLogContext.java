@@ -21,7 +21,9 @@ public record BusinessLogContext(
         String operatorOrganizationId,
         String operatorDepartmentId,
         String moduleAlias,
-        String actionCode
+        String actionCode,
+        String authenticationMethod,
+        String authenticationCredentialId
 ) {
     private static final Pattern TRACE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:/-]*");
 
@@ -42,6 +44,30 @@ public record BusinessLogContext(
         operatorDepartmentId = optional(operatorDepartmentId, "operatorDepartmentId", 128);
         moduleAlias = optional(moduleAlias, "moduleAlias", 192);
         actionCode = optional(actionCode, "actionCode", 128);
+        authenticationMethod = optional(authenticationMethod, "authenticationMethod", 64);
+        authenticationCredentialId = optional(authenticationCredentialId, "authenticationCredentialId", 64);
+    }
+
+    /** Captures the current request provenance for newly produced log facts. */
+    public BusinessLogContext(String eventId, Instant occurredAt, Instant capturedAt, String traceId,
+                              String tenantId, String operatorId, String operatorAccount,
+                              String operatorOrganizationId, String operatorDepartmentId,
+                              String moduleAlias, String actionCode) {
+        this(eventId, occurredAt, capturedAt, traceId, tenantId, operatorId, operatorAccount,
+                operatorOrganizationId, operatorDepartmentId, moduleAlias, actionCode,
+                authentication(operatorId).map(value -> value.method()).orElse(null),
+                authentication(operatorId).map(value -> value.credentialId()).orElse(null));
+    }
+
+    public BusinessLogContext withAuthentication(String method, String credentialId) {
+        return new BusinessLogContext(eventId, occurredAt, capturedAt, traceId, tenantId, operatorId,
+                operatorAccount, operatorOrganizationId, operatorDepartmentId, moduleAlias, actionCode,
+                method, credentialId);
+    }
+
+    private static java.util.Optional<net.ximatai.muyun.spring.common.identity.AuthenticatedUser> authentication(String operatorId) {
+        return net.ximatai.muyun.spring.common.identity.RequestAuthenticationContext.current()
+                .filter(value -> value.user().userId().equals(operatorId));
     }
 
     /**

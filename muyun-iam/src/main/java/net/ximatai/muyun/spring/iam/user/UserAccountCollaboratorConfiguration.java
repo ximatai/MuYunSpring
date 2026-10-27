@@ -11,13 +11,14 @@ public class UserAccountCollaboratorConfiguration {
             ObjectProvider<PasswordPolicyRuleService> passwordPolicyRuleService,
             ObjectProvider<UserSecurityEventPublisher> securityEventPublisher,
             UserSessionRevocationService sessionRevocationService,
-            UserSessionPresenceService sessionPresenceService) {
+            UserSessionPresenceService sessionPresenceService,
+            PersonalAccessTokenStore personalAccessTokenStore) {
         return new UserAccountSecurityServices(
                 java.util.Optional.ofNullable(passwordPolicyRuleService.getIfAvailable()),
                 event -> securityEventPublisher
                         .getIfAvailable(() -> UserSecurityEventPublisher.NOOP)
                         .publish(event),
                 sessionRevocationService,
-                sessionPresenceService);
+                sessionPresenceService, personalAccessTokenStore);
     }
 }

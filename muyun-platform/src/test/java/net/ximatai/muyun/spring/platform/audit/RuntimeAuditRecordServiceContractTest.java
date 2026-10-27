@@ -30,6 +30,24 @@ class RuntimeAuditRecordServiceContractTest {
     private final RuntimeAuditRecordService service = new RuntimeAuditRecordService(dao);
 
     @Test
+    void personalCredentialProvenanceSurvivesDelayedAuditPersistence() {
+        RuntimeEvent event;
+        var user = CurrentUser.systemUser("admin", "admin");
+        try (var actor = net.ximatai.muyun.spring.common.identity.CurrentUserContext.use(user);
+             var auth = net.ximatai.muyun.spring.common.identity.RequestAuthenticationContext.use(
+                     new net.ximatai.muyun.spring.common.identity.AuthenticatedUser(user, "personal_access_token", "key-1"));
+             var tenant = TenantContext.use("business-a")) {
+            event = RuntimeEvent.of(RuntimeEventType.AFTER_CREATE, "test.records", "record", "record-1", null,
+                    "business-a", false, RuntimeMutationSource.BUSINESS, Map.of());
+        }
+        var record = service.select(service.record(event));
+        assertThat(record.getTenantId()).isEqualTo("business-a");
+        assertThat(record.getOperatorId()).isEqualTo("admin");
+        assertThat(record.getAuthenticationMethod()).isEqualTo("personal_access_token");
+        assertThat(record.getAuthenticationCredentialId()).isEqualTo("key-1");
+    }
+
+    @Test
     void jobAuditCorrelationSurvivesDelayedPersistenceWithoutBusinessInput() {
         RuntimeEvent event;
         try (var job = net.ximatai.muyun.spring.common.identity.JobExecutionContext.use(

@@ -37,6 +37,8 @@ public record BusinessLogEventResponse(
         RuntimeMutationSource mutationSource,
         BusinessLogOperatorIdentity operatorIdentity,
         String outcome,
+        String authenticationMethod,
+        String authenticationCredentialId,
         Object details
 ) {
     public static BusinessLogEventResponse from(BusinessLogEvent event) {
@@ -58,7 +60,8 @@ public record BusinessLogEventResponse(
         return new BusinessLogEventResponse(context.eventId(), event.eventType(), context.occurredAt(),
                 context.capturedAt(), context.traceId(), context.tenantId(), context.operatorId(),
                 context.operatorOrganizationId(), context.moduleAlias(), context.actionCode(), entityAlias(event),
-                recordId(event), mutationSource(event), identity, outcome(event), safeDetails(event));
+                recordId(event), mutationSource(event), identity, outcome(event), context.authenticationMethod(),
+                context.authenticationCredentialId(), safeDetails(event));
     }
 
     static Optional<BusinessLogOperatorIdentityKey> identityKey(BusinessLogEvent event) {

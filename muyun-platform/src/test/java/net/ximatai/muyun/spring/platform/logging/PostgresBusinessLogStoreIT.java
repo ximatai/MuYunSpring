@@ -66,6 +66,37 @@ class PostgresBusinessLogStoreIT extends PlatformPostgresIntegrationTest {
         }
     }
 
+    @org.junit.jupiter.api.AfterEach
+    void cleanPersonalCredentialFacts() throws Exception {
+        try (Connection connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("delete from muyun_log.business_log_event where event_id like 'pat-log-%'");
+        }
+    }
+
+    @Test
+    void persistedCredentialProvenanceIsReadWithoutUsingTheReadersAuthentication() {
+        var context = context("pat-log-provenance", "pat-log-trace", "tenant-a", "sales.contract", "submit", "2026-10-27T01:00:00Z")
+                .withAuthentication("personal_access_token", "key-1");
+        store.append(new ActionLogEvent(context, new ActionLogDetails(ActionLogDetails.ActionOutcome.SUCCESS,
+                "STATIC_CRUD", 1L, 1L, null, null)));
+        store.append(new ActionLogEvent(context("pat-log-legacy", "pat-log-trace", "tenant-a", "sales.contract", "submit", "2026-10-27T01:00:00Z")
+                .withAuthentication(null, null), new ActionLogDetails(ActionLogDetails.ActionOutcome.SUCCESS,
+                "STATIC_CRUD", 1L, 1L, null, null)));
+        try (var authentication = net.ximatai.muyun.spring.common.identity.RequestAuthenticationContext.use(
+                new net.ximatai.muyun.spring.common.identity.AuthenticatedUser(
+                        net.ximatai.muyun.spring.common.identity.CurrentUser.systemUser(context.operatorId(), "reader"),
+                        "session", "readers-session"))) {
+            var stored = store.read(new BusinessLogQuery(null, null, "tenant-a", "sales.contract", "submit", null, null, 100))
+                    .events().stream().filter(event -> event.eventId().equals(context.eventId())).findFirst().orElseThrow();
+            assertThat(stored.context().authenticationMethod()).isEqualTo("personal_access_token");
+            assertThat(stored.context().authenticationCredentialId()).isEqualTo("key-1");
+            var legacy = store.read(new BusinessLogQuery(null, null, "tenant-a", "sales.contract", "submit", null, null, 100))
+                    .events().stream().filter(event -> event.eventId().equals("pat-log-legacy")).findFirst().orElseThrow();
+            assertThat(legacy.context().authenticationMethod()).isNull();
+            assertThat(legacy.context().authenticationCredentialId()).isNull();
+        }
+    }
+
     @Test
     void shouldAppendIgnoreDuplicateBatchAndReadByOperationalFilters() {
         LoginLogEvent login = new LoginLogEvent(context("business-log-login", "trace-login", "tenant-a", "iam.login", "login", "2026-09-11T01:00:00Z"),
