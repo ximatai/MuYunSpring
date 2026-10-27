@@ -1,3 +1,4 @@
+import { formCreateDefaults } from './formCreateDefaults';
 import { isRecordSaveRejection } from './recordSaveFeedback';
 import { recordPresentationLabel } from '@muyun/web-core';
 import { usePageDataChangeHandler } from '../platform-admin-runtime/pageRealtime';
@@ -41,6 +42,7 @@ import {
   useWorkspaceDetailSurface,
   createReferenceRecordDetailBrowser,
   confirmAction,
+  actionConfirmationRequiredText,
   parentRecordConstraints,
   applyReferenceDependencyClears,
   referenceDependencyFields,
@@ -2960,7 +2962,15 @@ export function useModulePageSession(
       ...(navigatorExplorerQueryValues(level.descriptor.key) ?? {}),
       ...(parentId ? { parentId } : {}),
     };
-    navigatorManagementDetail.beginCreate(defaults);
+    navigatorManagementDetail.beginCreate(
+      formCreateDefaults(
+        formViewOf(
+          level.context.runtime.snapshot()?.uiDescriptor,
+          level.descriptor.management?.editorSurface,
+        ),
+        defaults,
+      ),
+    );
     const draft = navigatorManagementDetail.draft.value;
     if (draft) {
       const computeRules =
@@ -3261,6 +3271,11 @@ export function useModulePageSession(
             }),
             title: language.t('platform.action.delete', '删除'),
             danger: true,
+            requiredText: actionConfirmationRequiredText(
+              level.context.runtime.snapshot()?.uiDescriptor,
+              'delete',
+              record,
+            ),
           },
           language,
         ))
@@ -3503,7 +3518,7 @@ export function useModulePageSession(
     // Only a tree's persistent detail card has a meaningful record to restore.
     // A list drawer creates an independent draft: cancelling it must close the
     // drawer rather than reopen the row that happened to be selected.
-    detail.beginCreate(defaults, {
+    detail.beginCreate(formCreateDefaults(formViewOf(context.runtime.snapshot()?.uiDescriptor), defaults), {
       cancelDestination: persistentTreeDetail.value ? 'restore-view' : 'close',
     });
     if (editingRecord.value) {
@@ -4707,6 +4722,11 @@ export function useModulePageSession(
             }),
             title: language.t('platform.action.delete', '删除'),
             danger: true,
+            requiredText: actionConfirmationRequiredText(
+              context.runtime.snapshot()?.uiDescriptor,
+              'delete',
+              record,
+            ),
           },
           language,
         ))
@@ -5313,9 +5333,11 @@ export function useModulePageSession(
   }
 
   function recordTitle(record: QueryListRecord | undefined) {
+    const labelField = context.runtime.snapshot()?.uiDescriptor?.recordLabelField;
     const titleValue =
       record &&
-      (recordPresentationLabel(record, 'title', language) ??
+      ((labelField ? recordPresentationLabel(record, labelField, language) : undefined) ??
+        recordPresentationLabel(record, 'title', language) ??
         recordPresentationLabel(record, 'name', language) ??
         record.code ??
         record.id);

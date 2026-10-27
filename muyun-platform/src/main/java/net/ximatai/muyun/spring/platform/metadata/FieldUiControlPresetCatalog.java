@@ -27,10 +27,12 @@ public final class FieldUiControlPresetCatalog {
     public static List<FieldUiControl> fieldUiControls() {
         return List.of(
                 fieldUiType("text", "输入框", "string", FieldUiControlValueShape.SCALAR, ViewControlType.TEXT),
+                fieldUiType("cron", "分钟精度 Cron", "string", FieldUiControlValueShape.SCALAR, ViewControlType.TEXT),
                 fieldUiType("password", "密码输入框", "string", FieldUiControlValueShape.SCALAR, ViewControlType.TEXT),
                 fieldUiType("textarea", "文本域", "text", FieldUiControlValueShape.SCALAR, ViewControlType.TEXTAREA),
                 fieldUiType("number", "数字", "decimal", FieldUiControlValueShape.SCALAR, ViewControlType.DECIMAL),
                 fieldUiType("integer", "整数", "integer", FieldUiControlValueShape.SCALAR, ViewControlType.NUMBER),
+                fieldUiType("duration_seconds", "时长（秒存储）", "integer", FieldUiControlValueShape.SCALAR, ViewControlType.NUMBER),
                 fieldUiType("file_size", "文件大小", "long", FieldUiControlValueShape.SCALAR, ViewControlType.NUMBER),
                 fieldUiType("amount", "金额", "decimal", FieldUiControlValueShape.SCALAR, ViewControlType.DECIMAL),
                 fieldUiType("percentage", "百分比", "decimal", FieldUiControlValueShape.SCALAR, ViewControlType.DECIMAL),

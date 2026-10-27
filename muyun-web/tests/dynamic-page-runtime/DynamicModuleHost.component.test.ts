@@ -1,3 +1,4 @@
+import * as platformComponents from '@muyun/platform-components';
 import * as errorFeedback from '@/platform-components/platformErrorFeedback';
 import type { StandardModulePageDescriptor } from '@muyun/web-contracts';
 import { config, flushPromises, mount, shallowMount } from '@vue/test-utils';
@@ -52,10 +53,89 @@ describe('ModulePageHost', () => {
     delete config.global.stubs.ModuleHttpProvider;
   });
 
+  it.each([
+    ['main', true],
+    ['main', false],
+    ['navigator', true],
+    ['navigator', false],
+  ] as const)('honors the owning module delete confirmation (%s, typed: %s)', async (surface, typed) => {
+    const confirm = vi.spyOn(platformComponents, 'confirmAction').mockResolvedValue(false);
+    const requests: string[] = [];
+    const policy = (field: string) => [
+      { actionCode: 'delete', confirmation: { mode: 'typedText', requiredField: field } },
+    ];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request.method + ' ' + request.url);
+      if (request.url.endsWith('/context'))
+        return Response.json({
+          moduleAlias: 'demo.confirmation',
+          capabilities: [],
+          actions: [{ actionCode: 'delete', authorized: true }],
+          uiDescriptor: {
+            moduleAlias: 'demo.confirmation',
+            recordLabelField: 'identity',
+            actions: surface === 'navigator' || typed ? policy('identity') : [],
+            page: page(),
+          },
+        });
+      throw new Error(`Unexpected request: ${request.method} ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'demo.confirmation', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: { ManagementWorkspace: { template: '<section><slot /><slot name="detail" /></section>' } },
+      },
+    });
+    try {
+      await flushPromises();
+      const session = wrapper
+        .findComponent({ name: 'ModulePageHostRuntime' })
+        .props('session') as ModulePageSessionView;
+      const record = { id: 'record-1', version: 1, identity: 'identity-1', code: 'category-1' };
+      const navDelete = vi.fn();
+      if (surface === 'main') await session.deleteRecord(record);
+      else
+        await session.handleNavigatorInlineAction(
+          {
+            descriptor: { key: 'category', title: '类目', management: {} },
+            context: {
+              can: () => true,
+              crud: { delete: navDelete },
+              runtime: { snapshot: () => ({ uiDescriptor: { actions: typed ? policy('code') : [] } }) },
+            },
+          } as never,
+          { key: 'delete' } as never,
+          record,
+        );
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(confirm.mock.calls[0]![0].requiredText).toBe(
+        typed ? (surface === 'main' ? 'identity-1' : 'category-1') : undefined,
+      );
+      if (surface === 'main')
+        expect(confirm.mock.calls[0]![0].presentation?.().content).toContain('identity-1');
+      expect(navDelete).not.toHaveBeenCalled();
+      expect(requests.every((request) => request.startsWith('GET '))).toBe(true);
+    } finally {
+      wrapper.unmount();
+      confirm.mockRestore();
+    }
+  });
+
   it('retains a rejected draft and displays server feedback locally until the draft changes', async () => {
     const requests: string[] = [];
     const globalFeedback = vi.spyOn(errorFeedback, 'presentPlatformError').mockImplementation(normalizeError);
     let writeGate: Promise<void> | undefined;
+    let inserted: Record<string, unknown> | undefined;
     globalThis.fetch = async (input, init) => {
       const request = new Request(input, init);
       requests.push(request.method + ' ' + new URL(request.url).pathname);
@@ -64,9 +144,24 @@ describe('ModulePageHost', () => {
           moduleAlias: 'demo.contract',
           capabilities: [],
           actions: [{ actionCode: 'create', authorized: true }],
-          uiDescriptor: { moduleAlias: 'demo.contract', page: page() },
+          uiDescriptor: {
+            moduleAlias: 'demo.contract',
+            page: page({
+              detail: {
+                emptyDescription: '请选择记录',
+                createTitle: '新建记录',
+                editor: {
+                  viewCode: 'default_form',
+                  viewKind: 'FORM',
+                  fields: [],
+                  createDefaults: { loginEnabled: true, bindingEnabled: false, count: 0 },
+                },
+              },
+            }),
+          },
         });
       if (request.method === 'POST' && request.url.endsWith('/demo.contract/insert')) {
+        inserted = await request.json();
         await writeGate;
         return Response.json(
           {
@@ -102,9 +197,12 @@ describe('ModulePageHost', () => {
       const session = wrapper
         .findComponent({ name: 'ModulePageHostRuntime' })
         .props('session') as ModulePageSessionView;
+      expect(session.editingRecord).toMatchObject({ loginEnabled: true, bindingEnabled: false, count: 0 });
+      session.editingRecord!.loginEnabled = false;
       session.editingRecord!.amount = 99;
       const originalDraft = session.editingRecord;
       await session.saveRecord();
+      expect(inserted).toMatchObject({ loginEnabled: false, bindingEnabled: false, count: 0, amount: 99 });
       expect(session.recordSaveError?.message).toBe('合同金额超出允许范围');
       expect(session.recordSaveError?.targets[0].fieldName).toBe('amount');
       expect(session.editingRecord).toBe(originalDraft);

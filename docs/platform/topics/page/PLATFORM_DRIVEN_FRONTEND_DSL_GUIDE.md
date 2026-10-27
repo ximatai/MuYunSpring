@@ -92,6 +92,12 @@ public ModuleUiDefinition moduleUiDefinition() {
 
 默认编辑器应覆盖主资源的标准新建与编辑。确实存在同一模块多个稳定编辑面时，使用 `editors(...)` 声明命名 surface；不要在外层页面复制字段集合。
 
+标准 `duration_seconds` 控件用于 INTEGER 秒数：编辑时选择天、小时、分钟或秒，读态显示可读单位，传输与存储仍为整数秒；切换单位会按当前输入数值重新计算时长。单位选择不持久化，首次展示采用可整除的最大单位，避免精度损失。静态 DSL 与动态控件目录复用相同契约，不适用于毫秒、LONG 或小数存储字段。
+独立页面可从 `@ximatai/muyun-web-app` 导入 `DurationSecondsInput` 和 `DurationSecondsInputProps`，以 `v-model:value` 绑定秒数，监听 `error-change` 接入表单校验；组件接收 `disabled`、`invalid` 和 `ariaLabel`，非法输入保留在编辑态且不发送新的秒数。数值与单位复用 UI adapter 的 `UiInputGroup`，整体呈现焦点、错误和禁用状态。
+
+
+标准 `cron` 控件用于字符串字段，复用平台分钟精度调度契约（六段、秒位固定为 `0`）。计划助手只在明确应用后生成表达式，自定义表达式由后端实际解析器校验；编辑后延迟校验、离焦立即校验，待校验或校验失败时标准表单不可保存。组件保留高级语法，不用常用计划模板替换或简化手写表达式。独立页面可使用公开的 `CronExpressionInput`、`validateCronExpression(http, expression)` 和 `validity-change` 接入相同交互与校验；校验接口只检查语法，不读取、授权或修改计划。
+
 ### 引用选择驱动的字段规则
 
 `visible`、`required`、`readOnly` 可以使用 `UiFormula` 声明字段规则。规则读取本记录字段时使用 `{fieldName}`；当规则依赖已选择的 ONE 引用目标时，可使用声明式点路径：
@@ -158,6 +164,12 @@ private String moduleAlias;
 ```
 
 `resource` 必须有同名 `editorContribution`，其表单必须声明 `scopeField`，并由静态 action contribution 提供标准树 CRUD；`scopeNavigatorKey` 只能指向同页已声明的导航层级。`resource` 不能等于页面主实体：若页面维护的本来就是该树（如“菜单管理”维护 `Menu`），应使用 `filterListByNavigator` 将导航选择绑定到主树查询，而不是声明 `treeResource`。
+
+### 新增表单的模型默认值
+
+静态 `@Column.defaultVal` 的字面量与动态字段的 `defaultValue` 编译为同一模型事实，再投影到 FORM 描述符的 `createDefaults`。只投影当前表单已暴露的可写字段；只读、写保护、密码和计算字段不预填。数据库函数、表达式及 Java 实例初始化不在浏览器执行。LONG、DECIMAL 初值遵循标准 HTTP 文本表示。
+
+主表单、导航管理表单和新增子表行先使用模型初值，再接受页面上下文初值，最后执行新增计算。显式 `false`、`0`、`null` 优先于模型初值；编辑已有记录时不补写缺失字段。默认值只是草稿初始化，保存校验与权限约束仍由服务端执行。
 
 ### 必选导航范围的服务端契约
 
@@ -265,6 +277,10 @@ list.querySummaries(summaries -> summaries.item("onlineUsers", summary -> summar
 ```
 
 动态管理页的 `LIST_CARD` 可声明字段型 `persistentQueries`，发布时按已编译查询字段和操作符校验。控件只引用动态元数据已公开的查询字段，运行时进入标准 `criteria`；动态页面尚不能借 UI JSON 声明任意外部业务条件、绕过服务端过滤、授权或数据范围。`querySummaries` 仅由 `LIST_CARD` 支持；`MATCHED_COUNT` 不得携带字段参数，`SUM` 必须携带 `fieldName`，`CONTRIBUTOR` 必须携带已注册的 `contributorKey`，`GROUPED` 必须携带 `groupByField`，并且只可选携带一个 `fieldName`。编排器应先读取 `GET /platform.module/{moduleAlias}/page-query-summary-catalog`，其响应为 `{moduleAlias,fields:[{fieldName,title}],groupFields:[{fieldName,title,kind:"OPTION"|"REFERENCE"}],contributors:[{contributorKey,title}]}`，而不是让用户填写内部字段或指标 key。
+
+## 删除动作的输入确认
+
+`.typedTextConfirmation("delete", "字段名")` 为标准删除操作声明输入确认。主详情使用当前模块的声明；可管理导航使用导航来源模块的声明和来源记录，不能沿用父页面的确认字段。删除确认中的记录名称优先采用模型声明的记录名称字段。确认规则属于交互保护，不替代动作权限、数据范围、版本检查与服务端业务约束。
 
 ## 受控前端扩展：给特性业务留路，不改写标准页面
 

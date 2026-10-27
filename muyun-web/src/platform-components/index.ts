@@ -6,6 +6,7 @@ export type { FormulaExpressionField, FormulaExpressionFunction } from './formul
 export { default as ApplicationScopeSwitcher } from './ApplicationScopeSwitcher.vue';
 export { default as BusinessNotificationPanel } from './BusinessNotificationPanel.vue';
 export { confirmAction } from '@muyun/vue-ui-antdv';
+export { actionConfirmationRequiredText } from './actionConfirmation';
 export { UiModal } from '@muyun/vue-ui-antdv';
 export { uiDrawerWidths as drawerWidths } from '@muyun/vue-ui-antdv';
 export type { UiDrawerWidth as DrawerWidth } from '@muyun/vue-ui-antdv';
@@ -14,6 +15,8 @@ export { default as DrawerOperationBar } from './DrawerOperationBar.vue';
 export { default as DrawerTitleActions } from './DrawerTitleActions.vue';
 export type { DrawerTitleAction } from './drawerTitleActions';
 export { default as DateTimeText } from './DateTimeText.vue';
+export { default as DurationSecondsInput } from './DurationSecondsInput.vue';
+export type { DurationSecondsInputProps } from './durationSeconds';
 export { default as FileSizeText } from './FileSizeText.vue';
 export { default as FileTransferUploader } from './FileTransferUploader.vue';
 export { default as SingleImageFileReferenceField } from './SingleImageFileReferenceField.vue';
@@ -372,3 +375,12 @@ export { default as TenantScopeExplorer } from './TenantScopeExplorer.vue';
 
 export { useWorkspaceDetailSurface } from './useWorkspaceDetailSurface';
 export { default as RecordAdaptiveDetailPanel } from './RecordAdaptiveDetailPanel.vue';
+
+export { default as CronExpressionInput } from './CronExpressionInput.vue';
+export { validateCronExpression } from './cronExpression';
+export type {
+  CronExpressionInputProps,
+  CronExpressionValidator,
+  CronInputValidity,
+  CronValidationResult,
+} from './cronExpression';

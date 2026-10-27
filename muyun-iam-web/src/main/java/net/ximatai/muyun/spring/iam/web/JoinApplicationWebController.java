@@ -29,14 +29,21 @@ public class JoinApplicationWebController extends StaticModuleWebControllerAdapt
                 .page(PageTemplates.listDetailCard(page -> page
                         .list(list -> list.fields(fields -> fields
                                 .field("displayName", f -> f.label("申请人"))
-                                .field("providerId", f -> f.label("身份源"))
+                                .field("providerId", f -> f.label("外部身份源"))
                                 .field("status", f -> f.label("申请状态"))
-                                .field("createdAt", f -> f.label("申请时间"))))
+                                .field("createdAt", f -> f.label("申请时间")))
+                                .persistentQueries(queries -> queries.field("status", "status",
+                                        net.ximatai.muyun.spring.ability.query.QueryOperator.EQ, control -> control.label("申请状态"))))
                         .detail(detail -> detail.display(form -> form.title("加入申请")
-                                .field("displayName", f -> f.label("申请人"))
-                                .field("externalUserId", f -> f.label("外部用户标识"))
-                                .field("status", f -> f.label("申请状态"))
-                                .field("reviewerId", f -> f.label("审核人"))
-                                .field("reviewedAt", f -> f.label("审核时间")))))).build();
+                                .group("applicant", "申请身份", null, group -> group
+                                        .field("displayName", f -> f.label("申请人"))
+                                        .field("providerId", f -> f.label("外部身份源"))
+                                        .field("externalUserId", f -> f.label("外部用户标识"))
+                                        .field("createdAt", f -> f.label("申请时间")))
+                                .group("review", "审核结果", "批准加入将按当前租户接入规则处理账号；业务数据权限仍需单独授权。", group -> group
+                                        .field("status", f -> f.label("申请状态"))
+                                        .field("reviewerId", f -> f.label("审核主体标识"))
+                                        .field("reviewedAt", f -> f.label("审核时间"))
+                                        .field("reviewNote", f -> f.label("审核说明").columnSpan(2))))))).build();
     }
 }

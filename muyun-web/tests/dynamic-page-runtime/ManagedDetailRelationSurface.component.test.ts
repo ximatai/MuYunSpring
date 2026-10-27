@@ -73,6 +73,40 @@ describe('managed detail relation surface', () => {
     wrapper.unmount();
   });
 
+  it('seeds only newly added child rows from model defaults', async () => {
+    const aggregate = relation('properties');
+    aggregate.embeddedField = 'properties';
+    aggregate.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+    aggregate.listProjection = { fields: [{ fieldName: 'attributeAlias' }, { fieldName: 'title' }] };
+    const ui = descriptor();
+    ui.editorContributions![0]!.editor.createDefaults = { title: 'Initial title' };
+    const wrapper = mount(ManagedDetailRelationInlineSurface, {
+      props: {
+        sourceContext: context(vi.fn()),
+        uiDescriptor: ui,
+        relation: aggregate,
+        parentRecord: {
+          id: 'parent',
+          properties: [{ id: 'existing', version: 1, attributeAlias: 'existing', title: null }],
+        },
+        mutationEnabled: true,
+        addRequestKey: 0,
+      },
+    });
+    try {
+      await flushPromises();
+      expect(wrapper.findComponent({ name: 'RecordFormFields' }).props('record').title).toBeNull();
+      await wrapper.setProps({ addRequestKey: 1 });
+      await flushPromises();
+      const rows = wrapper.emitted('records-change')?.at(-1)?.[0] as QueryListRecord[];
+      expect(rows).toHaveLength(2);
+      expect(rows[0]!.title).toBeNull();
+      expect(rows[1]!.title).toBe('Initial title');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('keeps new child draft keys and create semantics when uploads preallocate parent and child IDs', async () => {
     const aggregate = relation('properties');
     aggregate.embeddedField = 'properties';
@@ -1518,6 +1552,79 @@ describe('managed detail relation surface', () => {
 
     expect(request).toHaveBeenCalledTimes(2);
     expect(wrapper.emitted('recycle-bin-availability-change')?.at(-1)).toEqual([false]);
+  });
+
+  it('seeds popup child drafts from model defaults without changing defaults or existing records', async () => {
+    const ui = descriptor();
+    for (const fieldName of ['active', 'count', 'options']) {
+      ui.editorContributions![0]!.editor.fields.push({
+        fieldRef: { relationCode: 'field_ui_control_property', fieldName },
+        label: fieldName,
+        visible: { constant: true },
+        readOnly: { constant: false },
+      });
+    }
+    const defaults = { title: 'Initial title', active: true, count: 0, options: { tags: ['initial'] } };
+    ui.editorContributions![0]!.editor.createDefaults = defaults;
+    const existing = { id: 'child', version: 1, title: null, active: false };
+    const request = vi.fn(async (options: { path: string; body?: unknown }) =>
+      options.path.endsWith('/query') ? page([]) : { id: 'created', version: 1, ...(options.body as object) },
+    );
+    const wrapper = shallowMount(ManagedDetailRelationSurface, {
+      props: {
+        sourceContext: context(request),
+        uiDescriptor: ui,
+        relation: relation('properties'),
+        parentRecord: { id: 'parent' },
+        mutationEnabled: true,
+      },
+      global: {
+        stubs: {
+          RecordQueryListPanel: {
+            name: 'RecordQueryListPanel',
+            setup: () => ({ existing }),
+            template:
+              '<section><slot name="toolbarActions" /><slot name="rowActions" :record="existing" /></section>',
+          },
+          UiModal: { name: 'UiModal', props: ['open'], template: '<section><slot v-if="open" /></section>' },
+        },
+      },
+    });
+    try {
+      const buttons = wrapper.findAllComponents({ name: 'ModuleActionButton' });
+      buttons[0]!.vm.$emit('click');
+      await flushPromises();
+      let fields = wrapper.findComponent({ name: 'RecordFormFields' });
+      expect(fields.props('record')).toEqual(defaults);
+      fields.props('record').options.tags.push('draft-only');
+      fields.vm.$emit('update:field', 'active', false);
+      wrapper.findComponent({ name: 'UiModal' }).vm.$emit('cancel');
+      await flushPromises();
+      buttons[0]!.vm.$emit('click');
+      await flushPromises();
+      fields = wrapper.findComponent({ name: 'RecordFormFields' });
+      expect(fields.props('record')).toEqual(defaults);
+      expect(defaults.options.tags).toEqual(['initial']);
+      fields.vm.$emit('update:field', 'attributeAlias', 'new-property');
+      fields.vm.$emit('update:field', 'active', false);
+      await flushPromises();
+      wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+      await flushPromises();
+      expect(request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          path: '/platform.field_ui_control/view/parent/relations/properties/insert',
+          body: { ...defaults, attributeAlias: 'new-property', active: false },
+        }),
+      );
+      buttons[1]!.vm.$emit('click');
+      await flushPromises();
+      fields = wrapper.findComponent({ name: 'RecordFormFields' });
+      expect(fields.props('mode')).toBe('edit');
+      expect(fields.props('record')).toEqual(existing);
+      expect(fields.props('record')).not.toHaveProperty('count');
+    } finally {
+      wrapper.unmount();
+    }
   });
 
   it('keeps a create draft with a preallocated upload ID on the insert gateway and blocks invalid input', async () => {

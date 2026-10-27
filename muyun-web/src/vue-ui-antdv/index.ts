@@ -6,6 +6,7 @@ export { default as UiTagList } from './components/UiTagList.vue';
 export { default as UiCheckbox } from './components/UiCheckbox.vue';
 export { default as UiColorPicker } from './components/UiColorPicker.vue';
 export { default as UiForm } from './components/UiForm.vue';
+export { default as UiInputGroup } from './components/UiInputGroup.vue';
 export { default as UiInput } from './components/UiInput.vue';
 export { default as UiSearchInput } from './components/UiSearchInput.vue';
 export { default as UiTextArea } from './components/UiTextArea.vue';

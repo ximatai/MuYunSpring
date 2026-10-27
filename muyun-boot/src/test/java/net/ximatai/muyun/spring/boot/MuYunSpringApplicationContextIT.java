@@ -617,6 +617,49 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void tenantAdministratorCreatesOrganizationWithoutOpeningPlatformApplication() {
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        String tenantId;
+        String operatorId = "org_admin_" + suffix;
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("org-fixture", "Fixture"));
+             var system = TenantContext.system("organization provisioning regression fixture")) {
+            tenantId = insertActiveTenant("org_seed_" + suffix);
+            insertUser(tenantId, operatorId, operatorId);
+            jdbcTemplate.update("update iam_user set password_status = ? where id = ?", "NORMAL", operatorId);
+            applicationContext.getBean(net.ximatai.muyun.spring.iam.role.DefaultTenantRoleProvisioner.class)
+                    .grantTenantAdminRoleToUser(tenantId, operatorId);
+            assertThat(tenantApplicationService.isApplicationOpened(tenantId, "iam")).isTrue();
+            assertThat(tenantApplicationService.isApplicationOpened(tenantId, "platform")).isFalse();
+        }
+
+        HttpHeaders headers = bearerHeaders(issueActiveSessionToken(tenantId, operatorId, operatorId));
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        ResponseEntity<JsonNode> created = restTemplate.exchange("/iam.organization/insert", HttpMethod.POST,
+                new HttpEntity<>(Map.of("code", "PILOT", "title", "Pilot organization"), headers), JsonNode.class);
+        assertThat(created.getStatusCode()).withFailMessage("organization creation: %s", created.getBody())
+                .isEqualTo(HttpStatus.CREATED);
+        String organizationId = jdbcTemplate.queryForObject(
+                "select id from iam_organization where tenant_id = ? and code = ? and not deleted",
+                String.class, tenantId, "PILOT");
+        assertThat(jdbcTemplate.queryForObject("select created_by from iam_organization where id = ?",
+                String.class, organizationId)).isEqualTo(operatorId);
+
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("org-inspector", "Inspector"));
+             var tenant = TenantContext.use(tenantId)) {
+            var role = roleService.select(net.ximatai.muyun.spring.iam.role.DefaultOrganizationRoleProvisioner
+                    .organizationAdminRoleId(tenantId, organizationId));
+            assertThat(role).isNotNull();
+            var source = roleService.recordTextSources(role).get("title");
+            assertThat(applicationContext.getBean(net.ximatai.muyun.spring.common.i18n.TextResolver.class)
+                    .resolve(source, Map.of(), "en").text()).isEqualTo("Organization administrator");
+            assertThat(tenantApplicationService.isApplicationOpened(tenantId, "platform")).isFalse();
+        }
+        ResponseEntity<JsonNode> platformQuery = restTemplate.exchange("/platform.module/query", HttpMethod.POST,
+                new HttpEntity<>(Map.of("page", Map.of("pageNum", 1, "pageSize", 1)), headers), JsonNode.class);
+        assertThat(platformQuery.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
     void publishesTenantAndOrganizationPresetLabelsWithoutChangingRecordsOrMaintainedTranslations() {
         var translations = applicationContext.getBean(net.ximatai.muyun.spring.platform.localization.ConfigurationTranslationService.class);
         var seeds = applicationContext.getBean(net.ximatai.muyun.spring.platform.localization.ConfiguredTextSeedService.class);

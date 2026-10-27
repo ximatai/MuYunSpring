@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formCreateDefaults } from './formCreateDefaults';
 import {
   useLanguageContext,
   createModuleContext,
@@ -169,14 +170,13 @@ const columns = computed(
 const relationFormCompute = computed(
   () => new RelationFormComputeCoordinator(props.relation.formComputeRules),
 );
-const rowFormCompute = computed(
+const rowEditor = computed(
   () =>
-    new FormComputeCoordinator(
-      props.uiDescriptor.editorContributions?.find(
-        (contribution) => contribution.resource === props.relation.targetEntityAlias,
-      )?.editor.formComputeRules,
-    ),
+    props.uiDescriptor.editorContributions?.find(
+      (contribution) => contribution.resource === props.relation.targetEntityAlias,
+    )?.editor,
 );
+const rowFormCompute = computed(() => new FormComputeCoordinator(rowEditor.value?.formComputeRules));
 function pickerConfigsOf(row: DraftRow): Record<string, RecordFormFieldPickerConfig> {
   const result: Record<string, RecordFormFieldPickerConfig> = {};
   for (const field of formFields.value.values()) {
@@ -513,7 +513,10 @@ function addRow(source: 'user' | 'assistant' = 'user') {
   const key = `new:${draftSequence}`;
   rows.value = [
     ...rows.value,
-    rowFormCompute.value.applyOnCreate({ ...inheritedReferenceDefaults(), __draftKey: key }),
+    rowFormCompute.value.applyOnCreate({
+      ...formCreateDefaults(rowEditor.value, inheritedReferenceDefaults()),
+      __draftKey: key,
+    }),
   ];
   publishDraft();
   return key;

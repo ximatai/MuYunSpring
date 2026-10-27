@@ -20,7 +20,9 @@ public final class WeLinkDirectoryProtocol implements ExternalDirectoryProtocol 
     public Set<String> identityScopeConfigurationKeys() { return WeLinkConfiguration.AUTHORITY_KEYS; }
     public Department department(IdentityProviderDescriptor provider, String id) {
         var result = client.directory(provider, "/api/contact/v2/department/detail", Map.of("deptCode", id));
-        Department department = mapDepartment(result.path("data"), client.configuration(provider.configuration()));
+        // The live detail endpoint returns department fields at the top level; some deployments wrap them.
+        JsonNode row = result.has("data") ? result.path("data") : result;
+        Department department = mapDepartment(row, client.configuration(provider.configuration()));
         if (!id.equals(department.id())) throw WeLinkClient.unavailable();
         return department;
     }
@@ -96,7 +98,8 @@ public final class WeLinkDirectoryProtocol implements ExternalDirectoryProtocol 
         int page = cursor == null ? 1 : offset(cursor);
         if (page < 1) throw WeLinkClient.unavailable();
         if (page > config.maxPages()) throw new ReadLimitExceededException();
-        int size = Math.min(limit, config.pageSize());
+        // The user endpoint rejects 100 rows with 47013; its safe page bound differs from departments.
+        int size = Math.min(50, Math.min(limit, config.pageSize()));
         var response = client.directory(provider, "/api/contact/v2/user/list", Map.of("deptCode", departmentId,
                 "pageNo", Integer.toString(page), "pageSize", Integer.toString(size)));
         var data = rows(response);

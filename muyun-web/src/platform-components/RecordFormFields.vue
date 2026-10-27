@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { useBusinessCodeForm } from './useBusinessCodeForm';
 import RecordFieldLabel from './RecordFieldLabel.vue';
+import DurationSecondsInput from './DurationSecondsInput.vue';
+import CronExpressionInput from './CronExpressionInput.vue';
+import { validateCronExpression, type CronInputValidity } from './cronExpression';
 import RecordContentSourceField from './RecordContentSourceField.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import {
@@ -193,6 +196,7 @@ const editorFieldErrors = ref<Record<string, string>>({});
 // Malformed editor input stays local while the last valid business draft remains unchanged.
 const invalidEditorInputs = ref<Record<string, string>>({});
 const referenceFieldValidity = ref<Record<string, ReferencePickerValidity>>({});
+const cronFieldValidity = ref<Record<string, CronInputValidity>>({});
 const dictionaryFieldValidity = ref<Record<string, DictionaryPickerValidity>>({});
 const referenceSelectionContext = ref<RecordFormSelectionContext>({});
 const referenceSelectionSourceIds = ref<Record<string, string | undefined>>({});
@@ -216,10 +220,24 @@ const formValidity = computed<RecordFormValidity>(() => {
   const errors = {
     ...requiredFieldErrors.value,
     ...translatedErrors(optionFieldErrors.value),
-    ...translatedErrors(editorFieldErrors.value),
+    ...Object.fromEntries(
+      Object.entries(translatedErrors(editorFieldErrors.value)).filter(([name]) =>
+        fieldStates.value.some((field) => field.fieldName === name && !fieldDisabled(field)),
+      ),
+    ),
     ...codeForms.errors.value,
   };
+  const pending =
+    codeForms.loading.value ||
+    fieldStates.value.some(
+      (field) =>
+        field.fieldControl?.alias === 'cron' &&
+        !fieldDisabled(field) &&
+        cronFieldValidity.value[field.fieldName]?.pending,
+    );
   for (const field of fieldStates.value) {
+    const cronError = cronFieldError(field);
+    if (cronError) errors[field.fieldName] = cronError;
     const constraintError =
       !field.readOnly && field.visible
         ? recordFormInputConstraintError(field, props.record[field.fieldName], language)
@@ -237,9 +255,9 @@ const formValidity = computed<RecordFormValidity>(() => {
     }
   }
   return {
-    valid: !codeForms.loading.value && !codeForms.error.value && Object.keys(errors).length === 0,
+    valid: !pending && !codeForms.error.value && Object.keys(errors).length === 0,
     errors,
-    ...(codeForms.loading.value ? { pending: true } : {}),
+    ...(pending ? { pending: true } : {}),
   };
 });
 
@@ -258,8 +276,19 @@ watch([() => props.record.id, () => props.formSessionKey], () => {
   invalidEditorInputs.value = {};
   referenceFieldValidity.value = {};
   dictionaryFieldValidity.value = {};
+  cronFieldValidity.value = {};
   clearReferenceSelectionContext();
 });
+watch(
+  () => fieldStates.value.map((field) => field.fieldName),
+  (names) => {
+    // Hidden controls unmount and discard their raw edit; their last valid draft value survives.
+    const visible = new Set(names);
+    for (const name of Object.keys(editorFieldErrors.value)) {
+      if (!visible.has(name)) clearEditorFieldError(name);
+    }
+  },
+);
 watch(referenceSelectionValues, (values) => {
   for (const [fieldName, value] of values) {
     if (
@@ -714,6 +743,7 @@ function clearEditorFieldError(fieldName: string) {
 function editorFieldError(field: RecordFormFieldState) {
   return (
     translatedErrors(editorFieldErrors.value)[field.fieldName] ??
+    cronFieldError(field) ??
     props.serverErrors?.[field.fieldName] ??
     (!field.readOnly &&
     field.visible &&
@@ -722,6 +752,19 @@ function editorFieldError(field: RecordFormFieldState) {
       : undefined) ??
     recordFormInputConstraintError(field, props.record[field.fieldName], language)
   );
+}
+
+function cronFieldError(field: RecordFormFieldState) {
+  if (field.fieldControl?.alias !== 'cron') return undefined;
+  const state = cronFieldValidity.value[field.fieldName];
+  return fieldDisabled(field) || !state || state.valid || state.pending
+    ? undefined
+    : (state.message ??
+        language.t('platform.cron.invalid', 'Cron 表达式无效，请检查六个字段；也可使用计划助手生成。'));
+}
+function validateCronForField(expression: string) {
+  if (!props.optionContext) return Promise.reject(new Error('Cron validator requires a module transport'));
+  return validateCronExpression(props.optionContext.http, expression);
 }
 
 function requiredFieldError(field: RecordFormFieldState) {
@@ -796,6 +839,14 @@ function updateOverrideField(field: RecordFormFieldState, value: OptionValue | O
     return;
   }
   updateSelectField(field, value);
+}
+
+function fieldContainerTag(field: RecordFormFieldState) {
+  // Composite controls own labelled groups. An implicit label would activate their first input
+  // when another part is clicked, redirecting focus and dismissing its dropdown.
+  return field.fieldControl?.alias === 'duration_seconds' || field.fieldControl?.alias === 'cron'
+    ? 'div'
+    : 'label';
 }
 
 function groupOf(field: RecordFormFieldState | undefined) {
@@ -893,7 +944,8 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           </div>
         </UiHelp>
       </div>
-      <label
+      <component
+        :is="fieldContainerTag(field)"
         class="record-form-field"
         :data-page-composition-layout-key="
           !$slots['field-actions'] && layoutTransitionPrefix
@@ -1195,6 +1247,17 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             :loading="optionFieldLoading(field)"
             @update:value="updateSelectField(field, $event)"
           />
+          <CronExpressionInput
+            v-else-if="field.controlType === 'input' && field.fieldControl?.alias === 'cron'"
+            :value="record[field.fieldName] == null ? undefined : String(record[field.fieldName])"
+            :validator="validateCronForField"
+            :disabled="fieldDisabled(field)"
+            :invalid="fieldShowsError(field)"
+            :aria-label="field.label"
+            :show-feedback="false"
+            @update:value="updateField(field.fieldName, $event)"
+            @validity-change="cronFieldValidity[field.fieldName] = $event"
+          />
           <UiTextArea
             v-else-if="field.controlType === 'textarea'"
             :invalid="fieldShowsError(field)"
@@ -1202,6 +1265,19 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             :disabled="fieldDisabled(field)"
             :placeholder="field.placeholder"
             @update:value="updateEditorField(field, $event)"
+          />
+          <DurationSecondsInput
+            v-else-if="
+              field.controlType === 'numberInput' && field.fieldControl?.alias === 'duration_seconds'
+            "
+            :value="record[field.fieldName]"
+            :aria-label="field.label"
+            :disabled="fieldDisabled(field)"
+            :invalid="fieldShowsError(field)"
+            @update:value="updateField(field.fieldName, $event)"
+            @error-change="
+              $event ? setEditorFieldError(field.fieldName, $event) : clearEditorFieldError(field.fieldName)
+            "
           />
           <UiInput
             v-else-if="field.controlType === 'numberInput'"
@@ -1271,7 +1347,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             {{ codeStatus(field) }}
           </div>
         </div>
-      </label>
+      </component>
       <RecordContentSourceField
         v-if="field.content && field.content.policy !== 'KEEP_ORIGINAL'"
         :record="record"

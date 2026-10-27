@@ -57,10 +57,10 @@ public class ScheduledActionPlanWebController extends StaticModuleWebControllerA
                                 .field("executionUserId", field -> field.label("执行发起人（每次保存替换为修改人）").readOnly())
                                 .field("jobPlanId", field -> field.label("作业计划 ID").readOnly())
                                 .field("scheduleKind", field -> field.label("计划类型（FIXED_DELAY / CRON）").required())
-                                .field("expression", field -> field.label("Cron 表达式"))
-                                .field("zoneId", field -> field.label("时区"))
-                                .field("intervalMillis", field -> field.label("固定间隔（毫秒）"))
-                                .field("initialDelayMillis", field -> field.label("首次延迟（毫秒）"))
+                                .field("expression", field -> field.label("Cron 表达式").uiType("cron").visible(UiRule.formula(UiFormula.booleanExpression("{scheduleKind} == 'CRON'"))))
+                                .field("zoneId", field -> field.label("时区").visible(UiRule.formula(UiFormula.booleanExpression("{scheduleKind} == 'CRON'"))))
+                                .field("intervalMillis", field -> field.label("固定间隔（毫秒）").visible(UiRule.formula(UiFormula.booleanExpression("{scheduleKind} == 'FIXED_DELAY'"))))
+                                .field("initialDelayMillis", field -> field.label("首次延迟（毫秒）").visible(UiRule.formula(UiFormula.booleanExpression("{scheduleKind} == 'FIXED_DELAY'"))))
                                 .field("enabled", field -> field.label("启用状态"))))))
                 .build();
     }

@@ -82,12 +82,21 @@ final class ModelFieldProjection {
 
     private static ResolvedViewDescriptor view(ResolvedViewDescriptor view, Map<ViewFieldRef, FieldDefinition> fields, Map<ViewFieldRef, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> codes) {
         if (view == null) return null;
+        Map<String, Object> defaults = new LinkedHashMap<>();
         return view.withFields(view.fields().stream().map(field -> {
             var model = fields.get(new ViewFieldRef(field.fieldRef().relationCode(), field.fieldRef().fieldName(), null));
             if (model == null) return field;
             field = field.withContent(model.content()).withBusinessCode(codes.get(new ViewFieldRef(field.fieldRef().relationCode(), field.fieldRef().fieldName(), null)));
             if (view.viewKind() != ModuleViewKind.FORM || !model.isPhysical() || model.behavior().writeProtected()
                     || Boolean.TRUE.equals(field.readOnly().constant())) return field;
+            if (model.behavior().defaultValue() != null && !Boolean.FALSE.equals(field.visible().constant())
+                    && !field.fieldRef().fieldName().contains(".") && !"PASSWORD".equalsIgnoreCase(field.uiType())
+                    && field.calculationTiming() == null) {
+                Object value = net.ximatai.muyun.spring.dynamic.metadata.FieldBehaviorSupport.parseDefaultValue(
+                        model.type(), model.behavior().defaultValue());
+                defaults.put(field.fieldRef().fieldName(), net.ximatai.muyun.spring.common.web.PlatformWebWireContract
+                        .responseValue(model.type().name(), model.behavior().writeRules().normalize(value)));
+            }
             var rules = model.behavior().writeRules();
             // Server defaults satisfy insert requirements without requiring user input.
             boolean insert = rules.requiredOnInsert() && (model.behavior().defaultValue() == null
@@ -101,6 +110,6 @@ final class ModelFieldProjection {
             if (!insert && !update && maxLength == null && precision == null && scale == null && regex == null
                     && rules.textNormalization() == TextNormalization.NONE) return field;
             return field.withInputRequirements(new FieldInputRequirements(insert, update, maxLength, precision, scale, regex, rules.textNormalization()));
-        }).toList());
+        }).toList()).withCreateDefaults(defaults);
     }
 }

@@ -64,6 +64,8 @@ final class DirectorySyncStore {
                         new PageRequest(0, 1));
         if (rows.isEmpty()) return;
         var row = rows.getFirst();
+        // Heartbeats and progress updates keep the same status; do not invalidate an in-flight page.
+        if (Objects.equals(row.getStatus(), job.getStatus())) return;
         row.setStatus(job.getStatus());
         save(runs, row);
     }

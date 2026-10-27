@@ -24,6 +24,35 @@ class StaticFieldWriteRulesCompilerTest {
                 .behavior().writeRules()).isEqualTo(code.behavior().writeRules());
     }
 
+    @Test
+    void compilesOnlyDeclaredLiteralDefaultsWithoutConstructingModels() {
+        var entity = new StaticEntityDefinitionCompiler().compile("defaults", "Defaults", Defaults.class);
+        var defaults = entity.fields().stream().filter(field -> field.behavior().defaultValue() != null)
+                .collect(java.util.stream.Collectors.toMap(FieldDefinition::fieldName, field -> field.behavior().defaultValue()));
+        assertThat(defaults).containsExactlyInAnyOrderEntriesOf(java.util.Map.of(
+                "enabled", "true", "disabled", "false", "count", "0", "ratio", "1.25", "mode", "disabled"));
+    }
+
+    @Table(name = "literal_defaults")
+    static class Defaults extends StandardEntity {
+        Defaults() { throw new AssertionError("metadata compilation must not construct models"); }
+        @Column(type = ColumnType.BOOLEAN, defaultVal = @net.ximatai.muyun.database.core.annotation.Default(bool = net.ximatai.muyun.database.core.annotation.TrueOrFalse.TRUE))
+        Boolean enabled;
+        @Column(type = ColumnType.BOOLEAN, defaultVal = @net.ximatai.muyun.database.core.annotation.Default(bool = net.ximatai.muyun.database.core.annotation.TrueOrFalse.FALSE))
+        Boolean disabled;
+        @Column(type = ColumnType.INT, defaultVal = @net.ximatai.muyun.database.core.annotation.Default(number = 0))
+        Integer count;
+        @Column(type = ColumnType.NUMERIC, defaultVal = @net.ximatai.muyun.database.core.annotation.Default(decimal = 1.25))
+        java.math.BigDecimal ratio;
+        @Column(defaultVal = @net.ximatai.muyun.database.core.annotation.Default(varchar = "disabled"))
+        String mode;
+        @Column(defaultVal = @net.ximatai.muyun.database.core.annotation.Default(function = "CURRENT_TIMESTAMP"))
+        String generated;
+        @Column(defaultVal = @net.ximatai.muyun.database.core.annotation.Default(express = "1 + 1"))
+        Integer expression;
+        @Column String absent;
+    }
+
     static class Parent extends StandardEntity {
         @Required(on = WriteOperation.INSERT) @NormalizeText @FieldPattern("[A-Z]+")
         @Column(name = "code", type = ColumnType.VARCHAR)

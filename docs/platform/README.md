@@ -54,7 +54,7 @@
 | [软删除、回收站与删除日志治理](SOFT_DELETION_AND_RECYCLE_BIN_GOVERNANCE.md) | 说明软删除、业务回收站、递归级联、恢复、唯一键冲突提示与删除运维审计的统一边界。                                     |
 | [外部写入接入边界](EXTERNAL_WRITE_BOUNDARY.md)                              | 说明外部写入应复用标准模块动作、权限、租户、校验、生命周期和运行审计；幂等、回执、重试和报文治理按触发条件后续建设。 |
 | [后台任务与异步批次边界](BACKGROUND_JOB_AND_BATCH_BOUNDARY.md)              | 说明同步动作、后台作业、节点本地调度的归属判断，以及作业运行与专题事实、运行审计的分工。                             |
-| [后台作业与定时调度设计](BACKGROUND_JOB_SCHEDULING.md)                      | 说明计划、运行、集群执行、执行身份、提醒和留存；核心、交换文件清理、日志留存、工作流超期扫描与翻译生成迁移已实现，通讯录同步与动态配置待建设。   |
+| [后台作业与定时调度设计](BACKGROUND_JOB_SCHEDULING.md)                      | 说明计划、运行、集群执行、执行身份、提醒和留存；核心、交换文件清理、日志留存、工作流超期扫描、翻译生成及通讯录同步已实现，动态配置待建设。   |
 | [动作结果与数据变更契约](ACTION_RESULT_AND_DATA_CHANGE.md)                  | 说明业务动作成功回执、可读消息、数据变化事实、HTTP 包装和异步广播之间的统一契约。                                    |
 | [平台实时通信设计](REALTIME_COMMUNICATION.md)                               | 说明 WebSocket/STOMP 实时通信底座、前后端封装边界、数据变化广播、双向通信预留和后续可靠性演进。                      |
 | [实时业务提醒后端接入](BUSINESS_NOTIFICATION_BACKEND_INTEGRATION.md)        | 说明业务服务发布在线提醒、按 IAM 范围接收、导航/命令动作和可靠性边界。                                               |
