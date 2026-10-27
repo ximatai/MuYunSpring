@@ -77,3 +77,66 @@ it('shares registered page state with a custom host through the installed packag
     sdk.configureWorkspaceViewContributions('consumer-guard-test', []);
   }
 });
+
+it.each(['custom-content', 'platform-route'] as const)(
+  'protects edits in the %s host using the same public discard guard',
+  async (mode) => {
+    const bundle = process.env.MUYUN_CONSUMER_CONTRACT_BUNDLE;
+    if (!bundle) throw new Error('Run through npm run verify:consumer.');
+    const sdk = new Function('Vue', `${readFileSync(bundle, 'utf8')}\nreturn MuyunConsumerContract;`)(Vue);
+    const dirty = Vue.ref(false);
+    const busy = Vue.ref(false);
+    const Editor = Vue.defineComponent({
+      setup() {
+        sdk.useWorkspaceViewUnsavedState(
+          '实施表单',
+          () => dirty.value,
+          () => busy.value,
+        );
+        return () =>
+          Vue.h('input', {
+            onInput: () => {
+              dirty.value = true;
+            },
+          });
+      },
+    });
+    const descriptor = {
+      pageType: 'business-route',
+      openMode: 'workbench-route',
+      hostType: 'business-route-host',
+      target: { route: mode === 'platform-route' ? '/platform/code-rule' : '/mr/custom' },
+      tabPolicy: { identity: 'by-target' },
+    };
+    const keys = [sdk.tabKeyOf(descriptor)];
+    const wrapper =
+      mode === 'custom-content'
+        ? mount(sdk.WorkbenchOutlet, { props: { descriptor }, slots: { default: () => Vue.h(Editor) } })
+        : mount(sdk.PlatformAdminOutlet, {
+            props: { descriptor },
+            global: { stubs: { PlatformAdminRouteOutlet: Editor } },
+          });
+    const language = sdk.createLanguageContext({ languageTag: 'zh-CN' });
+    try {
+      expect(sdk.hasWorkspaceViewDiscardProtection(keys)).toBe(false);
+      await wrapper.get('input').setValue('未保存的修改');
+      expect(sdk.hasWorkspaceViewDiscardProtection(keys)).toBe(true);
+      const result = sdk.confirmDiscardWorkspaceViewState(keys, 'logout', language);
+      await flushPromises();
+      const dialog = [...document.querySelectorAll<HTMLElement>('.ant-modal-confirm')].find(
+        (item) => item.style.display !== 'none',
+      )!;
+      expect(dialog.textContent).toContain('实施表单');
+      [...dialog.querySelectorAll('button')]
+        .find((item) => item.textContent?.replace(/\s/g, '') === '取消')!
+        .click();
+      await expect(result).resolves.toBe(false);
+      dirty.value = false;
+      busy.value = true;
+      await expect(sdk.confirmDiscardWorkspaceViewState(keys, 'logout', language)).resolves.toBe(false);
+    } finally {
+      wrapper.unmount();
+    }
+    expect(sdk.hasWorkspaceViewDiscardProtection(keys)).toBe(false);
+  },
+);

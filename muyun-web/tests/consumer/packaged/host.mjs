@@ -18,6 +18,7 @@ export {
   confirmDiscardWorkspaceViewState,
   hasWorkspaceViewDiscardProtection,
   WorkspaceViewOutlet,
+  WorkbenchOutlet,
   useWorkspaceViewUnsavedState,
   configureWorkspaceViewContributions,
   createWorkspaceViewDescriptor,

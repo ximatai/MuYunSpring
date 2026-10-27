@@ -45,3 +45,28 @@ it('protects local editor drafts and writes inside ordinary module tabs and rele
   wrapper.unmount();
   expect(workspaceViewBusyStateSources(key)).toEqual([]);
 });
+
+it('lets a custom business page reuse the standard state registrar without the default route host', () => {
+  const Panel = defineComponent({
+    setup() {
+      useWorkspaceViewUnsavedState('业务表单', () => true);
+      return () => h('input');
+    },
+  });
+  const descriptor: ModulePageDescriptor = {
+    pageType: 'dynamic-module',
+    openMode: 'dynamic-runner',
+    hostType: 'module-page-host',
+    target: { moduleAlias: 'demo.custom' },
+    tabPolicy: { identity: 'by-target' },
+  };
+  const wrapper = mount(WorkbenchOutlet, {
+    props: { descriptor },
+    slots: { default: () => h(Panel) },
+  });
+  const key = tabKeyOf(descriptor);
+  expect(wrapper.find('input').exists()).toBe(true);
+  expect(workspaceViewUnsavedStateSources(key)).toEqual(['业务表单']);
+  wrapper.unmount();
+  expect(workspaceViewUnsavedStateSources(key)).toEqual([]);
+});
