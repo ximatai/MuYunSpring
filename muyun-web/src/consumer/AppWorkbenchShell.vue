@@ -11,6 +11,13 @@ import type {
 } from '../web-contracts';
 import { userPreferences } from '../web-core';
 import Workbench from '../platform-workbench/Workbench.vue';
+import WorkbenchAccountCenter from '../app/WorkbenchAccountCenter.vue';
+import type { UiThemeSkinId } from '@muyun/vue-ui-antdv';
+import type {
+  WorkbenchAccountContext,
+  WorkbenchAccountMenuOptions,
+  WorkbenchAccountCommandGuard,
+} from '../platform-workbench/workbenchAccountMenu';
 import {
   provideWorkbenchNavigation,
   routeUrlWithOpenOptions,
@@ -49,11 +56,16 @@ import type { AppWorkbenchNavigation } from './workbenchNavigation';
 
 const language = useLanguageContext();
 
-defineOptions({ name: 'AppWorkbenchShell' });
+defineOptions({ name: 'AppWorkbenchShell', inheritAttrs: false });
 
 const props = withDefaults(
   defineProps<{
     startup: WorkbenchStartupState;
+    /** Standard account features; current user is always taken from startup.session. */
+    accountContext?: WorkbenchAccountContext;
+    accountMenu?: WorkbenchAccountMenuOptions;
+    beforeAccountCommand?: WorkbenchAccountCommandGuard;
+    skinId?: UiThemeSkinId;
     /** Host-owned authenticated menu loader; refreshing preserves all page instances. */
     loadMenus?: () => Promise<MenuTreeNode[]>;
     /** The consumer router's current full path, including search and hash. */
@@ -67,6 +79,11 @@ const props = withDefaults(
     themeAppearance?: 'light' | 'dark';
   }>(),
   {
+    accountContext: undefined,
+    accountMenu: undefined,
+    beforeAccountCommand: undefined,
+    skinId: undefined,
+    currentUserEmployeeName: undefined,
     resolveOptions: () => ({}),
     loadMenus: undefined,
     loading: false,
@@ -82,8 +99,30 @@ const emit = defineEmits<{
   refreshPage: [key: string];
   retryLoad: [];
   userCommand: [key: string];
+  logout: [reason: 'requested' | 'passwordChanged'];
+  'update:skinId': [skinId: UiThemeSkinId];
 }>();
 
+const resolvedAccountContext = computed(() =>
+  props.accountContext
+    ? { ...props.accountContext, currentUser: props.startup.session.currentUser }
+    : undefined,
+);
+async function guardAccountCommand(command: {
+  key: string;
+  currentUser?: WorkbenchAccountContext['currentUser'];
+}) {
+  if (
+    command.key === 'logout' &&
+    !(await confirmDiscardWorkspaceViewState(
+      (props.startup.tabs ?? []).map((tab) => tab.key),
+      'close',
+      language,
+    ))
+  )
+    return false;
+  return props.beforeAccountCommand ? props.beforeAccountCommand(command) : true;
+}
 const activeTabKey = computed(() => props.startup.activeTabKey);
 const lockedTabs = ref<MenuTab[]>([]);
 let lockedTabPreferenceRevision = 0;
@@ -426,30 +465,44 @@ async function restoreLockedTabs() {
 </script>
 
 <template>
-  <Workbench
-    :startup="startup"
-    :current-user-employee-name="currentUserEmployeeName"
-    :loading="loading"
-    :error="error"
-    :active-tab-key="activeTabKey"
-    :locked-tab-keys="lockedTabs.map((tab) => tab.key)"
-    :realtime-status="realtimeStatus"
-    :theme-appearance="themeAppearance"
-    @select-menu="selectMenu"
-    @change-tab="changeTab"
-    @close-tab="closeTab"
-    @close-tabs="closeTabs"
-    @reorder-tabs="reorderTabs"
-    @toggle-tab-lock="toggleTabLock"
-    @refresh-page="refreshPage"
+  <WorkbenchAccountCenter
+    v-slot="account"
+    :context="resolvedAccountContext"
+    :menu="accountMenu"
+    :before-command="guardAccountCommand"
+    :skin-id="skinId"
     @user-command="emit('userCommand', $event)"
-    @retry-load="emit('retryLoad')"
+    @logout="emit('logout', $event)"
+    @update:skin-id="emit('update:skinId', $event)"
   >
-    <template v-if="$slots['topbar-actions']" #topbar-actions="context">
-      <slot name="topbar-actions" v-bind="context" />
-    </template>
-    <template #default="{ pageDescriptor }">
-      <slot :page-descriptor="pageDescriptor" />
-    </template>
-  </Workbench>
+    <Workbench
+      v-bind="$attrs"
+      :startup="startup"
+      :current-user-employee-name="currentUserEmployeeName ?? account.profile?.employee?.title"
+      :managed-account-menu-items="account.items"
+      :loading="loading"
+      :error="error"
+      :active-tab-key="activeTabKey"
+      :locked-tab-keys="lockedTabs.map((tab) => tab.key)"
+      :realtime-status="realtimeStatus"
+      :theme-appearance="themeAppearance"
+      @select-menu="selectMenu"
+      @change-tab="changeTab"
+      @close-tab="closeTab"
+      @close-tabs="closeTabs"
+      @reorder-tabs="reorderTabs"
+      @toggle-tab-lock="toggleTabLock"
+      @refresh-page="refreshPage"
+      @user-command="account.select($event)"
+      @account-menu-open="account.refresh()"
+      @retry-load="emit('retryLoad')"
+    >
+      <template v-if="$slots['topbar-actions']" #topbar-actions="context">
+        <slot name="topbar-actions" v-bind="context" />
+      </template>
+      <template #default="{ pageDescriptor }">
+        <slot :page-descriptor="pageDescriptor" />
+      </template>
+    </Workbench>
+  </WorkbenchAccountCenter>
 </template>

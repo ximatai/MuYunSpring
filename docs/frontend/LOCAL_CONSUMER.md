@@ -69,6 +69,34 @@ npm link <muyun-spring-repository>/build/consumer-npm/staging/web-app
 
 正式 npm 发布后，本地 tarball 消费者验证仍保留，并作为发布前检查。
 
+## 标准账号菜单与业务扩展
+
+`AppWorkbenchShell` 注入一次 `accountContext` 后，平台统一提供语言、皮肤、密码、个人资料、个人访问密钥和退出入口，以及对应标准弹窗。当前用户取自 `startup.session.currentUser`；`accountContext` 提供宿主 HTTP 与当前交互会话 token，须随会话变化响应式更新。宿主仍拥有会话撤销、清理和路由跳转，在 `logout` 事件中完成；事件区分 `requested` 与 `passwordChanged`，后者必须执行会话恢复，不受可选菜单隐藏和业务前置检查阻止。
+
+```vue
+<AppWorkbenchShell
+  v-model:skin-id="skinId"
+  :startup="startup"
+  :location="route.fullPath"
+  :account-context="{ http, token: session?.token }"
+  :account-menu="{
+    hiddenCommands: ['themeSkin'],
+    contributions: [{ key: 'business.help', title: '业务帮助', group: 'account' }],
+  }"
+  :before-account-command="beforeAccountCommand"
+  @logout="endSession"
+  @user-command="handleBusinessCommand"
+/>
+```
+
+使用平台默认认证存储的宿主可通过 `useEffectiveAuthToken()` 获得响应式 token；本页的 `saveAuthToken` / `clearAuthToken`、其他标签页变更以及窗口恢复焦点都会更新读取结果，组件卸载时释放监听。使用业务自有认证存储的宿主继续提供自己的响应式 token。
+
+皮肤值连接宿主 `UiThemeProvider` 使用的 `uiThemeSkinById(skinId).theme`，平台处理选择、持久化及失败回退；宿主沿用既有偏好存储配置。离线或 mock 宿主可在 `accountContext` 设置 `preferencePersistence: 'local'`。`beforeAccountCommand({ key, currentUser })` 返回布尔值或 Promise，可阻止通话期间退出等业务操作；工作台自身先检查未保存页面，异步检查期间身份变化会使原动作失效。
+
+`hiddenCommands` 仅引用稳定命令标识：`languageSettings`、`themeSkin`、`changePassword`、`profile`、`accessTokens`、`logout`。隐藏只收窄界面；Token 入口还受后端能力检查约束，打开时重新核验，不能通过追加项替换内置动作。业务项必须使用命名空间 key（如 `business.help`），可设置 `visible`、`disabled`、`danger`、`iconName` 和 `order`；同组按 order 稳定排序，`preferences` 组位于语言/皮肤之后，默认 `account` 组位于标准账号操作之后、退出之前。重复或无命名空间 key 会拒绝配置。身份信息头部由平台呈现，服务端独立鉴权。
+
+需要自行编排页签的宿主可使用公开的 `WorkbenchAccountCenter` 包裹低层 `Workbench`，一次连接插槽的 `items` → `managedAccountMenuItems`、`select` → `userCommand`、`refresh` → `accountMenuOpen`，并处理 `logout` 与 `update:skinId`。账号功能与弹窗仍由平台维护，无需为每个新增功能重复接线。未提供 accountContext 的既有 `AppWorkbenchShell` 保留命令转发；低层 `Workbench.accountMenuItems` 仍兼容已有附加入口，推荐新接入采用标准账号宿主。
+
 ## 自有壳的外部登录与个人绑定
 
 根包公开 `useExternalLoginHost`、`ExternalLoginHostOptions`、`ExternalLoginHost`、

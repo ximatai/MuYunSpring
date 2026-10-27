@@ -3,7 +3,7 @@ import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import { UiButton, UiInput, UiModal } from '@muyun/vue-ui-antdv';
 import { SingleImageFileReferenceField } from '@muyun/platform-components';
-import { createModuleContext, type ExternalLoginClient } from '@muyun/web-core';
+import { createModuleContext, type ExternalLoginClient, type HttpClient } from '@muyun/web-core';
 import ExternalIdentityBindings from './ExternalIdentityBindings.vue';
 import type { CurrentUserProfile, ResolvedFileReferenceFieldDescriptor } from '@muyun/web-contracts';
 
@@ -21,6 +21,8 @@ const props = withDefaults(
     /** Shows the user's external account bindings when the deployment enables federation. */
     externalLoginClient?: ExternalLoginClient;
     authToken?: string;
+    /** Account-owned transport for avatar operations in a custom host. */
+    http?: HttpClient;
   }>(),
   {
     open: false,
@@ -30,6 +32,7 @@ const props = withDefaults(
     profile: undefined,
     externalLoginClient: undefined,
     authToken: undefined,
+    http: undefined,
   },
 );
 
@@ -53,7 +56,7 @@ watch(
 
 const employee = computed(() => props.profile?.employee);
 // Avatar capabilities are needed only when the profile actually renders an employee.
-const avatarContext = computed(() => createModuleContext({ moduleAlias: 'iam.employee' }));
+const avatarContext = computed(() => createModuleContext({ moduleAlias: 'iam.employee', http: props.http }));
 const positions = computed(() => employee.value?.positions ?? []);
 const avatarDefinition: ResolvedFileReferenceFieldDescriptor = {
   fieldRef: { fieldName: 'avatarAssetId' },

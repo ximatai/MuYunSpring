@@ -83,9 +83,12 @@ export type {
   UiDatePickerPrecision,
 } from '../vue-ui-antdv/index';
 export { default as PlatformAdminOutlet } from './PlatformAdminOutlet.vue';
+export { default as WorkbenchAccountCenter } from '../app/WorkbenchAccountCenter.vue';
 export { default as AppWorkbenchShell } from './AppWorkbenchShell.vue';
 export { default as ExternalProvisioningConfirmation } from '../app/ExternalProvisioningConfirmation.vue';
 export { default as LoginView } from '../app/LoginView.vue';
+export { default as PersonalAccessTokenDialog } from '../app/PersonalAccessTokenDialog.vue';
+export { usePersonalAccessTokenAccess } from '../app/usePersonalAccessTokenAccess';
 export type { AppWorkbenchNavigation } from './workbenchNavigation';
 export { configureUserPreferencePersistence } from './userPreferencePersistence';
 export { default as ChangeOwnPasswordDialog } from '../app/ChangeOwnPasswordDialog.vue';

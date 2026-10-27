@@ -31,6 +31,7 @@ export type { AppRealtimeConnection, AppRealtimeOptions } from './realtime';
 export {
   clearAuthToken,
   effectiveAuthToken,
+  useEffectiveAuthToken,
   saveAuthSessionId,
   saveAuthToken,
   storedAuthSessionId,
