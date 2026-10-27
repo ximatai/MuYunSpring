@@ -26,6 +26,7 @@ import {
 import type { ResolvedDetailRelationDescriptor, ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
 
 import { useManagedDetailRelationRuntime } from './composables/useManagedDetailRelationRuntime';
+import { formCreateDefaults } from './formCreateDefaults';
 
 const language = useLanguageContext();
 
@@ -157,7 +158,11 @@ function startCreate() {
   formSessionKey.value += 1;
   formValid.value = true;
   editorMode.value = 'create';
-  draft.value = {};
+  draft.value = formCreateDefaults(
+    props.uiDescriptor.editorContributions?.find(
+      (contribution) => contribution.resource === props.relation.targetEntityAlias,
+    )?.editor,
+  );
 }
 
 function startEdit(record: QueryListRecord) {

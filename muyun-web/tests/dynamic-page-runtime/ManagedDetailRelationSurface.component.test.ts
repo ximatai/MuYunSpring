@@ -1554,6 +1554,79 @@ describe('managed detail relation surface', () => {
     expect(wrapper.emitted('recycle-bin-availability-change')?.at(-1)).toEqual([false]);
   });
 
+  it('seeds popup child drafts from model defaults without changing defaults or existing records', async () => {
+    const ui = descriptor();
+    for (const fieldName of ['active', 'count', 'options']) {
+      ui.editorContributions![0]!.editor.fields.push({
+        fieldRef: { relationCode: 'field_ui_control_property', fieldName },
+        label: fieldName,
+        visible: { constant: true },
+        readOnly: { constant: false },
+      });
+    }
+    const defaults = { title: 'Initial title', active: true, count: 0, options: { tags: ['initial'] } };
+    ui.editorContributions![0]!.editor.createDefaults = defaults;
+    const existing = { id: 'child', version: 1, title: null, active: false };
+    const request = vi.fn(async (options: { path: string; body?: unknown }) =>
+      options.path.endsWith('/query') ? page([]) : { id: 'created', version: 1, ...(options.body as object) },
+    );
+    const wrapper = shallowMount(ManagedDetailRelationSurface, {
+      props: {
+        sourceContext: context(request),
+        uiDescriptor: ui,
+        relation: relation('properties'),
+        parentRecord: { id: 'parent' },
+        mutationEnabled: true,
+      },
+      global: {
+        stubs: {
+          RecordQueryListPanel: {
+            name: 'RecordQueryListPanel',
+            setup: () => ({ existing }),
+            template:
+              '<section><slot name="toolbarActions" /><slot name="rowActions" :record="existing" /></section>',
+          },
+          UiModal: { name: 'UiModal', props: ['open'], template: '<section><slot v-if="open" /></section>' },
+        },
+      },
+    });
+    try {
+      const buttons = wrapper.findAllComponents({ name: 'ModuleActionButton' });
+      buttons[0]!.vm.$emit('click');
+      await flushPromises();
+      let fields = wrapper.findComponent({ name: 'RecordFormFields' });
+      expect(fields.props('record')).toEqual(defaults);
+      fields.props('record').options.tags.push('draft-only');
+      fields.vm.$emit('update:field', 'active', false);
+      wrapper.findComponent({ name: 'UiModal' }).vm.$emit('cancel');
+      await flushPromises();
+      buttons[0]!.vm.$emit('click');
+      await flushPromises();
+      fields = wrapper.findComponent({ name: 'RecordFormFields' });
+      expect(fields.props('record')).toEqual(defaults);
+      expect(defaults.options.tags).toEqual(['initial']);
+      fields.vm.$emit('update:field', 'attributeAlias', 'new-property');
+      fields.vm.$emit('update:field', 'active', false);
+      await flushPromises();
+      wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+      await flushPromises();
+      expect(request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          path: '/platform.field_ui_control/view/parent/relations/properties/insert',
+          body: { ...defaults, attributeAlias: 'new-property', active: false },
+        }),
+      );
+      buttons[1]!.vm.$emit('click');
+      await flushPromises();
+      fields = wrapper.findComponent({ name: 'RecordFormFields' });
+      expect(fields.props('mode')).toBe('edit');
+      expect(fields.props('record')).toEqual(existing);
+      expect(fields.props('record')).not.toHaveProperty('count');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('keeps a create draft with a preallocated upload ID on the insert gateway and blocks invalid input', async () => {
     const request = vi.fn(async (options: { path: string; method?: string; body?: unknown }) => {
       if (options.path.endsWith('/query')) return page([]);
