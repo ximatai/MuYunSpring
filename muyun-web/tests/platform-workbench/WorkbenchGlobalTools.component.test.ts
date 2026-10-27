@@ -70,3 +70,30 @@ it('keeps global tools accessible and delegates commands without owning authenti
   expect(tools.find('.workbench-page-refresh').exists()).toBe(false);
   expect(tools.find('button[aria-label="AI 助手"]').exists()).toBe(false);
 });
+
+it('renders host-authorized account commands and reports menu opening for a fresh permission check', async () => {
+  const tools = mount(WorkbenchGlobalTools, {
+    props: {
+      currentUser: { userId: 'user', system: false },
+      assistantAvailable: false,
+      assistantOpen: false,
+    },
+  });
+  const menu = tools.findComponent({ name: 'UiDropdown' });
+  expect(menu.props('items').some((item: { key: string }) => item.key === 'accessTokens')).toBe(false);
+  await tools.setProps({
+    accountMenuItems: [{ key: 'accessTokens', title: '个人访问密钥', iconName: 'lock' }],
+  });
+  expect(menu.props('items')).toContainEqual({
+    key: 'accessTokens',
+    title: '个人访问密钥',
+    iconName: 'lock',
+  });
+  await tools.get('.user-button').trigger('click');
+  expect(tools.emitted('accountMenuOpen')).toHaveLength(1);
+  menu.vm.$emit('select', 'accessTokens');
+  expect(tools.emitted('userCommand')).toEqual([['accessTokens']]);
+  await tools.setProps({ accountMenuItems: [] });
+  expect(menu.props('items').some((item: { key: string }) => item.key === 'accessTokens')).toBe(false);
+  tools.unmount();
+});

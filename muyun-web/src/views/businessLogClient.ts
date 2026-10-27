@@ -26,6 +26,8 @@ export interface BusinessLogEventView {
   tenantId?: string;
   operatorId?: string;
   operatorOrganizationId?: string;
+  authenticationMethod?: string;
+  authenticationCredentialId?: string;
   operatorIdentity?: BusinessLogOperatorIdentity;
   moduleAlias?: string;
   actionCode?: string;
@@ -242,6 +244,8 @@ function normalizeEvent(response: unknown): BusinessLogEventView {
     tenantId: stringOf(record.tenantId),
     operatorId: stringOf(record.operatorId),
     operatorOrganizationId: stringOf(record.operatorOrganizationId),
+    authenticationMethod: stringOf(record.authenticationMethod),
+    authenticationCredentialId: stringOf(record.authenticationCredentialId),
     operatorIdentity: operatorIdentityOf(record),
     moduleAlias: stringOf(record.moduleAlias),
     actionCode: stringOf(record.actionCode),

@@ -268,6 +268,8 @@ function detailRows(event: BusinessLogEventView) {
       language.t('platform.screen.BusinessLogListDrawer.change-source', '变更来源'),
       mutationSourceLabel(event.mutationSource),
     ],
+    [language.t('platform.access-tokens.auth-method', '认证方式'), event.authenticationMethod],
+    [language.t('platform.access-tokens.credential-id', '凭据 ID'), event.authenticationCredentialId],
     [language.t('platform.screen.BusinessLogListDrawer.trace-id', '追踪 ID'), event.traceId],
     ...valueRows(event.details, ['outcome', 'entityAlias', 'recordId', 'mutationSource']).map(
       (item) => [item.key, item.value] as const,

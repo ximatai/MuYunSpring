@@ -175,6 +175,7 @@ import net.ximatai.muyun.spring.platform.metadata.FieldSpecService;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.Set;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -196,6 +197,250 @@ class MuYunSpringApplicationContextIT {
 
     @Autowired
     private net.ximatai.muyun.spring.platform.job.JobRegistry jobRegistry;
+
+    @Test
+    void personalAccessTokenModuleOwnsActionsWithoutPublishingNavigationOrGenericCredentialCrud() {
+        String alias = "iam.personal_access_token";
+        var catalog = applicationContext.getBean(net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog.class);
+        var definition = catalog.find(alias).orElseThrow();
+        assertThat(definition.actions()).extracting(net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition::actionCode)
+                .containsExactlyInAnyOrder("query", "create", "revoke", "delete", "accessTokenCapabilities");
+        assertThat(definition.entities()).isEmpty();
+        assertThat(definition.modelClass()).isNull();
+        assertThat(definition.tenantRequired()).isFalse();
+        assertThat(catalog.find("iam.user").orElseThrow().actions())
+                .extracting(net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition::actionCode)
+                .doesNotContain("createOwnAccessToken", "listOwnAccessTokens", "revokeOwnAccessToken", "deleteOwnAccessToken");
+        assertThat(jdbcTemplate.queryForObject("select count(*) from platform_menu where module_alias = ?", Integer.class, alias)).isZero();
+        var mappings = applicationContext.getBean("requestMappingHandlerMapping",
+                org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping.class);
+        var endpoints = mappings.getHandlerMethods().entrySet().stream()
+                .filter(entry -> net.ximatai.muyun.spring.iam.web.PersonalAccessTokenWebController.class
+                        .isAssignableFrom(entry.getValue().getBeanType()))
+                .map(entry -> entry.getKey().getMethodsCondition().getMethods().iterator().next().name()
+                        + " " + entry.getKey().getPatternValues().iterator().next()).toList();
+        assertThat(endpoints).containsExactlyInAnyOrder("GET /iam.auth/access-tokens",
+                "GET /iam.auth/access-tokens/capabilities", "POST /iam.auth/access-tokens",
+                "POST /iam.auth/access-tokens/{id}/revoke", "DELETE /iam.auth/access-tokens/{id}");
+        var grants = applicationContext.getBean(net.ximatai.muyun.spring.iam.role.RoleGrantableActionResolver.class);
+        try (var scope = TenantContext.system("verify personal access token module authorization catalog")) {
+            assertThat(grants.resolve(List.of(alias))).extracting(net.ximatai.muyun.spring.iam.role.GrantableAction::actionCode)
+                    .containsExactly("create");
+        }
+    }
+
+    @Test
+    void personalAccessTokenCreationUsesGrantableActionsWithoutUserManagementAccess() {
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        String tenant = insertActiveTenant("pat_perm_" + suffix);
+        String user = "pat_perm_" + suffix, roleId = "pat_role_" + suffix;
+        insertUser(tenant, user, user);
+        jdbcTemplate.update("update iam_user set password_status = 'normal' where id = ?", user);
+        String session = issueActiveSessionToken(tenant, user, user);
+        // A valid browser session remains sufficient even long after the login itself.
+        jdbcTemplate.update("update iam_user_session set issued_at = ? where token_hash = ?",
+                Timestamp.from(Instant.now().minus(30, ChronoUnit.MINUTES)), tokenHash(session));
+        var headers = bearerHeaders(session);
+        try {
+            var capabilities = restTemplate.exchange("/iam.auth/access-tokens/capabilities", HttpMethod.GET,
+                    new HttpEntity<>(headers), JsonNode.class);
+            assertThat(capabilities.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(capabilities.getBody().path("canCreate").asBoolean()).isFalse();
+            assertThat(restTemplate.exchange("/iam.auth/access-tokens", HttpMethod.POST,
+                    new HttpEntity<>(Map.of("name", "denied", "validDays", 90), headers), JsonNode.class)
+                    .getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+            try (var scope = TenantContext.use(tenant)) {
+                Role role = new Role(); role.setId(roleId); role.setTitle("Tool credential applicant");
+                role.setAssignmentType(RoleAssignmentType.ACCOUNT); role.setRoleKind(RoleKind.STANDARD);
+                role.setOwnerScopeType(RoleOwnerScopeType.TENANT); role.setOwnerScopeId(tenant);
+                role.setOwnerScopeKey("tenant:" + tenant); role.setSharePolicy(RoleSharePolicy.PRIVATE); role.setEnabled(true);
+                roleService.insert(role);
+                roleService.grantAction(roleId, "iam.personal_access_token", "create");
+                roleService.grantAccountRoleResult(roleId, user, tenant);
+            }
+            capabilities = restTemplate.exchange("/iam.auth/access-tokens/capabilities", HttpMethod.GET,
+                    new HttpEntity<>(headers), JsonNode.class);
+            assertThat(capabilities.getBody().path("canCreate").asBoolean()).isTrue();
+            String expiredSession = issueActiveSessionToken(tenant, user, user);
+            jdbcTemplate.update("update iam_user_session set expires_at = ? where token_hash = ?",
+                    Timestamp.from(Instant.now().minusSeconds(1)), tokenHash(expiredSession));
+            String revokedSession = issueActiveSessionToken(tenant, user, user);
+            jdbcTemplate.update("update iam_user_session set revoked_at = ? where token_hash = ?",
+                    Timestamp.from(Instant.now()), tokenHash(revokedSession));
+            for (String invalidSession : List.of(expiredSession, revokedSession)) {
+                assertThat(restTemplate.exchange("/iam.auth/access-tokens", HttpMethod.POST,
+                        new HttpEntity<>(Map.of("name", "invalid session", "validDays", 90), bearerHeaders(invalidSession)), JsonNode.class)
+                        .getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+            }
+            var created = restTemplate.exchange("/iam.auth/access-tokens", HttpMethod.POST,
+                    new HttpEntity<>(Map.of("name", "tenant tool", "validDays", 90), headers), JsonNode.class);
+            assertThat(created.getStatusCode()).withFailMessage("%s", created.getBody()).isEqualTo(HttpStatus.OK);
+            String secret = created.getBody().path("token").asText();
+            String key = created.getBody().path("accessToken").path("id").asText();
+            assertThat(jdbcTemplate.queryForObject("select tenant_id from iam_personal_access_token where id = ?", String.class, key)).isNull();
+            assertThat(jdbcTemplate.queryForObject("select operator_type from platform_runtime_audit_record where record_id = ? and action_code = 'create' and module_alias = 'iam.personal_access_token'", String.class, key)).isEqualTo("USER");
+            assertThat(restTemplate.exchange("/iam.auth/context", HttpMethod.GET,
+                    new HttpEntity<>(bearerHeaders(secret)), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+            jdbcTemplate.update("update iam_tenant set enabled = false where id = ?", tenant);
+            var unavailable = restTemplate.exchange("/iam.auth/context", HttpMethod.GET,
+                    new HttpEntity<>(bearerHeaders(secret)), JsonNode.class);
+            assertThat(unavailable.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+            assertThat(unavailable.getBody().path("code").asText()).isEqualTo("ACCESS_TOKEN_OWNER_UNAVAILABLE");
+            jdbcTemplate.update("update iam_tenant set enabled = true where id = ?", tenant);
+            assertThat(restTemplate.exchange("/iam.auth/context", HttpMethod.GET,
+                    new HttpEntity<>(bearerHeaders(secret)), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+            var otherTarget = bearerHeaders(secret); otherTarget.set(CurrentUserWebFilter.TENANT_HEADER, insertActiveTenant("pat_other_" + suffix));
+            assertThat(restTemplate.exchange("/iam.auth/context", HttpMethod.GET,
+                    new HttpEntity<>(otherTarget), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+            try (var scope = TenantContext.use(tenant)) { roleService.revokeAction(roleId, "iam.personal_access_token", "create"); }
+            assertThat(restTemplate.exchange("/iam.auth/access-tokens/capabilities", HttpMethod.GET,
+                    new HttpEntity<>(headers), JsonNode.class).getBody().path("canCreate").asBoolean()).isFalse();
+            assertThat(restTemplate.exchange("/iam.auth/access-tokens", HttpMethod.POST,
+                    new HttpEntity<>(Map.of("name", "denied again", "validDays", 90), headers), JsonNode.class)
+                    .getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+            assertThat(restTemplate.exchange("/iam.auth/context", HttpMethod.GET,
+                    new HttpEntity<>(bearerHeaders(secret)), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(restTemplate.exchange("/iam.auth/access-tokens", HttpMethod.GET,
+                    new HttpEntity<>(headers), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(restTemplate.exchange("/iam.auth/access-tokens/" + key + "/revoke", HttpMethod.POST,
+                    new HttpEntity<>(headers), Void.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(restTemplate.exchange("/iam.auth/context", HttpMethod.GET,
+                    new HttpEntity<>(bearerHeaders(secret)), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+            assertThat(restTemplate.exchange("/iam.auth/access-tokens/" + key, HttpMethod.DELETE,
+                    new HttpEntity<>(headers), Void.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        } finally { userSessionService.logout(session); }
+    }
+
+    @Test
+    void personalAccessTokenUsesStandardStaticAndDynamicHttpWithUserAndCredentialAudit() {
+        String session = issueSuperAdminSessionToken();
+        try {
+            String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+            String tenantA = insertActiveTenant("pat_a_" + suffix), tenantB = insertActiveTenant("pat_b_" + suffix);
+            var management = bearerHeaders(session); management.set(CurrentUserWebFilter.TENANT_HEADER, tenantA);
+            var created = restTemplate.exchange("/iam.auth/access-tokens", HttpMethod.POST,
+                    new HttpEntity<>(Map.of("name", "USB " + suffix, "validDays", 90), management), JsonNode.class);
+            assertThat(created.getStatusCode()).withFailMessage("PAT create: %s", created.getBody()).isEqualTo(HttpStatus.OK);
+            assertThat(created.getHeaders().getCacheControl()).isEqualTo("no-store");
+            String token = created.getBody().path("token").asText();
+            String keyId = created.getBody().path("accessToken").path("id").asText();
+            assertThat(token).startsWith("muyun_pat_");
+            String tenantUser = "pat_user_" + suffix;
+            insertUser(tenantA, tenantUser, tenantUser);
+            jdbcTemplate.update("update iam_user set password_status = 'normal' where id = ?", tenantUser);
+            assertThat(restTemplate.exchange("/iam.auth/access-tokens", HttpMethod.POST,
+                    new HttpEntity<>(Map.of("name", "denied", "validDays", 90),
+                            bearerHeaders(issueActiveSessionToken(tenantA, tenantUser, tenantUser))), JsonNode.class)
+                    .getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+            var stored = jdbcTemplate.queryForMap("select user_id, tenant_id, token_hash from iam_personal_access_token where id = ?", keyId);
+            assertThat(stored.get("user_id")).isEqualTo(UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID);
+            assertThat(stored.get("tenant_id")).isNull();
+            assertThat(stored.get("token_hash")).isEqualTo(tokenHash(token));
+            management.set(CurrentUserWebFilter.TENANT_HEADER, tenantB);
+            var listed = restTemplate.exchange("/iam.auth/access-tokens", HttpMethod.GET, new HttpEntity<>(management), JsonNode.class);
+            assertThat(listed.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(listed.getBody().toString()).contains(keyId).doesNotContain(token, tokenHash(token), "tokenHash", "tenantId");
+            assertThat(restTemplate.exchange("/iam.auth/access-tokens", HttpMethod.POST,
+                    new HttpEntity<>(Map.of("name", "forbidden", "validDays", 90), bearerHeaders(token)), JsonNode.class)
+                    .getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+            String application = "patdyn" + suffix, module = application + ".record";
+            installDynamicReferenceTarget(application, module, "target");
+            String formUiConfigId = applicationContext.getBean(net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog.class)
+                    .find(module).orElseThrow().formUiConfigId();
+            Map<String, Object> dynamicBody = new LinkedHashMap<>();
+            dynamicBody.put("values", Map.of("title", "PAT record"));
+            if (formUiConfigId != null) dynamicBody.put("uiConfigId", formUiConfigId);
+            for (String tenant : List.of(tenantA, tenantB)) {
+                var headers = bearerHeaders(token); headers.set(CurrentUserWebFilter.TENANT_HEADER, tenant);
+                String trace = "pat-static-" + tenant; headers.set("X-Trace-Id", trace);
+                var organization = restTemplate.exchange("/iam.organization/insert", HttpMethod.POST,
+                        new HttpEntity<>(Map.of("title", "PAT organization", "code", "pat_" + suffix), headers), JsonNode.class);
+                assertThat(organization.getStatusCode()).withFailMessage("PAT static: %s", organization.getBody()).isEqualTo(HttpStatus.CREATED);
+                assertThat(jdbcTemplate.queryForObject("select count(*) from muyun_log.business_log_event where authentication_credential_id = ? and tenant_id = ? and module_alias = 'iam.organization' and action_code = 'create'",
+                        Integer.class, keyId, tenant)).isPositive();
+                var saved = restTemplate.exchange("/" + module + "/insert", HttpMethod.POST,
+                        new HttpEntity<>(dynamicBody, headers), JsonNode.class);
+                assertThat(saved.getStatusCode()).withFailMessage("PAT dynamic: %s", saved.getBody()).isEqualTo(HttpStatus.CREATED);
+                assertThat(jdbcTemplate.queryForObject("select count(*) from platform_runtime_audit_record where authentication_credential_id = ? and tenant_id = ? and operator_id = ? and module_alias = ?",
+                        Integer.class, keyId, tenant, UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID, module)).isPositive();
+            }
+            var denied = bearerHeaders(token); denied.set(CurrentUserWebFilter.TENANT_HEADER, "missing-pat-tenant");
+            assertThat(restTemplate.exchange("/iam.auth/context", HttpMethod.GET, new HttpEntity<>(denied), JsonNode.class)
+                    .getBody().path("code").asText()).isEqualTo("TENANT_ACCESS_DENIED");
+            var activeDelete = restTemplate.exchange("/iam.auth/access-tokens/" + keyId, HttpMethod.DELETE,
+                    new HttpEntity<>(management), JsonNode.class);
+            assertThat(activeDelete.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(activeDelete.getBody().path("code").asText()).isEqualTo("VALIDATION_FAILED");
+            assertThat(restTemplate.exchange("/iam.auth/access-tokens/" + keyId, HttpMethod.DELETE,
+                    new HttpEntity<>(bearerHeaders(token)), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+            var revoke = restTemplate.exchange("/iam.auth/access-tokens/" + keyId + "/revoke", HttpMethod.POST,
+                    new HttpEntity<>(management), String.class);
+            assertThat(revoke.getStatusCode()).isEqualTo(HttpStatus.OK);
+            var rejected = restTemplate.exchange("/iam.auth/context", HttpMethod.GET, new HttpEntity<>(bearerHeaders(token)), JsonNode.class);
+            assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+            assertThat(rejected.getBody().path("code").asText()).isEqualTo("ACCESS_TOKEN_REVOKED");
+            var deleted = restTemplate.exchange("/iam.auth/access-tokens/" + keyId, HttpMethod.DELETE,
+                    new HttpEntity<>(management), Void.class);
+            assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(deleted.getHeaders().getCacheControl()).isEqualTo("no-store");
+            assertThat(jdbcTemplate.queryForObject("select deleted from iam_personal_access_token where id = ?", Boolean.class, keyId)).isTrue();
+            assertThat(restTemplate.exchange("/iam.auth/access-tokens", HttpMethod.GET, new HttpEntity<>(management), JsonNode.class)
+                    .getBody().toString()).doesNotContain(keyId);
+            assertThat(restTemplate.exchange("/iam.auth/access-tokens/" + keyId, HttpMethod.DELETE,
+                    new HttpEntity<>(management), Void.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(restTemplate.exchange("/iam.auth/context", HttpMethod.GET,
+                    new HttpEntity<>(bearerHeaders(token)), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+            assertThat(jdbcTemplate.queryForList("select action_code from platform_runtime_audit_record where record_id = ? and module_alias = 'iam.personal_access_token' and entity_alias = 'personal_access_token'", String.class, keyId))
+                    .contains("create", "revoke", "delete");
+            assertThat(jdbcTemplate.queryForObject("select count(*) from platform_runtime_audit_record where payload_text like ?", Integer.class, "%" + token + "%")).isZero();
+        } finally { userSessionService.logout(session); }
+    }
+
+    @Test
+    void personalAccessTokenExpiryAndAccountLifecycleStayIndependentOfBrowserSession() {
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        for (String operation : List.of("disable", "delete", "reset")) {
+            String username = "pat_owner_" + operation + suffix;
+            String userId = createPlatformUser(username, "OwnerPassword123!");
+            // Test account starts in normal password state, matching an administrator who completed setup.
+            jdbcTemplate.update("update iam_user set password_status = 'normal' where id = ?", userId);
+            String session = userSessionService.login(null, username, "OwnerPassword123!").token();
+            var created = restTemplate.exchange("/iam.auth/access-tokens", HttpMethod.POST,
+                    new HttpEntity<>(Map.of("name", "lifecycle", "validDays", 1), bearerHeaders(session)), JsonNode.class);
+            assertThat(created.getStatusCode()).withFailMessage("PAT lifecycle create: %s", created.getBody()).isEqualTo(HttpStatus.OK);
+            String token = created.getBody().path("token").asText(), id = created.getBody().path("accessToken").path("id").asText();
+            String outsiderSession = issueSuperAdminSessionToken();
+            var outsider = bearerHeaders(outsiderSession);
+            // Another administrator cannot revoke this owner's credential by guessing its ID.
+            try {
+                restTemplate.exchange("/iam.auth/access-tokens/" + id + "/revoke", HttpMethod.POST, new HttpEntity<>(outsider), String.class);
+            } finally { userSessionService.logout(outsiderSession); }
+            assertThat(jdbcTemplate.queryForObject("select revoked_at is null from iam_personal_access_token where id = ?", Boolean.class, id)).isTrue();
+            jdbcTemplate.update("update iam_personal_access_token set expires_at = ? where id = ?", Timestamp.from(Instant.now().minusSeconds(1)), id);
+            assertThat(restTemplate.exchange("/iam.auth/context", HttpMethod.GET, new HttpEntity<>(bearerHeaders(token)), JsonNode.class)
+                    .getBody().path("code").asText()).isEqualTo("ACCESS_TOKEN_EXPIRED");
+            jdbcTemplate.update("update iam_personal_access_token set expires_at = ? where id = ?", Timestamp.from(Instant.now().plusSeconds(3600)), id);
+            if (operation.equals("disable")) {
+                assertThat(changeOwnPassword(session, "OwnerPassword123!").getStatusCode()).isEqualTo(HttpStatus.OK);
+            }
+            userSessionService.logout(session);
+            assertThat(restTemplate.exchange("/iam.auth/context", HttpMethod.GET, new HttpEntity<>(bearerHeaders(token)), JsonNode.class)
+                    .getStatusCode()).isEqualTo(HttpStatus.OK);
+            try (var scope = TenantContext.system("PAT lifecycle contract");
+                 var actor = CurrentUserContext.use(CurrentUser.systemUser(UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID, "admin"))) {
+                if (operation.equals("disable")) { userAccountService.disable(userId); userAccountService.enable(userId); }
+                else if (operation.equals("delete")) {
+                    userAccountService.delete(userId);
+                    // Recovery must not revive the credential, even without an attempted use while deleted.
+                    jdbcTemplate.update("update iam_user set deleted = false where id = ?", userId);
+                } else userAccountService.resetPassword(userId);
+            }
+            assertThat(jdbcTemplate.queryForObject("select revoked_at is not null from iam_personal_access_token where id = ?", Boolean.class, id)).isTrue();
+            assertThat(restTemplate.exchange("/iam.auth/context", HttpMethod.GET, new HttpEntity<>(bearerHeaders(token)), JsonNode.class)
+                    .getBody().path("code").asText()).isEqualTo("ACCESS_TOKEN_REVOKED");
+        }
+    }
 
     @Test
     void registersBothModuleActionJobScopesAndTheirManagementPages() {

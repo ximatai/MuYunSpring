@@ -22,6 +22,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -29,6 +30,45 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class CurrentUserWebFilterTest {
+    @Test
+    void credentialRejectionIsAStableJsonErrorBeforeControllerDispatch() throws Exception {
+        for (String code : java.util.List.of("ACCESS_TOKEN_EXPIRED", "ACCESS_TOKEN_REVOKED", "ACCESS_TOKEN_INVALID")) {
+            var provider = (net.ximatai.muyun.spring.common.identity.CurrentUserProvider) () -> {
+                throw new net.ximatai.muyun.spring.common.exception.PlatformException(code, 401, "credential rejected");
+            };
+            var response = new MockHttpServletResponse();
+            new CurrentUserWebFilter(provider).doFilter(new MockHttpServletRequest("GET", "/business"), response,
+                    (req, res) -> { throw new AssertionError("invalid token reached business"); });
+            var body = new ObjectMapper().readTree(response.getContentAsString());
+            assertThat(response.getStatus()).isEqualTo(401);
+            assertThat(response.getHeader("Cache-Control")).isEqualTo("no-store");
+            assertThat(body.path("code").asText()).isEqualTo(code);
+            assertThat(body.path("traceId").asText()).isNotBlank();
+            assertThat(CurrentUserContext.currentUser()).isEmpty();
+            assertThat(net.ximatai.muyun.spring.common.identity.RequestAuthenticationContext.current()).isEmpty();
+        }
+    }
+
+    @Test
+    void credentialProvenanceIsScopedAndClearedEvenWhenBusinessThrows() {
+        var authentication = new net.ximatai.muyun.spring.common.identity.AuthenticatedUser(
+                CurrentUser.systemUser("admin", "admin"), "personal_access_token", "key-1");
+        var provider = new net.ximatai.muyun.spring.common.identity.CurrentUserProvider() {
+            public Optional<CurrentUser> currentUser() { return Optional.of(authentication.user()); }
+            public Optional<net.ximatai.muyun.spring.common.identity.AuthenticatedUser> authenticatedUser() {
+                return Optional.of(authentication);
+            }
+        };
+        assertThatThrownBy(() -> new CurrentUserWebFilter(provider).doFilter(
+                new MockHttpServletRequest("POST", "/business"), new MockHttpServletResponse(), (req, res) -> {
+                    assertThat(net.ximatai.muyun.spring.common.identity.RequestAuthenticationContext.current()).contains(authentication);
+                    throw new IllegalStateException("business failed");
+                })).isInstanceOf(IllegalStateException.class);
+        assertThat(net.ximatai.muyun.spring.common.identity.RequestAuthenticationContext.current()).isEmpty();
+        assertThat(CurrentUserContext.currentUser()).isEmpty();
+        assertThat(TenantContext.hasContext()).isFalse();
+    }
+
     @Test
     void localizesPreControllerDenialsWhileKeepingStatusCodesAndFailClosedScopes() throws Exception {
         var catalog = LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");

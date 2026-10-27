@@ -237,6 +237,11 @@ class IamWebMvcSliceTest {
         }
     }
 
+    @org.junit.jupiter.api.BeforeEach
+    void delegateAuthenticationProjection() {
+        org.mockito.Mockito.doCallRealMethod().when(currentUserProvider).authenticatedUser();
+    }
+
     @Test
     void shouldServeEmployeeReadFromInstalledPlanWithoutReinvokingUiDeclaration() throws Exception {
         when(currentUserProvider.currentUser())

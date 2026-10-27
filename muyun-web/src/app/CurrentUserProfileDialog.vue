@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
-import { UiInput, UiModal } from '@muyun/vue-ui-antdv';
+import { UiButton, UiInput, UiModal } from '@muyun/vue-ui-antdv';
 import { SingleImageFileReferenceField } from '@muyun/platform-components';
 import { createModuleContext, type ExternalLoginClient } from '@muyun/web-core';
 import ExternalIdentityBindings from './ExternalIdentityBindings.vue';
@@ -227,22 +227,14 @@ const avatarDraft = computed(() => ({ id: employee.value?.id, avatarAssetId: ava
           </p>
         </div>
       </section>
-      <section v-else class="profile-empty-state">
-        <span class="profile-empty-monogram">{{ (profile?.username || '?').slice(0, 1).toUpperCase() }}</span>
-        <h2>
-          {{
-            profile?.username ||
-            language.t('platform.screen.CurrentUserProfileDialog.current-account', '当前账号')
-          }}
-        </h2>
-        <p>
-          {{
-            language.t(
-              'platform.screen.CurrentUserProfileDialog.this-account-is-not-linked-to-an-employee',
-              '此账号尚未绑定职员档案。请在职员管理中完成绑定后维护个人资料。',
-            )
-          }}
-        </p>
+      <section v-else class="profile-account-summary">
+        <span class="profile-account-monogram">{{
+          (profile?.username || '?').slice(0, 1).toUpperCase()
+        }}</span>
+        <strong>{{
+          profile?.username ||
+          language.t('platform.screen.CurrentUserProfileDialog.current-account', '当前账号')
+        }}</strong>
       </section>
       <ExternalIdentityBindings
         v-if="externalLoginClient && authToken && open"
@@ -251,6 +243,23 @@ const avatarDraft = computed(() => ({ id: employee.value?.id, avatarAssetId: ava
       />
     </template>
     <p v-if="error" class="profile-error">{{ error }}</p>
+    <template #operation>
+      <UiButton v-if="employee?.contactEditable" :disabled="saving" @click="emit('close')">
+        {{ language.t('platform.action.cancel', '取消') }}
+      </UiButton>
+      <UiButton
+        :type="employee?.contactEditable ? 'primary' : 'default'"
+        :loading="saving"
+        :disabled="loading"
+        @click="employee?.contactEditable ? emit('submit', { mobile, email, avatarAssetId }) : emit('close')"
+      >
+        {{
+          employee?.contactEditable
+            ? language.t('platform.screen.CurrentUserProfileDialog.save-contact-details', '保存联系方式')
+            : language.t('platform.screen.CurrentUserProfileDialog.close', '关闭')
+        }}
+      </UiButton>
+    </template>
   </UiModal>
 </template>
 
@@ -419,38 +428,25 @@ const avatarDraft = computed(() => ({ id: employee.value?.id, avatarAssetId: ava
 .profile-error {
   color: var(--muyun-danger-soft-text);
 }
-.profile-empty-state {
-  display: grid;
-  place-items: center;
-  gap: 9px;
-  padding: 36px 24px;
-  text-align: center;
-  border: 1px dashed var(--muyun-support-border);
-  border-radius: 12px;
+.profile-account-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 0 20px;
 }
-.profile-empty-state h2,
-.profile-empty-state p {
-  margin: 0;
-}
-.profile-empty-state h2 {
+.profile-account-summary strong {
   color: var(--muyun-support-text-heading);
-  font-size: 17px;
+  font-size: 15px;
 }
-.profile-empty-state p {
-  max-width: 300px;
-  color: var(--muyun-support-text-secondary);
-  font-size: 13px;
-  line-height: 1.65;
-}
-.profile-empty-monogram {
+.profile-account-monogram {
   display: grid;
-  width: 46px;
-  height: 46px;
   place-items: center;
-  color: white;
-  font-weight: 700;
-  background: var(--muyun-theme-base);
-  border-radius: 14px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
+  font-weight: 600;
 }
 .profile-avatar :deep(.single-image-file-reference-field) {
   --single-image-file-reference-area-height: 92px;

@@ -145,3 +145,18 @@ it('uploads, replaces and clears the avatar before submitting the empty binding'
     wrapper.unmount();
   }
 });
+
+it('keeps an account without an employee compact and offers a single close action', async () => {
+  const wrapper = mount(CurrentUserProfileDialog, {
+    props: { open: true, profile: { username: 'admin' } },
+    global: {
+      stubs: { UiModal: { template: '<div><slot /><footer><slot name="operation" /></footer></div>' } },
+    },
+  });
+  expect(wrapper.get('.profile-account-summary').text()).toContain('admin');
+  expect(wrapper.text()).not.toContain('尚未绑定职员档案');
+  expect(wrapper.findAll('footer button')).toHaveLength(1);
+  await wrapper.get('footer button').trigger('click');
+  expect(wrapper.emitted('close')).toHaveLength(1);
+  wrapper.unmount();
+});

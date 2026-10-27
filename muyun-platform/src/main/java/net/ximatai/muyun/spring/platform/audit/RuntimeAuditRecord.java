@@ -21,6 +21,7 @@ import java.time.Instant;
 @Table(name = "platform_runtime_audit_record", comment = "Runtime audit record")
 @CompositeIndex(columns = {"event_id"}, unique = true)
 @CompositeIndex(columns = {"trace_id"})
+@CompositeIndex(columns = {"authentication_credential_id", "occurred_at"})
 @CompositeIndex(columns = {"tenant_id", "module_alias", "entity_alias", "record_id"})
 @CompositeIndex(columns = {"event_type", "occurred_at"})
 @CompositeIndex(columns = {"tenant_id", "action_code", "occurred_at"})
@@ -88,6 +89,13 @@ public class RuntimeAuditRecord extends StandardEntity {
 
     @Column(name = "system_reason", type = ColumnType.VARCHAR, length = 256, comment = "System context reason")
     private String systemReason;
+
+    @Column(name = "authentication_method", type = ColumnType.VARCHAR, length = 64, comment = "Authentication method")
+    private String authenticationMethod;
+
+    @Column(name = "authentication_credential_id", type = ColumnType.VARCHAR, length = 64,
+            comment = "Non-secret credential or session id")
+    private String authenticationCredentialId;
 
     @Column(name = "operator_id", type = ColumnType.VARCHAR, length = 64, comment = "Runtime operator id")
     private String operatorId;

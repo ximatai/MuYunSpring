@@ -31,7 +31,7 @@ public final class UserAccountServiceTestFactory {
                         Optional.empty(),
                         UserSecurityEventPublisher.NOOP,
                         mock(UserSessionRevocationService.class),
-                        mock(UserSessionPresenceService.class))) {
+                        mock(UserSessionPresenceService.class), mock(net.ximatai.muyun.spring.iam.user.PersonalAccessTokenStore.class))) {
             @Override
             public net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService getDataScopeCriteriaService() {
                 return new AllowAllDataScopeCriteriaService();

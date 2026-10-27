@@ -75,7 +75,7 @@ class UserSessionBatchRevocationIT {
                 Clock.fixed(NOW, ZoneOffset.UTC));
         accounts = new UserAccountService(accountDao, tenant -> {}, new PasswordHashingService(),
                 mock(AccountRoleGrantDao.class), new UserAccountSecurityServices(Optional.empty(),
-                UserSecurityEventPublisher.NOOP, revocations, mock(UserSessionPresenceService.class))) {
+                UserSecurityEventPublisher.NOOP, revocations, mock(UserSessionPresenceService.class), mock(net.ximatai.muyun.spring.iam.user.PersonalAccessTokenStore.class))) {
             @Override public net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService getDataScopeCriteriaService() {
                 return new AllowAllDataScopeCriteriaService();
             }

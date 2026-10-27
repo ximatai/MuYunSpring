@@ -2030,7 +2030,8 @@ class IamWebControllerTest {
                             java.util.Optional.empty(),
                             net.ximatai.muyun.spring.iam.user.UserSecurityEventPublisher.NOOP,
                             mock(net.ximatai.muyun.spring.iam.user.UserSessionRevocationService.class),
-                            mock(net.ximatai.muyun.spring.iam.user.UserSessionPresenceService.class)));
+                            mock(net.ximatai.muyun.spring.iam.user.UserSessionPresenceService.class),
+                            mock(net.ximatai.muyun.spring.iam.user.PersonalAccessTokenStore.class)));
         }
 
         @Override

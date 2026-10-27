@@ -782,7 +782,7 @@ class UserAccountServiceContractTest {
                     passwordHashingService,
                     accountRoleGrantDao,
                     new UserAccountSecurityServices(Optional.ofNullable(passwordPolicyRuleService),
-                            securityEventPublisher, sessionRevocationService, sessionPresenceService)) {
+                            securityEventPublisher, sessionRevocationService, sessionPresenceService, mock(PersonalAccessTokenStore.class))) {
                 @Override
                 public DataScopeCriteriaService getDataScopeCriteriaService() {
                     return dataScopeCriteriaService;

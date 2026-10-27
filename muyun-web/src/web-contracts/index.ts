@@ -257,6 +257,22 @@ export interface CurrentUser {
   timeZone?: string;
 }
 
+/** User-owned tool credential metadata; full secret is only returned on issuance. */
+export interface PersonalAccessTokenView {
+  id: string;
+  name: string;
+  displayPrefix: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt?: string;
+  lastUsedAt?: string;
+}
+
+export interface IssuedPersonalAccessToken {
+  token: string;
+  accessToken: PersonalAccessTokenView;
+}
+
 export interface CurrentUserProfilePosition {
   id?: string;
   title?: string;

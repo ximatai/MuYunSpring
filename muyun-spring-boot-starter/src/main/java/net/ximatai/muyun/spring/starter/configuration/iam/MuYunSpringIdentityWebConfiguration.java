@@ -26,9 +26,10 @@ public class MuYunSpringIdentityWebConfiguration {
     @Bean
     @ConditionalOnMissingBean(CurrentUserProvider.class)
     /** 从可选会话服务构造当前用户来源；无会话能力时保持匿名上下文。 */
-    CurrentUserProvider currentUserProvider(ObjectProvider<UserSessionService> userSessionService) {
+    CurrentUserProvider currentUserProvider(ObjectProvider<UserSessionService> userSessionService,
+            ObjectProvider<net.ximatai.muyun.spring.iam.user.PersonalAccessTokenService> personalAccessTokens) {
         UserSessionService service = userSessionService.getIfAvailable();
-        return service == null ? Optional::empty : new BearerTokenCurrentUserProvider(service);
+        return service == null ? Optional::empty : new BearerTokenCurrentUserProvider(service, Optional.ofNullable(personalAccessTokens.getIfAvailable()));
     }
 
     @Bean

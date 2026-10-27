@@ -10,7 +10,7 @@ import type {
   PageDescriptor,
   WorkbenchStartupState,
 } from '@muyun/web-contracts';
-import type { UiTabItem } from '@muyun/vue-ui-antdv';
+import type { UiDropdownItem, UiTabItem } from '@muyun/vue-ui-antdv';
 import {
   createAssistantSurfaceRegistry,
   provideAssistantSurfaceHost,
@@ -48,6 +48,8 @@ const props = withDefaults(
     startup?: WorkbenchStartupState;
     /** Employee name from the host-owned current-user profile. */
     currentUserEmployeeName?: string;
+    /** Host-owned account commands already filtered by backend capabilities. */
+    accountMenuItems?: UiDropdownItem[];
     loading?: boolean;
     error?: string;
     activeTabKey?: string;
@@ -70,6 +72,7 @@ const props = withDefaults(
     lockedTabKeys: () => [],
     realtimeStatus: 'unavailable',
     themeAppearance: 'light',
+    accountMenuItems: () => [],
     assistantAvailable: false,
     assistantRequestTurn: undefined,
     assistantWaitForPageReady: undefined,
@@ -88,6 +91,7 @@ const emit = defineEmits<{
   retryLoad: [];
   'update:activeTabKey': [key: string];
   userCommand: [key: string];
+  accountMenuOpen: [];
 }>();
 
 const openedTabs = computed(() => props.startup?.tabs ?? []);
@@ -591,10 +595,12 @@ onUnmounted(() => {
           <WorkbenchGlobalTools
             :current-user="currentUser"
             :employee-name="currentUserEmployeeName"
+            :account-menu-items="accountMenuItems"
             :assistant-available="assistantUsable"
             :assistant-open="assistantOpen"
             @toggle-assistant="assistantUsable && (assistantOpen = !assistantOpen)"
             @user-command="handleUserCommand"
+            @account-menu-open="emit('accountMenuOpen')"
           >
             <template v-if="$slots['topbar-actions']" #topbar-actions="context">
               <slot name="topbar-actions" v-bind="context" />

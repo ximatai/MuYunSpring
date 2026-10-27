@@ -38,7 +38,7 @@ async function load() {
   try {
     identities.value = await props.client.identities(props.token);
   } catch (cause) {
-    if (cause instanceof AppError && cause.status === 404) {
+    if (cause instanceof AppError && (cause.status === 404 || cause.status === 405)) {
       unavailable.value = true;
       return;
     }

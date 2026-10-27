@@ -18,6 +18,10 @@
 
 `/iam.auth/login` 和 `/iam.auth/logout` 以 `@AnonymousEndpoint` 声明匿名访问，`/iam.auth/login-context` 以匿名平台动作声明；`/iam.auth/context`、`/iam.auth/changeOwnPassword` 等其余入口要求登录。连续登录失败达到阈值后账号锁定，锁定期内的登录请求与密码错误返回同样的认证失败，`changeOwnPassword` 的当前密码校验同样受锁定约束；未设置本地密码的账号不能使用密码登录。
 
+## 工具访问密钥
+
+个人访问密钥按 `iam.personal_access_token.create` 动作权限开放创建，超级管理员默认放行。通过 `/iam.auth/access-tokens` 创建、查询，并通过 `/{id}/revoke` 撤销。密钥只绑定用户，调用原有接口；业务目标租户继续由请求显式指定。完整协议、生命周期与错误码见 [个人访问密钥](PERSONAL_ACCESS_TOKENS.md)。
+
 ## 外部身份登录与绑定
 
 仅在 `muyun.iam.federation.enabled=true` 时装配，设计见 [外部身份联邦设计](EXTERNAL_IDENTITY_FEDERATION.md)。

@@ -27,6 +27,7 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.platform.RecordActionAvailabilityContributor;
 import net.ximatai.muyun.spring.common.platform.RecordActionAvailabilityDecision;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
@@ -77,6 +78,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     private final UserSecurityEventPublisher userSecurityEventPublisher;
     private final UserSessionRevocationService userSessionRevocationService;
     private final UserSessionPresenceService userSessionPresenceService;
+    private final PersonalAccessTokenStore personalAccessTokens;
     private final SecureRandom secureRandom = new SecureRandom();
     private PlatformInitialAdminSettings initialAdminSettings = PlatformInitialAdminSettings.defaults();
     private LoginLockoutPolicy loginLockoutPolicy = LoginLockoutPolicy.defaults();
@@ -103,6 +105,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         this.userSecurityEventPublisher = securityServices.securityEventPublisher();
         this.userSessionRevocationService = securityServices.sessionRevocationService();
         this.userSessionPresenceService = securityServices.sessionPresenceService();
+        this.personalAccessTokens = securityServices.personalAccessTokenStore();
     }
 
     @Autowired
@@ -292,11 +295,13 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     public void afterUpdate(UserAccount user, int updated) {
         if (updated > 0 && Boolean.FALSE.equals(user.getEnabled())) {
             revokeUserSessions(user.getId(), "user disabled");
+            personalAccessTokens.revokeForUser(user.getId(), "user disabled");
         }
     }
 
     @Override
     public void afterDelete(String id, UserAccount entity, int deleted) {
+        if (deleted > 0) personalAccessTokens.revokeForUser(id, "user deleted");
         cleanupDeletedUserReferences(id);
     }
 
@@ -383,6 +388,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         }, "passwordHash", "passwordStatus", "passwordChangedAt", "passwordExpiresAt", "failedLoginCount", "lockedUntil");
         if (count > 0) {
             revokeUserSessions(validUserId, "password changed");
+            personalAccessTokens.revokeForUser(validUserId, "administrator changed password");
             userSecurityEventPublisher.publish(UserSecurityEvent.passwordChanged(validUserId));
         }
         return count;
@@ -405,6 +411,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         }, "passwordHash", "passwordStatus", "passwordChangedAt", "passwordExpiresAt", "failedLoginCount", "lockedUntil");
         if (count > 0) {
             revokeUserSessions(validUserId, "password reset");
+            personalAccessTokens.revokeForUser(validUserId, "password reset");
             userSecurityEventPublisher.publish(UserSecurityEvent.passwordReset(validUserId));
         }
         return new PasswordResetResult(count, count > 0 ? temporaryPassword : null, count > 0 ? expiresAt : null);
@@ -534,6 +541,20 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                         }
                     });
             return admitted == null ? Optional.<R>empty() : Optional.of(openSession.apply(admitted));
+        });
+    }
+
+    /** Internal credential issuance admission; holds the account row lock without changing login facts. */
+    <R> R withPersonalAccessTokenOwner(CurrentUser expectedOwner, Function<UserAccount, R> issue) {
+        return inMutationTransaction(() -> {
+            UserAccount owner = VersionedRecordMutation.update(getDao(), () -> {
+                UserAccount latest = selectActiveRaw(expectedOwner.userId());
+                return latest != null && Boolean.TRUE.equals(latest.getEnabled())
+                        && Objects.equals(latest.getTenantId(), expectedOwner.tenantId()) ? latest : null;
+            }, user -> {});
+            if (owner == null) throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException(
+                    "personal access token owner is unavailable");
+            return issue.apply(owner);
         });
     }
 

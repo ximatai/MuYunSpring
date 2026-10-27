@@ -1,5 +1,7 @@
 import type {
   ChangeOwnPasswordRequest,
+  PersonalAccessTokenView,
+  IssuedPersonalAccessToken,
   CurrentUserProfile,
   CurrentUser,
   ExternalLoginCompleteRequest,
@@ -149,6 +151,46 @@ function normalizeMenuEntryType(value: unknown): 'module' | 'route' | 'link' | u
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+/** Personal access token management uses an explicit interactive session, without a business tenant. */
+export interface PersonalAccessTokenClient {
+  capabilities(sessionToken: string): Promise<{ canCreate: boolean }>;
+  list(sessionToken: string): Promise<PersonalAccessTokenView[]>;
+  create(
+    sessionToken: string,
+    request: { name: string; validDays: number },
+  ): Promise<IssuedPersonalAccessToken>;
+  revoke(sessionToken: string, id: string): Promise<void>;
+  remove(sessionToken: string, id: string): Promise<void>;
+}
+
+export function createPersonalAccessTokenClient(http: HttpClient): PersonalAccessTokenClient {
+  const headers = (token: string) => ({ Authorization: `Bearer ${token}` });
+  return {
+    capabilities: (token) =>
+      http.request({ path: '/iam.auth/access-tokens/capabilities', headers: headers(token) }),
+    list: (token) => http.request({ path: '/iam.auth/access-tokens', headers: headers(token) }),
+    create: (token, request) =>
+      http.request({
+        method: 'POST',
+        path: '/iam.auth/access-tokens',
+        headers: headers(token),
+        body: request,
+      }),
+    revoke: (token, id) =>
+      http.request({
+        method: 'POST',
+        path: `/iam.auth/access-tokens/${encodeURIComponent(id)}/revoke`,
+        headers: headers(token),
+      }),
+    remove: (token, id) =>
+      http.request({
+        method: 'DELETE',
+        path: `/iam.auth/access-tokens/${encodeURIComponent(id)}`,
+        headers: headers(token),
+      }),
+  };
 }
 
 export function createExternalLoginClient(http: HttpClient): ExternalLoginClient {

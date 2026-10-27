@@ -77,6 +77,10 @@ public class PostgresBusinessLogSchemaInitializer {
                     + "add column if not exists record_id varchar(128)");
             statement.execute("alter table muyun_log.business_log_event "
                     + "add column if not exists mutation_source varchar(32)");
+            statement.execute("alter table muyun_log.business_log_event add column if not exists authentication_method varchar(64)");
+            statement.execute("alter table muyun_log.business_log_event add column if not exists authentication_credential_id varchar(64)");
+            statement.execute("create index if not exists business_log_event_credential_occurred_idx "
+                    + "on muyun_log.business_log_event (authentication_credential_id, occurred_at desc)");
             statement.execute("create index if not exists business_log_event_occurred_idx "
                     + "on muyun_log.business_log_event (occurred_at desc, event_id desc)");
             statement.execute("create index if not exists business_log_event_type_occurred_idx "

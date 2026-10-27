@@ -30,6 +30,8 @@ public final class RequestErrorLogRecorder {
     private static final String OPERATOR_ACCOUNT_ATTRIBUTE = RequestErrorLogRecorder.class.getName() + ".OPERATOR_ACCOUNT";
     private static final String TENANT_ID_ATTRIBUTE = RequestErrorLogRecorder.class.getName() + ".TENANT_ID";
     private static final String OPERATOR_ORGANIZATION_ID_ATTRIBUTE = RequestErrorLogRecorder.class.getName() + ".OPERATOR_ORGANIZATION_ID";
+    private static final String AUTHENTICATION_METHOD_ATTRIBUTE = RequestErrorLogRecorder.class.getName() + ".AUTHENTICATION_METHOD";
+    private static final String AUTHENTICATION_CREDENTIAL_ATTRIBUTE = RequestErrorLogRecorder.class.getName() + ".AUTHENTICATION_CREDENTIAL";
     private static final String FILTER_ERROR_CODE_ATTRIBUTE = RequestErrorLogRecorder.class.getName() + ".FILTER_ERROR_CODE";
     private static final String FILTER_RESPONSE_SUMMARY_ATTRIBUTE = RequestErrorLogRecorder.class.getName() + ".FILTER_RESPONSE_SUMMARY";
     private static final RequestErrorLogRecorder NOOP = new RequestErrorLogRecorder(null);
@@ -60,6 +62,12 @@ public final class RequestErrorLogRecorder {
         if (user.organizationId() != null) {
             request.setAttribute(OPERATOR_ORGANIZATION_ID_ATTRIBUTE, user.organizationId());
         }
+    }
+
+    static void snapshotAuthentication(HttpServletRequest request,
+            net.ximatai.muyun.spring.common.identity.AuthenticatedUser authentication) {
+        request.setAttribute(AUTHENTICATION_METHOD_ATTRIBUTE, authentication.method());
+        request.setAttribute(AUTHENTICATION_CREDENTIAL_ATTRIBUTE, authentication.credentialId());
     }
 
     static void snapshotTenant(HttpServletRequest request, String tenantId) {
@@ -130,7 +138,9 @@ public final class RequestErrorLogRecorder {
             BusinessLogContext context = BusinessLogContext.capturedNow(Ids.newId(), Instant.now(), traceId,
                     tenantId, operatorId, operatorAccount, operatorOrganizationId,
                     action.map(value -> value.moduleAlias()).orElse(null),
-                    action.map(value -> value.actionCode()).orElse(null));
+                    action.map(value -> value.actionCode()).orElse(null))
+                    .withAuthentication(attribute(request, AUTHENTICATION_METHOD_ATTRIBUTE),
+                            attribute(request, AUTHENTICATION_CREDENTIAL_ATTRIBUTE));
             publisher.publish(new RequestErrorLogEvent(context, details));
         } catch (RuntimeException ignored) {
             log.warn("Request error log publication failed");

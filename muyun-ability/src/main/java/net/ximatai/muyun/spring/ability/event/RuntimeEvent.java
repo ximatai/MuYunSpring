@@ -182,8 +182,8 @@ public record RuntimeEvent(
                                   String systemReason,
                                   RuntimeMutationSource mutationSource,
                                   Map<String, Object> payload) {
-        return new RuntimeEvent(null, null, eventType, moduleAlias, entityAlias, recordId, actionCode,
-                tenantId, systemContext, systemReason, null, null, null, null, null, mutationSource, payload, null, null);
+        return of(null, eventType, moduleAlias, entityAlias, recordId, actionCode,
+                tenantId, systemContext, systemReason, mutationSource, payload);
     }
 
     public static RuntimeEvent of(String traceId,
@@ -197,8 +197,26 @@ public record RuntimeEvent(
                                   String systemReason,
                                   RuntimeMutationSource mutationSource,
                                   Map<String, Object> payload) {
+        // Snapshot attribution when the fact is produced, never when an asynchronous listener consumes it.
+        var actor = net.ximatai.muyun.spring.common.identity.CurrentUserContext.currentUser().orElse(null);
+        String actorId = actor == null ? null : actor.userId();
+        var action = net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder.current()
+                .filter(context -> context.moduleAlias().equals(moduleAlias))
+                .filter(context -> actionCode == null || actionCode.equals(context.actionCode()))
+                .filter(context -> Objects.equals(context.currentUser().map(user -> user.userId()).orElse(null), actorId))
+                .orElse(null);
+        var authorization = action == null ? null : action.authorizationResult();
+        String effectiveOperatorId = TenantContext.systemOperatorId().orElse(actorId);
+        if (authorization != null && !Objects.equals(authorization.operatorId(), effectiveOperatorId)) authorization = null;
+        String operatorId = authorization != null ? authorization.operatorId() : actor == null ? null : actor.userId();
+        String operatorType = authorization != null ? authorization.operatorType() : actor == null ? null
+                : actor.system() ? ActionAuthorizationResult.OPERATOR_SYSTEM : ActionAuthorizationResult.OPERATOR_USER;
         return new RuntimeEvent(null, traceId, eventType, moduleAlias, entityAlias, recordId, actionCode,
-                tenantId, systemContext, systemReason, null, null, null, null, null, mutationSource, payload, null, null);
+                tenantId, systemContext, systemReason, operatorId, operatorType,
+                authorization == null ? null : authorization.decision(),
+                authorization == null ? null : authorization.permissionCode(),
+                authorization == null ? null : authorization.permissionActionCode(),
+                mutationSource, payload, null, null);
     }
 
     public static RuntimeEvent of(RuntimeEventType eventType,
