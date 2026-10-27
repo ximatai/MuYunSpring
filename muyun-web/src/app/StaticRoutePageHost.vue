@@ -4,14 +4,13 @@ import type { RouteLocationNormalizedLoaded } from 'vue-router';
 import { UiSidePanelHost } from '@muyun/vue-ui-antdv';
 import { ModuleContextProvider, useLanguageContext } from '@muyun/web-core';
 import { providePageLayout } from '@muyun/platform-components';
-import { provideModulePageNavigation, type ModulePageWorkspaceView } from '@muyun/dynamic-page-runtime';
 import type { BusinessRoutePageDescriptor, PageDescriptor, PageLayoutMode } from '@muyun/web-contracts';
 import {
   createWorkspaceViewDescriptor,
   resolveWorkspaceView,
   syncModulePageWorkspaceViewContributions,
-  useWorkbenchNavigation,
   WorkspaceViewOutlet,
+  WorkbenchOutlet,
 } from '@muyun/platform-workbench';
 import { providePageDescriptor, providePageRoute } from './pageRouteContext';
 
@@ -32,7 +31,6 @@ const moduleAlias = computed(() => String(props.route.meta.moduleAlias ?? ''));
 const layout = computed<PageLayoutMode>(
   () => props.pageDescriptor?.layout ?? (props.route.meta.layout === 'workspace' ? 'workspace' : 'flow'),
 );
-const navigation = useWorkbenchNavigation();
 const workspaceDescriptor = computed<BusinessRoutePageDescriptor>(() => {
   // A workbench tab may intentionally separate identity parameters from
   // URL-restorable view state. Rebuilding a descriptor from the route would
@@ -86,34 +84,10 @@ onActivated(async () => {
 });
 
 syncModulePageWorkspaceViewContributions();
-provideModulePageNavigation(
-  navigation && {
-    openPage: navigation.openPage,
-    openWorkspaceTab(view, input, title) {
-      navigation.openPage(
-        createWorkspaceViewDescriptor(
-          workspaceViewDefinitionForModulePage(view),
-          input,
-          'tab',
-          title,
-          language,
-        ),
-      );
-    },
-  },
-);
 
 providePageLayout(layout);
 providePageRoute(() => props.route);
 providePageDescriptor(() => props.pageDescriptor);
-
-function workspaceViewDefinitionForModulePage(view: ModulePageWorkspaceView) {
-  return {
-    ...view,
-    route: view.route ?? `/_platform/workspace/${encodeURIComponent(view.type)}`,
-    presentations: ['tab'] as const,
-  };
-}
 </script>
 
 <template>
@@ -124,16 +98,18 @@ function workspaceViewDefinitionForModulePage(view: ModulePageWorkspaceView) {
       :class="{ 'static-route-page-content--workspace': layout === 'workspace' }"
       @scroll="rememberScroll"
     >
-      <ModuleContextProvider v-if="moduleAlias" :module-alias="moduleAlias">
-        <WorkspaceViewOutlet v-if="workspaceView" :key="pageContentKey" :descriptor="workspaceDescriptor" />
+      <WorkbenchOutlet :descriptor="workspaceDescriptor">
+        <ModuleContextProvider v-if="moduleAlias" :module-alias="moduleAlias">
+          <WorkspaceViewOutlet v-if="workspaceView" :key="pageContentKey" :descriptor="workspaceDescriptor" />
+          <component :is="component" v-else :key="pageContentKey" />
+        </ModuleContextProvider>
+        <WorkspaceViewOutlet
+          v-else-if="workspaceView"
+          :key="pageContentKey"
+          :descriptor="workspaceDescriptor"
+        />
         <component :is="component" v-else :key="pageContentKey" />
-      </ModuleContextProvider>
-      <WorkspaceViewOutlet
-        v-else-if="workspaceView"
-        :key="pageContentKey"
-        :descriptor="workspaceDescriptor"
-      />
-      <component :is="component" v-else :key="pageContentKey" />
+      </WorkbenchOutlet>
     </div>
   </UiSidePanelHost>
 </template>
