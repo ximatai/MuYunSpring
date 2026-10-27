@@ -604,3 +604,45 @@ it('leaves no business action container when the consumer provides no topbar slo
   expect(wrapper.find('.user-button').exists()).toBe(true);
   wrapper.unmount();
 });
+
+it('owns standard account actions while delegating business commands and guarded logout to its host', async () => {
+  const request = vi.fn(async ({ path }: { path: string }) =>
+    path.endsWith('/capabilities') ? { canCreate: true } : path === '/iam.auth/access-tokens' ? [] : {},
+  );
+  const guard = vi.fn().mockResolvedValue(false);
+  const wrapper = mount(AppWorkbenchShell, {
+    props: {
+      startup: startup(),
+      location: '/a',
+      accountContext: {
+        http: { request: request as never },
+        token: 'consumer-session',
+        preferencePersistence: 'local',
+      },
+      accountMenu: {
+        hiddenCommands: ['changePassword'],
+        contributions: [{ key: 'business.help', title: 'Help' }],
+      },
+      beforeAccountCommand: guard,
+    },
+  });
+  try {
+    await flushPromises();
+    const workbench = wrapper.findComponent(Workbench);
+    const keys = workbench.props('managedAccountMenuItems')!.map((item) => item.key);
+    expect(keys).toContain('accessTokens');
+    expect(keys).not.toContain('changePassword');
+    workbench.vm.$emit('userCommand', 'logout');
+    await flushPromises();
+    expect(wrapper.emitted('logout')).toBeUndefined();
+    guard.mockResolvedValue(true);
+    workbench.vm.$emit('userCommand', 'business.help');
+    await flushPromises();
+    expect(wrapper.emitted('userCommand')).toEqual([['business.help']]);
+    workbench.vm.$emit('userCommand', 'logout');
+    await flushPromises();
+    expect(wrapper.emitted('logout')).toEqual([['requested']]);
+  } finally {
+    wrapper.unmount();
+  }
+});

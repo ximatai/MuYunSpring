@@ -3,11 +3,13 @@ import { computed, ref } from 'vue';
 import { useLanguageContext } from '@muyun/web-core';
 import type { CurrentUser } from '@muyun/web-contracts';
 import { UiButton, UiDropdown, UiIcon, type UiDropdownItem } from '@muyun/vue-ui-antdv';
+import { createWorkbenchAccountMenu } from './workbenchAccountMenu';
 import WorkbenchLanguageSettings from './WorkbenchLanguageSettings.vue';
 
 const props = defineProps<{
   currentUser?: CurrentUser;
   accountMenuItems?: UiDropdownItem[];
+  managedAccountMenuItems?: UiDropdownItem[];
   employeeName?: string;
   assistantAvailable: boolean;
   assistantOpen: boolean;
@@ -53,35 +55,17 @@ const userMenuItems = computed<UiDropdownItem[]>(() => [
           : []),
       ]
     : []),
-  {
-    key: 'languageSettings',
-    iconName: 'language',
-    title: language.t('platform.content.language-settings', '语言设置'),
-  },
-  {
-    key: 'themeSkin',
-    iconName: 'skin',
-    title: language.t('platform.screen.Workbench.appearance', '皮肤切换'),
-  },
-  {
-    key: 'changePassword',
-    iconName: 'lock',
-    title: language.t('platform.screen.Workbench.change-password', '修改密码'),
-  },
-  { key: 'profile', iconName: 'user', title: language.t('platform.screen.Workbench.my-profile', '个人信息') },
-  ...(props.accountMenuItems ?? []),
-  {
-    key: 'logout',
-    iconName: 'power',
-    title: language.t('platform.screen.Workbench.sign-out', '退出登录'),
-    danger: true,
-  },
+  ...(props.managedAccountMenuItems ??
+    (() => {
+      const defaults = createWorkbenchAccountMenu(language);
+      return [...defaults.slice(0, -1), ...(props.accountMenuItems ?? []), ...defaults.slice(-1)];
+    })()),
 ]);
 const userMenuLabel = computed(() =>
   language.t('platform.workbench.account-menu', '账号菜单：{name}', { name: displayName.value }),
 );
 function handleMenuSelect(key: string) {
-  if (key === 'languageSettings') languageSettingsOpen.value = true;
+  if (key === 'languageSettings' && !props.managedAccountMenuItems) languageSettingsOpen.value = true;
   else if (key !== 'identity' && key !== 'workspace') emit('userCommand', key);
 }
 </script>
@@ -132,6 +116,7 @@ function handleMenuSelect(key: string) {
       </button>
     </UiDropdown>
     <WorkbenchLanguageSettings
+      v-if="managedAccountMenuItems === undefined"
       v-model:open="languageSettingsOpen"
       :identity-scope="currentUser ? JSON.stringify([currentUser.userId, currentUser.tenantId]) : undefined"
     />

@@ -61,3 +61,12 @@ export { presentWorkbenchRealtimeStatus } from './realtimeStatus';
 export type { WorkbenchRealtimeStatus, WorkbenchRealtimeStatusPresentation } from './realtimeStatus';
 
 export { default as LanguageSelector } from './LanguageSelector.vue';
+
+export { workbenchAccountCommands } from './workbenchAccountMenu';
+export type {
+  WorkbenchAccountCommand,
+  WorkbenchAccountContext,
+  WorkbenchAccountContribution,
+  WorkbenchAccountMenuOptions,
+  WorkbenchAccountCommandGuard,
+} from './workbenchAccountMenu';

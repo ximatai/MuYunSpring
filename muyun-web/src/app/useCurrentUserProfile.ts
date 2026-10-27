@@ -6,6 +6,7 @@ import type { AuthClient } from '@muyun/web-core';
 export function useCurrentUserProfile(options: {
   currentUser: () => CurrentUser | undefined;
   token: () => string | undefined;
+  scopeKey?: () => unknown;
   client: Pick<AuthClient, 'currentProfile' | 'updateCurrentProfile'>;
 }) {
   const profile = ref<CurrentUserProfile>();
@@ -37,7 +38,7 @@ export function useCurrentUserProfile(options: {
   const save = (value: UpdateCurrentUserProfileRequest) =>
     request((token) => options.client.updateCurrentProfile(value, token));
   watch(
-    identity,
+    [identity, () => options.scopeKey?.()],
     () => {
       revision++;
       profile.value = undefined;

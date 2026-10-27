@@ -5,6 +5,7 @@ import type { PersonalAccessTokenClient } from '@muyun/web-core';
 export function usePersonalAccessTokenAccess(options: {
   client: PersonalAccessTokenClient;
   sessionToken: () => string | undefined;
+  scopeKey?: () => unknown;
 }) {
   const available = ref(false);
   const sessionToken = ref<string>();
@@ -13,6 +14,7 @@ export function usePersonalAccessTokenAccess(options: {
   async function refresh() {
     if (disposed) return;
     const session = options.sessionToken();
+    const scope = options.scopeKey?.();
     const run = ++revision;
     if (sessionToken.value !== session) {
       available.value = false;
@@ -23,7 +25,11 @@ export function usePersonalAccessTokenAccess(options: {
       return;
     }
     const active = () =>
-      !disposed && run === revision && sessionToken.value === session && options.sessionToken() === session;
+      !disposed &&
+      run === revision &&
+      sessionToken.value === session &&
+      options.sessionToken() === session &&
+      options.scopeKey?.() === scope;
     try {
       const result = await options.client.capabilities(session);
       if (active()) available.value = result.canCreate === true;
@@ -32,7 +38,7 @@ export function usePersonalAccessTokenAccess(options: {
     }
   }
   watch(
-    options.sessionToken,
+    [options.sessionToken, () => options.scopeKey?.()],
     () => {
       available.value = false;
       void refresh();

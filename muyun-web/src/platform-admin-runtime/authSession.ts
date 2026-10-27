@@ -1,7 +1,39 @@
+import { computed, onMounted, onScopeDispose, shallowRef } from 'vue';
 import { AppError, platformErrorCodes } from '@muyun/web-core';
 
 const AUTH_TOKEN_STORAGE_KEY = 'muyun.auth.token';
 const AUTH_SESSION_ID_STORAGE_KEY = 'muyun.auth.sessionId';
+// Storage remains the credential source; this revision only invalidates reactive readers.
+const authTokenRevision = shallowRef(0);
+
+/** Reactive counterpart of effectiveAuthToken, with component-scoped browser observation. */
+export function useEffectiveAuthToken(envToken?: string) {
+  const token = computed(() => {
+    void authTokenRevision.value;
+    return effectiveAuthToken(envToken);
+  });
+  const refresh = () => authTokenRevision.value++;
+  const onStorage = (event: StorageEvent) => {
+    if (
+      event.storageArea === window.localStorage &&
+      (event.key === null || event.key === AUTH_TOKEN_STORAGE_KEY)
+    )
+      refresh();
+  };
+  let mounted = false;
+  onMounted(() => {
+    mounted = true;
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('focus', refresh);
+    refresh();
+  });
+  onScopeDispose(() => {
+    if (!mounted) return;
+    window.removeEventListener('storage', onStorage);
+    window.removeEventListener('focus', refresh);
+  });
+  return token;
+}
 
 export function effectiveAuthToken(envToken?: string) {
   return storedAuthToken() ?? normalizeToken(envToken);
@@ -26,6 +58,7 @@ export function saveAuthToken(token: string) {
     return;
   }
   window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+  authTokenRevision.value++;
 }
 
 export function saveAuthSessionId(sessionId?: string | null) {
@@ -46,6 +79,7 @@ export function clearAuthToken() {
   }
   window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
   window.localStorage.removeItem(AUTH_SESSION_ID_STORAGE_KEY);
+  authTokenRevision.value++;
 }
 
 export function isAuthenticationRequiredError(cause: unknown) {

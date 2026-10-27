@@ -50,6 +50,8 @@ const props = withDefaults(
     currentUserEmployeeName?: string;
     /** Host-owned account commands already filtered by backend capabilities. */
     accountMenuItems?: UiDropdownItem[];
+    /** Complete standard-account presentation supplied by WorkbenchAccountCenter. */
+    managedAccountMenuItems?: UiDropdownItem[];
     loading?: boolean;
     error?: string;
     activeTabKey?: string;
@@ -73,6 +75,7 @@ const props = withDefaults(
     realtimeStatus: 'unavailable',
     themeAppearance: 'light',
     accountMenuItems: () => [],
+    managedAccountMenuItems: undefined,
     assistantAvailable: false,
     assistantRequestTurn: undefined,
     assistantWaitForPageReady: undefined,
@@ -596,6 +599,7 @@ onUnmounted(() => {
             :current-user="currentUser"
             :employee-name="currentUserEmployeeName"
             :account-menu-items="accountMenuItems"
+            :managed-account-menu-items="managedAccountMenuItems"
             :assistant-available="assistantUsable"
             :assistant-open="assistantOpen"
             @toggle-assistant="assistantUsable && (assistantOpen = !assistantOpen)"

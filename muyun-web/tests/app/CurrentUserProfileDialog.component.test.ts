@@ -160,3 +160,24 @@ it('keeps an account without an employee compact and offers a single close actio
   expect(wrapper.emitted('close')).toHaveLength(1);
   wrapper.unmount();
 });
+
+it('uses the account host transport for avatar capabilities instead of another global session', async () => {
+  const globalRequest = vi.fn();
+  const request = vi.fn(async () => ({ moduleAlias: 'iam.employee', capabilities: [], actions: [] }));
+  configureModuleContext({ http: { request: globalRequest } as HttpClient });
+  const wrapper = shallowMount(CurrentUserProfileDialog, {
+    props: {
+      open: true,
+      http: { request: request as never },
+      profile: { username: 'account', employee: { id: 'employee-a', title: 'Account' } },
+    },
+    global: { stubs: { UiModal: { template: '<div><slot /></div>' } } },
+  });
+  try {
+    await flushPromises();
+    expect(request).toHaveBeenCalledWith({ path: '/platform.module/iam.employee/context' });
+    expect(globalRequest).not.toHaveBeenCalled();
+  } finally {
+    wrapper.unmount();
+  }
+});

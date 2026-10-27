@@ -184,11 +184,11 @@ it('workbench routes the skin toolbar entry to the shared preference dialog', ()
   const workbenchSource = readSource('src/platform-workbench/Workbench.vue');
 
   assert.notMatch(workbenchSource, /aria-label="搜索"/);
-  assert.match(appSource, /command === 'themeSkin'/);
+  const accountSource = readSource('src/app/WorkbenchAccountCenter.vue');
+  assert.match(appSource, /<WorkbenchAccountCenter/);
   assert.notMatch(workbenchSource, /key: 'settings'/);
-  assert.match(appSource, /function openThemeSkinPreferences\(\)/);
-  assert.match(appSource, /themeSkinPreferencesOpen\.value = true/);
-  assert.match(appSource, /<ThemeSkinPreferencesDialog/);
+  assert.match(accountSource, /<ThemeSkinPreferencesDialog/);
+  assert.notMatch(appSource, /<ThemeSkinPreferencesDialog/);
 });
 
 it('workbench opens the signed-in user profile through the dedicated self-service contract', () => {
@@ -197,12 +197,13 @@ it('workbench opens the signed-in user profile through the dedicated self-servic
   const profileDialogSource = readSource('src/app/CurrentUserProfileDialog.vue');
   const clientSource = readSource('src/web-core/clients.ts');
 
-  assert.match(appSource, /command === 'profile'/);
-  assert.match(appSource, /function openCurrentUserProfile\(\)/);
-  assert.match(appSource, /useCurrentUserProfile/);
+  const accountSource = readSource('src/app/WorkbenchAccountCenter.vue');
+  assert.match(appSource, /<WorkbenchAccountCenter/);
+  assert.match(accountSource, /useCurrentUserProfile/);
   assert.match(profileSource, /options\.client\.currentProfile\(token\)/);
   assert.match(profileSource, /options\.client\.updateCurrentProfile\(value, token\)/);
-  assert.match(appSource, /<CurrentUserProfileDialog/);
+  assert.match(accountSource, /<CurrentUserProfileDialog/);
+  assert.notMatch(appSource, /<CurrentUserProfileDialog/);
   assert.match(clientSource, /path: '\/iam\.auth\/profile'/);
   assert.match(profileDialogSource, /保存联系方式/);
   assert.match(profileDialogSource, /机构 \/ 部门/);
@@ -967,7 +968,8 @@ it('workbench exposes own password change through auth boundary', () => {
   const dialogSource = readSource('src/app/ChangeOwnPasswordDialog.vue');
   const authClientSource = readSource('src/web-core/clients.ts');
 
-  assert.match(readSource('src/platform-workbench/WorkbenchGlobalTools.vue'), /key: 'changePassword'/);
+  const accountSource = readSource('src/app/WorkbenchAccountCenter.vue');
+  assert.match(readSource('src/platform-workbench/WorkbenchGlobalTools.vue'), /createWorkbenchAccountMenu/);
   assert.match(workbenchSource, /\.workbench-layout \{[\s\S]*height: 100dvh;[\s\S]*overflow: hidden;/);
   assert.match(workbenchSource, /\.app-main \{[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/);
   assert.match(workbenchSource, /\.app-content \{[\s\S]*position: relative;[\s\S]*overflow: hidden;/);
@@ -979,8 +981,8 @@ it('workbench exposes own password change through auth boundary', () => {
     workbenchSource,
     /@media \(max-width: 980px\) \{[\s\S]*\.workbench \{[\s\S]*overflow: visible;/,
   );
-  assert.match(appSource, /command === 'changePassword'[\s\S]*openChangeOwnPasswordDialog\(\)/);
-  assert.match(appSource, /authClient\.changeOwnPassword/);
+  assert.match(appSource, /requestPasswordChange/);
+  assert.match(accountSource, /auth\.changeOwnPassword/);
   assert.match(appSource, /onUserNotification: handleSecurityNotification/);
   assert.match(pageRealtimeSource, /export interface PageRealtimeSubscription/);
   assert.match(pageRealtimeSource, /export function usePageRealtimeSubscription/);
@@ -1006,8 +1008,8 @@ it('workbench exposes own password change through auth boundary', () => {
   assert.match(appSource, /v-if="securityNotification"/);
   assert.match(appSource, /立即重新登录/);
   assert.match(appSource, /effectiveAuthToken/);
-  assert.match(appSource, /currentPassword: currentPassword\.value/);
-  assert.match(appSource, /newPassword: newPassword\.value/);
+  assert.match(accountSource, /currentPassword: currentPassword\.value/);
+  assert.match(accountSource, /newPassword: newPassword\.value/);
   assert.match(dialogSource, /defineOptions\(\{ name: 'ChangeOwnPasswordDialog' \}\)/);
   assert.match(dialogSource, /UiModal/);
   assert.notMatch(dialogSource, /role="dialog"/);
