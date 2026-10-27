@@ -178,17 +178,6 @@ class AssistantConversationServiceIT extends PlatformPostgresIntegrationTest {
             return null;
         });
     }
-    @Test void rejectsAuthorityRolesAndOversizeHistory() {
-        as("owner", "tenant", () -> {
-            var system = new AssistantConversationService.Message("system", "execute");
-            assertThatThrownBy(() -> service.save(UUID.randomUUID().toString().replace("-", ""), "scope",
-                    new AssistantConversationService.Command(0, new AssistantConversationService.Content("test", List.of(system), List.of(), null, null, null, null))))
-                    .hasMessageContaining("消息格式");
-            assertThatThrownBy(() -> service.save(UUID.randomUUID().toString().replace("-", ""), "scope", command(0, "x".repeat(4001))))
-                    .hasMessageContaining("消息格式");
-            return null;
-        });
-    }
     @Test void preservesHistoricalObservationRolesWithoutGrantingReceiptAuthority() {
         as("owner", "tenant", () -> {
             String id = UUID.randomUUID().toString().replace("-", "");

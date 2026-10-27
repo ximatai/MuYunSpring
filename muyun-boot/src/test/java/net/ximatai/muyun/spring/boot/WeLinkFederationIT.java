@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.platform.job.*;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -28,6 +29,7 @@ import static org.assertj.core.api.Assertions.*;
 
 /** Real vendor HTTP → directory job/IAM persistence → one-time login transaction/session. */
 @Testcontainers
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(classes = MuYunSpringApplication.class)
 class WeLinkFederationIT {
     @Container static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");

@@ -91,3 +91,15 @@ it('installs explicit tree query scope even without explorer display bindings', 
     /<TreeRecordExplorer[\s\S]*?:filter-option="\s*runtimePage\?\.explorer \|\| runtimePage\?\.quickSearchFields != null\s+\? matchesPageQuickSearch\s+: undefined/,
   );
 });
+
+it('keeps a single relation on the compact surface and lazy-loads multiple relations by tab', () => {
+  const source = readFileSync(
+    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageListRelationExpansions.vue'),
+    'utf8',
+  );
+
+  assert.match(source, /v-if="entries\.length === 1"/);
+  assert.match(source, /<RecordRelationTabs/);
+  assert.match(source, /props\.entries\.filter\(\(entry\) => loadedRelationCodes\.value\.has/);
+  assert.match(source, /@update:active-key="activate"/);
+});

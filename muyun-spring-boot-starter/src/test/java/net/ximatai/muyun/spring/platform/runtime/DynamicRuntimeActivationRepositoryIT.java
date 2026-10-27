@@ -31,6 +31,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.jdbc.DataSourceBuilder;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
@@ -54,6 +55,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 @Testcontainers(disabledWithoutDocker = true)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(classes = DynamicRuntimeActivationRepositoryIT.Application.class, properties = {
         "muyun.database.repository-schema-mode=ENSURE", "muyun.runtime.mode=development"})
 class DynamicRuntimeActivationRepositoryIT {

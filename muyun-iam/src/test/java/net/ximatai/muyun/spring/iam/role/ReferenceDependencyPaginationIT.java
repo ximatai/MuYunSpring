@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.iam.organization.OrganizationService;
 import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import java.time.Instant;
@@ -37,6 +38,7 @@ import static org.mockito.Mockito.*;
 
 /** Executes the dependency subquery through the public record pagination entry point. */
 @Testcontainers
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(classes = ReferenceDependencyPaginationIT.Host.class)
 class ReferenceDependencyPaginationIT {
     @Container static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");

@@ -92,6 +92,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -120,6 +121,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
  * 自动建表、模块/端点注册和业务 Ability 组合。
  */
 @Testcontainers
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(classes = MuYunSpringApplication.class, properties = "muyun.i18n.enabled-languages=zh-CN,en,fr")
 @ContextConfiguration(classes = TeachingDemoConfiguration.class)
 @ActiveProfiles("school-demo")

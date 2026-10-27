@@ -1,3 +1,4 @@
+import { availableParallelism } from 'node:os';
 import { defineConfig, mergeConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import {
@@ -33,6 +34,8 @@ export default mergeConfig(
     },
 
     test: {
+      // Keep file isolation while avoiding a separate Node process for every test file.
+      pool: 'threads',
       // Bound Vue compilation and DOM-environment memory during full verification.
       maxWorkers: 4,
       projects: [
@@ -41,8 +44,11 @@ export default mergeConfig(
 
           test: {
             name: 'browser',
-            // Real mouse gestures and animations need predictable frame scheduling.
-            fileParallelism: false,
+            // Run after Node/jsdom with a smaller worker budget and isolated DOM and gesture state.
+            sequence: { groupOrder: 1 },
+            fileParallelism: true,
+            maxWorkers: Math.min(2, availableParallelism()),
+            isolate: true,
             include: ['tests/**/*.browser.test.ts'],
             setupFiles: ['./tests/setup.ts'],
             browser: {
