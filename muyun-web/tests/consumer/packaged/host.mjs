@@ -1,4 +1,5 @@
 // This entry is built by the independently installed business consumer's Vite.
+export { default as ExplorerConsumer } from './ExplorerConsumer.vue';
 export { default as TenantScopedOverviewExample } from './views/TenantScopedOverviewExample.vue';
 export { useRecordReadSession } from '@ximatai/muyun-web-app/record-read';
 export {
@@ -22,6 +23,7 @@ export {
   usePageRoute,
   ManagementWorkspace,
   ManagementExplorerColumn,
+  RecordExplorerPanel,
   TenantScopeExplorer,
   RecordQueryListSurface,
   RecordQueryListCell,
@@ -33,6 +35,8 @@ export {
   UiEmpty,
   UiError,
   UiButton,
+  UiSearchInput,
+  UiThemeProvider,
   UiDropdown,
   UiIcon,
   useWorkbenchNavigation,

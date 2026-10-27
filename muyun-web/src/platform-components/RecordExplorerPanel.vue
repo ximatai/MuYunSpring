@@ -50,6 +50,16 @@ const emit = defineEmits<{
   refresh: [];
 }>();
 
+defineSlots<{
+  default?: () => unknown;
+  footer?: () => unknown;
+  title?: () => unknown;
+  'title-extra'?: () => unknown;
+  'utility-actions'?: () => unknown;
+  actions?: () => unknown;
+  editor?: () => unknown;
+}>();
+
 const searchExpanded = ref(props.searchKeyword.trim().length > 0);
 const searchRoot = ref<HTMLElement>();
 const searchVisible = computed(() => props.searchable && searchExpanded.value);
