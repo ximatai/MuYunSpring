@@ -164,6 +164,16 @@ AUTO 返回的 `confirmation` 是服务端只读资料，宿主使用公开确�
 
 安装包消费者验证会检查示例的 Vue 类型、独立构建与组件交互，不替代业务后端授权验收。
 
+## 自定义业务页的搜索与导航面板
+
+根包公开 `UiSearchInput` 和 `RecordExplorerPanel`，复用标准页面内部组件。
+`UiSearchInput` 使用 `v-model:value`；按钮或 Enter 触发 `search(value, 'input')`，
+清空按钮或 Escape 清空值并触发 `search('', 'clear')`。`searchIconOnly` 只改变搜索按钮呈现。
+`RecordExplorerPanel` 接收 `title`、`v-model:searchKeyword`、`refreshDisabled`，通过 `refresh`
+交接刷新；搜索默认折叠，有关键字时自动展开，收起搜索会清空关键字。正文与底部分别使用
+默认和 `footer` 插槽。业务仍负责筛选与数据请求；无需直接使用 Ant Design Vue API。
+两组件样式均通过上述 `style.css` 显式导入。
+
 ## 临时业务提醒
 
 公开 `BusinessNotificationPanel` 继续接收 `notifications`、`executeAction` 和可选附件槽，不增加消息中心。

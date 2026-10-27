@@ -71,6 +71,7 @@ export {
   UiTree,
   UiTreeSelect,
   UiInput,
+  UiSearchInput,
   UiDatePicker,
   UiSwitch,
   UiTextArea,
@@ -155,6 +156,7 @@ export { default as LanguageSelector } from '../platform-workbench/LanguageSelec
 export {
   ManagementWorkspace,
   ManagementExplorerColumn,
+  RecordExplorerPanel,
   TenantScopeExplorer,
   RecordQueryListSurface,
   RecordQueryListCell,

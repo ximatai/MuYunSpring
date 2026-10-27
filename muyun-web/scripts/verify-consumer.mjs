@@ -76,6 +76,10 @@ try {
     }
   }
   const contractFixtures = join(webRoot, 'tests', 'consumer', 'packaged');
+  cpSync(
+    join(contractFixtures, 'ExplorerConsumer.vue'),
+    join(temporaryExampleRoot, 'src', 'ExplorerConsumer.vue'),
+  );
   cpSync(join(contractFixtures, 'recordRead.mjs'), join(temporaryExampleRoot, 'record-read-contract.mjs'));
   cpSync(join(contractFixtures, 'host.mjs'), join(temporaryExampleRoot, 'src', 'consumer-contract.ts'));
   cpSync(join(contractFixtures, 'vite.config.ts'), join(temporaryExampleRoot, 'vite.contract.config.ts'));
