@@ -4,6 +4,27 @@
 
 ## Unreleased
 
+## 0.26.25 - 2026-10-28
+
+### Added
+
+- 新增个人访问密钥（PAT），工具与脚本可代表本人调用既有平台 API，沿用用户实时权限及租户边界。密钥完整值仅在创建时返回一次，支持查看、撤销和删除已撤销密钥；账号停用、删除及管理员重置密码会撤销已有密钥。静态业务日志与动态运行审计记录认证方式和非秘密凭据标识。
+- 前端根包公开 `WorkbenchAccountCenter` 与账号菜单扩展契约；`AppWorkbenchShell` 通过 `accountContext` 统一承载语言、皮肤、密码、个人资料、个人访问密钥及退出入口，支持业务菜单贡献和动作前置检查。公开响应式 `useEffectiveAuthToken`，便于自有宿主同步当前认证会话。
+- 新增并公开 `CronExpressionInput`、`DurationSecondsInput` 与 `UiInputGroup`；标准表单支持 `cron` 和 `duration_seconds` 控件，定时配置提供服务端 Cron 语法校验，时长继续按整数秒存储。
+- 前端根包公开 `confirmDiscardWorkspaceViewState`、`hasWorkspaceViewDiscardProtection`、`WorkbenchOutlet` 和 `WorkspaceViewOutlet`，供自有工作台复用页签关闭、刷新及退出前的草稿和处理中状态保护。
+
+### Fixed
+
+- 默认工作台、平台管理路由、自定义页面及标准业务表单统一注册未保存状态；主动退出检查所有仍挂载的页签，处理中操作阻止退出，强制会话失效继续走认证恢复流程。自有宿主的接入与状态注册要求见[前端消费者文档](https://github.com/ximatai/MuYunSpring/blob/v0.26.25/docs/frontend/LOCAL_CONSUMER.md)。
+- 静态模型声明的字面量默认值进入统一模型与页面描述，新建主表及子表弹窗复用默认值，显式传入的初始值优先；数据库函数和表达式仍由服务端执行。
+- WeLink 人员请求按实际每页最多 50 条分页；部门详情兼容顶层及 `data` 包装，保留返回身份校验，补齐根部门协议处理。身份源、租户策略、同步运行与加入申请管理页统一使用标准表单分组、查询和引用投影。
+- 租户与机构创建后的固定部署文本初始化使用平台配置主体，避免普通业务操作者因缺少配置维护权限而创建失败。
+
+### Compatibility
+
+- 新增 `iam_personal_access_token` 表；`platform_runtime_audit_record` 与 `muyun_log.business_log_event` 新增 `authentication_method`、`authentication_credential_id` 列及凭据时间索引。升级已有数据库须按平台 schema 流程准备表、列和索引；个人访问密钥不能替代浏览器登录会话管理账号凭据，也不授予额外权限。
+- 前后端应配套升级以使用新控件、默认值与账号能力。未提供 `accountContext` 的既有 `AppWorkbenchShell` 保留命令转发；自定义工作台须通过标准 Outlet 注册草稿状态，守卫不会自动发现未注册的业务状态。
+
 ## 0.26.24 - 2026-10-27
 
 ### Added
