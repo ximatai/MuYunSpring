@@ -94,3 +94,70 @@ it.each([992, 390])('keeps source controls with their own field at viewport %s',
     wrapper.unmount();
   }
 });
+
+it.each([1063, 390])('lays out duration and paired switches without overflow at %s', async (width) => {
+  await page.viewport(width, 804);
+  const { default: RecordFormFields } = await import('@/platform-components/RecordFormFields.vue');
+  const group = {
+    groupCode: 'login',
+    fields: ['provider', 'age', 'login', 'binding'].map((fieldName) => ({ fieldName })),
+    title: '登录与绑定',
+    subtitle: '状态有效期为 1 分钟至 30 天；超期需重新核验来源状态。登录与绑定不授予业务数据权限。',
+  };
+  const fields = new Map<
+    string,
+    import('@/platform-components/recordFormFieldModel').RecordFormFieldDescriptor
+  >([
+    ['provider', { fieldRef: { fieldName: 'provider' }, label: '外部身份源', formGroup: group }],
+    [
+      'age',
+      {
+        fieldRef: { fieldName: 'age' },
+        label: '来源状态有效期',
+        formGroup: group,
+        valueType: 'INTEGER',
+        fieldControl: {
+          alias: 'duration_seconds',
+          rendererType: 'NUMBER',
+          valueShape: 'SCALAR',
+          properties: {},
+          bindings: [],
+        },
+      },
+    ],
+    [
+      'login',
+      { fieldRef: { fieldName: 'login' }, label: '允许扫码登录', uiType: 'switch', formGroup: group },
+    ],
+    [
+      'binding',
+      { fieldRef: { fieldName: 'binding' }, label: '允许账号绑定', uiType: 'switch', formGroup: group },
+    ],
+  ]);
+  const wrapper = mount(RecordFormGrid, {
+    props: { surface: 'record' },
+    attrs: { style: 'width: min(540px, calc(100vw - 32px)); margin: 16px' },
+    slots: {
+      default: () =>
+        h(RecordFormFields, { fields, record: { age: 259200, login: true, binding: false }, mode: 'edit' }),
+    },
+    attachTo: document.body,
+  });
+  try {
+    const hosts = wrapper.findAll('.record-form-field-host');
+    const login = hosts[2]!.element.getBoundingClientRect();
+    const binding = hosts[3]!.element.getBoundingClientRect();
+    if (width > 900) {
+      expect(Math.abs(login.top - binding.top)).toBeLessThan(1);
+      expect(login.right).toBeLessThan(binding.left);
+    } else expect(binding.top).toBeGreaterThanOrEqual(login.bottom);
+    const duration = wrapper.get('.duration-seconds-input').element.getBoundingClientRect();
+    const owner = hosts[1]!.element.getBoundingClientRect();
+    expect(duration.right).toBeLessThanOrEqual(owner.right + 1);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width + 1);
+    const heading = wrapper.get('h3').element as HTMLElement;
+    expect(heading.scrollWidth).toBeLessThanOrEqual(heading.clientWidth + 1);
+  } finally {
+    wrapper.unmount();
+  }
+});

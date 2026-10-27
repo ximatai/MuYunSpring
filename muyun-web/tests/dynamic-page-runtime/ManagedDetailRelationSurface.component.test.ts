@@ -73,6 +73,40 @@ describe('managed detail relation surface', () => {
     wrapper.unmount();
   });
 
+  it('seeds only newly added child rows from model defaults', async () => {
+    const aggregate = relation('properties');
+    aggregate.embeddedField = 'properties';
+    aggregate.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+    aggregate.listProjection = { fields: [{ fieldName: 'attributeAlias' }, { fieldName: 'title' }] };
+    const ui = descriptor();
+    ui.editorContributions![0]!.editor.createDefaults = { title: 'Initial title' };
+    const wrapper = mount(ManagedDetailRelationInlineSurface, {
+      props: {
+        sourceContext: context(vi.fn()),
+        uiDescriptor: ui,
+        relation: aggregate,
+        parentRecord: {
+          id: 'parent',
+          properties: [{ id: 'existing', version: 1, attributeAlias: 'existing', title: null }],
+        },
+        mutationEnabled: true,
+        addRequestKey: 0,
+      },
+    });
+    try {
+      await flushPromises();
+      expect(wrapper.findComponent({ name: 'RecordFormFields' }).props('record').title).toBeNull();
+      await wrapper.setProps({ addRequestKey: 1 });
+      await flushPromises();
+      const rows = wrapper.emitted('records-change')?.at(-1)?.[0] as QueryListRecord[];
+      expect(rows).toHaveLength(2);
+      expect(rows[0]!.title).toBeNull();
+      expect(rows[1]!.title).toBe('Initial title');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('keeps new child draft keys and create semantics when uploads preallocate parent and child IDs', async () => {
     const aggregate = relation('properties');
     aggregate.embeddedField = 'properties';

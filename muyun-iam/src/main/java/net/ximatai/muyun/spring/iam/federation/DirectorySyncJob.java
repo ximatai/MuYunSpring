@@ -14,6 +14,7 @@ import java.util.function.Supplier;
 @Component
 @ConditionalOnExternalIdentityFederation
 public class DirectorySyncJob implements JobHandler {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(DirectorySyncJob.class);
     public static final String TYPE = "iam.directory-sync";
     public static final String CHANNEL = "directory-sync";
     private static final int PAGE_SIZE = 100;
@@ -329,6 +330,9 @@ public class DirectorySyncJob implements JobHandler {
                 } catch (JobFailure failure) {
                     throw failure;
                 } catch (RuntimeException failure) {
+                    // Exception messages and causes may contain vendor data; log code locations only.
+                    LOG.warn("Directory department page commit failed: type={}, frames={}",
+                            failure.getClass().getName(), Arrays.stream(failure.getStackTrace()).limit(8).toList());
                     var recovered = reload(run);
                     var recoveredCursor =
                             DirectorySyncStore.decode(recovered.getCursor(), Cursor.class);

@@ -69,6 +69,9 @@ public class TenantIdentityPolicy extends StandardEnabledSortableEntity {
     @ReferenceTo(target = PositionService.class)
     private String syncPositionId;
 
+    @ReferenceLoad(source = "syncPositionId", field = "title")
+    private transient String syncPositionTitle;
+
     @Column(
             name = "sync_role_id",
             type = ColumnType.VARCHAR,
@@ -77,9 +80,13 @@ public class TenantIdentityPolicy extends StandardEnabledSortableEntity {
     @ReferenceTo(target = RoleService.class)
     private String syncRoleId;
 
+    @ReferenceLoad(source = "syncRoleId", field = "title")
+    private transient String syncRoleTitle;
+
     @Column(name = "sync_expression", type = ColumnType.VARCHAR, length = 128, defaultVal = @Default(varchar = "0 0 0 * * *"), comment = "Minute precision cron")
     private String syncExpression = "0 0 0 * * *";
     @Column(name = "sync_zone_id", type = ColumnType.VARCHAR, length = 64, comment = "Directory schedule time zone")
+    @net.ximatai.muyun.spring.common.option.DictionaryField(source = "platform.time_zone")
     private String syncZoneId;
     @Column(name = "sync_enabled", type = ColumnType.BOOLEAN, comment = "Directory schedule enabled")
     private Boolean syncEnabled = false;

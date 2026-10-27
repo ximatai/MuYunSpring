@@ -219,6 +219,8 @@ public class StaticEntityDefinitionCompiler {
                     null,
                     null
             );
+            String defaultValue = literalDefault(column.defaultVal());
+            if (defaultValue != null) definition = definition.defaultValue(defaultValue);
             if (column.type() == ColumnType.JSON_SET) {
                 definition = definition.jsonSet();
             }
@@ -235,6 +237,16 @@ public class StaticEntityDefinitionCompiler {
             fields.add(FieldDefinition.sortOrder());
         }
         return List.copyOf(fields);
+    }
+
+    /** Only declarative literals cross into model metadata; database expressions stay server-owned. */
+    private String literalDefault(net.ximatai.muyun.database.core.annotation.Default value) {
+        if (value.unset() || value.nullVal() || !value.function().isEmpty() || !value.express().isEmpty()) return null;
+        if (value.bool() != net.ximatai.muyun.database.core.annotation.TrueOrFalse.UNSET)
+            return Boolean.toString(value.bool() == net.ximatai.muyun.database.core.annotation.TrueOrFalse.TRUE);
+        if (value.number() != Long.MIN_VALUE) return Long.toString(value.number());
+        if (value.decimal() != Double.MIN_VALUE) return Double.toString(value.decimal());
+        return value.varchar().isEmpty() ? null : value.varchar();
     }
 
     private List<Field> declaredFields(Class<?> modelClass) {

@@ -1186,6 +1186,14 @@ public final class ModuleUiDescriptorCompiler {
             if (viewKind != ModuleViewKind.FORM) return null;
             throw new IllegalArgumentException("unsupported field control alias: " + alias);
         }
+        if ("duration_seconds".equals(alias) && (valueType != FieldValueType.INTEGER
+                || !"NUMBER".equals(descriptor.rendererType()) || !"SCALAR".equals(descriptor.valueShape()))) {
+            throw new IllegalArgumentException("duration_seconds requires INTEGER seconds storage: " + fieldRef.fieldName());
+        }
+        if ("cron".equals(alias) && ((valueType != null && valueType != FieldValueType.STRING && valueType != FieldValueType.TEXT)
+                || !"TEXT".equals(descriptor.rendererType()) || !"SCALAR".equals(descriptor.valueShape()))) {
+            throw new IllegalArgumentException("cron requires scalar text storage: " + fieldRef.fieldName());
+        }
         validateReferencePickerControl(fieldRef, descriptor, reference);
         validateDictionaryControl(fieldRef, descriptor, option);
         return descriptor;

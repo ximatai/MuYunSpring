@@ -237,7 +237,7 @@ muyun-iam
 | 翻译生成记录清理 | 已迁为平台级定时作业；终态生成记录仍由专题按 30 天有界清理；关联的作业运行按翻译作业类型声明的 30 天保留期清理。两者任一先到期时，生成状态查询以专题生成记录为准，缺少关联运行不影响查询。原文、译文与生成证据不随生成记录到期删除。 |
 | 通讯录事实清理 | `iam.directory-sync-retention`，平台级 `default` 通道，每小时 fixed-delay、首次延迟一分钟；保留最近整轮完成正式同步及其后事实，其余终态超过 30 天后每轮最多 10 批、每批 200 条人员事实与 200 条部门事实，子事实删完再删运行；结果 `DIRECTORY_FACTS_CLEANED`／`BATCH_LIMIT_REACHED`。 |
 | 外部登录事务清理 | `iam.external-login-retention`，平台级 `default` 通道，每小时 fixed-delay、首次延迟一分钟；最多 10×200 条过期事务，结果 `LOGIN_TRANSACTIONS_CLEANED`／`BATCH_LIMIT_REACHED`。 |
-| 通讯录同步 | `iam.directory-sync`，租户级托管计划，独立 `directory-sync` 通道；UTC cron 随租户策略登记或删除，预览与正式同步按租户和身份源串行，结果 `DIRECTORY_COMPLETED`／`DIRECTORY_PARTIAL`。 |
+| 通讯录同步 | `iam.directory-sync`，租户级托管计划，独立 `directory-sync` 通道；cron 与 IANA 时区随租户策略登记或删除，未指定时区时采用平台默认时区，预览与正式同步按租户和身份源串行，结果 `DIRECTORY_COMPLETED`／`DIRECTORY_PARTIAL`。 |
 | 在线闲置检测     | 不迁移，属于节点本地周期工作。                                                                                                                                                               |
 
 迁移不改变各专题对外行为：执行频率默认值与 fixed-delay 节奏、批次上限、跨实例互斥、留存期、身份交接与失败后可恢复性保持不变，并以既有测试和新增 contract 测试锁住；确需改变的行为须逐项列为兼容性变更。翻译生成以迁移前后的 contract 测试锁定身份、业务状态、重试、租约隔离、留存及事务删除契约。

@@ -99,6 +99,9 @@ export { defaultUiThemeSkinId, UiThemeProvider, uiThemeSkinById, uiThemeSkins } 
 export type { UiThemeSkin, UiThemeSkinId } from '../vue-ui-antdv/index';
 export { default as DateTimeText } from '../platform-components/DateTimeText.vue';
 export { default as BusinessNotificationPanel } from '../platform-components/BusinessNotificationPanel.vue';
+export { default as DurationSecondsInput } from '../platform-components/DurationSecondsInput.vue';
+export type { DurationSecondsInputProps } from '../platform-components/durationSeconds';
+export { UiInputGroup } from '../vue-ui-antdv/index';
 export { default as FileSizeText } from '../platform-components/FileSizeText.vue';
 export { default as DrawerOperationBar } from '../platform-components/DrawerOperationBar.vue';
 export { default as RecordDetailDrawer } from '../platform-components/RecordDetailDrawer.vue';
@@ -187,3 +190,12 @@ export { useExternalLoginHost } from '../app/useExternalLoginHost';
 export type { ExternalLoginHost, ExternalLoginHostOptions } from '../app/useExternalLoginHost';
 export { default as CurrentUserProfileDialog } from '../app/CurrentUserProfileDialog.vue';
 export { default as ExternalIdentityBindings } from '../app/ExternalIdentityBindings.vue';
+
+export { default as CronExpressionInput } from '../platform-components/CronExpressionInput.vue';
+export { validateCronExpression } from '../platform-components/cronExpression';
+export type {
+  CronExpressionInputProps,
+  CronExpressionValidator,
+  CronInputValidity,
+  CronValidationResult,
+} from '../platform-components/cronExpression';

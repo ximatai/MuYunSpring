@@ -1,3 +1,4 @@
+import { durationSecondsParts, durationSecondsUnits } from './durationSeconds';
 import { selectionCodesOf } from './optionFieldOptions';
 import { formatPlatformDateTime } from './platformDateTime';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
@@ -147,6 +148,11 @@ export function resolveRecordDetailDisplayValue(
   }
   if (!isPresent(value)) {
     return emptyText;
+  }
+  if (field.fieldControl?.alias === 'duration_seconds' && typeof value === 'number') {
+    const parts = durationSecondsParts(value);
+    const unit = durationSecondsUnits.find((unit) => unit.seconds === parts.unit)!;
+    return parts.amount ? `${parts.amount} ${language.t(unit.key, unit.label)}` : String(value);
   }
   if (field.controlType === 'dateTimeInput' && (typeof value === 'string' || typeof value === 'number')) {
     return formatPlatformDateTime(value, { language }).text;

@@ -29,20 +29,25 @@ public class ExternalIdentityWebController extends StaticModuleWebControllerAdap
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(ExternalIdentityService.MODULE_ALIAS)
-                .pageAction("delete", net.ximatai.muyun.spring.platform.web.PageActionAnchor.DETAIL)
+                .managedActions()
+                .typedTextConfirmation("delete", "externalUserId")
+                .pageAction("delete", net.ximatai.muyun.spring.platform.web.PageActionAnchor.DETAIL, "解除绑定")
                 .page(PageTemplates.flatManagement(page -> page
                         .explorer(explorer -> explorer.title("外部身份绑定").titleField("externalUserId")
                                 .secondaryField("providerTitle"))
                         .detail(detail -> detail.display(view -> view
-                                .field("userTitle", field -> field.label("本地账号"))
-                                .field("providerTitle", field -> field.label("外部身份源"))
-                                .field("externalUserId", field -> field.label("外部用户标识"))
-                                .field("displayName", field -> field.label("外部显示名"))
-                                .field("bindingSourceTitle", field -> field.label("绑定来源"))
-                                .field("boundAt", field -> field.label("绑定时间"))
-                                .field("lastAuthenticatedAt", field -> field.label("最近登录"))
-                                .field("sourceStatus", field -> field.label("来源状态"))
-                                .field("sourceCheckedAt", field -> field.label("来源核验时间"))))))
+                                .group("identity", "身份信息", "外部标识用于核对身份；解除绑定前请确认账号仍有其他登录方式。", group -> group
+                                        .field("userId", field -> field.label("本地账号"))
+                                        .field("providerId", field -> field.label("外部身份源"))
+                                        .field("displayName", field -> field.label("外部显示名"))
+                                        .field("externalUserId", field -> field.label("外部用户标识")))
+                                .group("binding", "绑定与登录", null, group -> group
+                                        .field("bindingSource", field -> field.label("绑定来源"))
+                                        .field("boundAt", field -> field.label("绑定时间"))
+                                        .field("lastAuthenticatedAt", field -> field.label("最近登录时间")))
+                                .group("source", "来源核验", "来源状态与核验时间共同用于判断外部身份是否仍然有效。", group -> group
+                                        .field("sourceStatus", field -> field.label("来源任职状态"))
+                                        .field("sourceCheckedAt", field -> field.label("最近核验时间")))))))
                 .build();
     }
 }

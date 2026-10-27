@@ -38,6 +38,48 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModuleUiDescriptorCompilerTest {
+    @Test
+    void projectsTypedDefaultsOnlyForExposedWritableFormFields() {
+        var entity = new EntityDefinition("main", "defaults", "Defaults", List.of(
+                FieldDefinition.bool("loginEnabled", "Login").defaultValue("true"),
+                FieldDefinition.bool("bindingEnabled", "Binding").defaultValue("false"),
+                FieldDefinition.integer("count", "Count").defaultValue("0"),
+                FieldDefinition.longInteger("large", "Large").defaultValue("9007199254740993"),
+                FieldDefinition.decimal("amount", "Amount").defaultValue("123456789.123456789"),
+                FieldDefinition.string("hidden", "Hidden").defaultValue("hidden"),
+                FieldDefinition.string("readOnly", "Read only").defaultValue("server"),
+                FieldDefinition.string("protected", "Protected").defaultValue("server").writeProtected(),
+                FieldDefinition.string("password", "Password").defaultValue("secret")));
+        var ui = ModuleUiDefinition.builder("demo.defaults").page(PageTemplates.listDetailCard(page -> page
+                .list(list -> list.fields(fields -> fields.field("loginEnabled")))
+                .detail(detail -> detail.editor(editor -> editor.field("loginEnabled").field("bindingEnabled")
+                        .field("count").field("large").field("amount").field("readOnly", field -> field.readOnly())
+                        .field("protected").field("password", field -> field.uiType("password")))))).build();
+        var descriptor = ModuleUiDescriptorCompiler.compile(StaticModuleDefinition.builder("demo", "demo.defaults", "Defaults")
+                .entities(List.of(entity)).uiDefinition(ui).build());
+        var editor = descriptor.page().detail().editor();
+        assertThat(editor.createDefaults()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "loginEnabled", true, "bindingEnabled", false, "count", 0,
+                "large", "9007199254740993", "amount", "123456789.123456789"));
+        assertThat(descriptor.page().list().fields().createDefaults()).isEmpty();
+        assertThat(editor.withFields(editor.fields()).withFormulaProjection(editor.fields(), List.of()).createDefaults())
+                .isEqualTo(editor.createDefaults());
+    }
+
+    @Test
+    void staticIdentityPolicyLiteralsReachTheStandardForm() {
+        var model = net.ximatai.muyun.spring.iam.federation.TenantIdentityPolicy.class;
+        var entity = new net.ximatai.muyun.spring.dynamic.metadata.StaticEntityDefinitionCompiler()
+                .compile("policy", "Policy", model);
+        var ui = ModuleUiDefinition.builder("iam.tenant_identity_policy")
+                .editors(editors -> editors.defaultEditor(editor -> editor.field("loginEnabled")
+                        .field("bindingEnabled").field("provisioningMode").field("sourceStatusMaxAgeSeconds"))).build();
+        var descriptor = ModuleUiDescriptorCompiler.compile(StaticModuleDefinition.builder("iam", "iam.tenant_identity_policy", "Policy")
+                .modelClass(model).entities(List.of(entity)).uiDefinition(ui).build());
+        assertThat(descriptor.defaultEditor().createDefaults()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "loginEnabled", true, "bindingEnabled", true, "provisioningMode", "disabled", "sourceStatusMaxAgeSeconds", 259200));
+    }
+
     @Test void projectsCodeDeclarationsThroughEveryFieldCopyWithoutInventingHiddenFields() {
         var code = new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(true, net.ximatai.muyun.spring.ability.code.CodeTrigger.SAVE);
         var entity = new EntityDefinition("main", "main", "Main", List.of(

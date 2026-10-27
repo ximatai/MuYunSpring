@@ -649,6 +649,20 @@ function resolveFieldControlType(
   fieldControl: ResolvedFieldControlDescriptor,
 ): RecordFormFieldControlType {
   if (recordPickerPresentationDiagnostic(field, fieldControl)) return 'unsupported';
+  if (
+    fieldControl.alias === 'cron' &&
+    ((field.valueType != null && !['STRING', 'TEXT'].includes(field.valueType)) ||
+      fieldControl.rendererType !== 'TEXT' ||
+      fieldControl.valueShape !== 'SCALAR')
+  )
+    return 'unsupported';
+  if (
+    fieldControl.alias === 'duration_seconds' &&
+    (field.valueType !== 'INTEGER' ||
+      fieldControl.rendererType !== 'NUMBER' ||
+      fieldControl.valueShape !== 'SCALAR')
+  )
+    return 'unsupported';
   const renderer = recordFieldRendererRegistry.find(
     (candidate) => candidate.rendererType === fieldControl.rendererType && candidate.supports(field),
   );

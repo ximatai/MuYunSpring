@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import java.util.List;
+import java.util.Map;
 
 public record ResolvedViewDescriptor(String viewCode,
                                      ModuleViewKind viewKind,
@@ -10,7 +11,8 @@ public record ResolvedViewDescriptor(String viewCode,
                                      String sourceUiConfigId,
                                      List<ResolvedFormGroupDescriptor> formGroups,
                                      List<ResolvedFormComputeRuleDescriptor> formComputeRules,
-                                     List<ResolvedFormValidationRuleDescriptor> formValidationRules) {
+                                     List<ResolvedFormValidationRuleDescriptor> formValidationRules,
+                                     Map<String, Object> createDefaults) {
     public ResolvedViewDescriptor {
         if (viewCode == null || viewCode.isBlank()) {
             throw new IllegalArgumentException("view code must not be blank");
@@ -23,6 +25,11 @@ public record ResolvedViewDescriptor(String viewCode,
         title = title == null || title.isBlank() ? null : title.trim();
         fields = fields == null ? List.of() : List.copyOf(fields);
         sourceUiConfigId = sourceUiConfigId == null || sourceUiConfigId.isBlank() ? null : sourceUiConfigId.trim();
+        createDefaults = createDefaults == null ? Map.of()
+                : java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(createDefaults));
+        if (!createDefaults.isEmpty() && viewKind != ModuleViewKind.FORM) {
+            throw new IllegalArgumentException("create defaults are only supported by form views: " + viewCode);
+        }
         formGroups = formGroups == null ? List.of() : List.copyOf(formGroups);
         if (!formGroups.isEmpty() && viewKind != ModuleViewKind.FORM) {
             throw new IllegalArgumentException("form groups are only supported by form views: " + viewCode);
@@ -35,6 +42,21 @@ public record ResolvedViewDescriptor(String viewCode,
         if (!formValidationRules.isEmpty() && viewKind != ModuleViewKind.FORM) {
             throw new IllegalArgumentException("form validation rules are only supported by form views: " + viewCode);
         }
+    }
+
+    /** Compatible constructor for descriptors predating model create defaults. */
+    public ResolvedViewDescriptor(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
+                                  List<ResolvedViewFieldDescriptor> fields, String sourceUiConfigId,
+                                  List<ResolvedFormGroupDescriptor> formGroups,
+                                  List<ResolvedFormComputeRuleDescriptor> formComputeRules,
+                                  List<ResolvedFormValidationRuleDescriptor> formValidationRules) {
+        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, formGroups, formComputeRules,
+                formValidationRules, Map.of());
+    }
+
+    public ResolvedViewDescriptor withCreateDefaults(Map<String, Object> defaults) {
+        return new ResolvedViewDescriptor(viewCode, viewKind, clientType, title, fields, sourceUiConfigId,
+                formGroups, formComputeRules, formValidationRules, defaults);
     }
 
     /** Source-compatible constructor for descriptors issued before form computations were introduced. */
@@ -51,7 +73,7 @@ public record ResolvedViewDescriptor(String viewCode,
 
     public ResolvedViewDescriptor withFields(List<ResolvedViewFieldDescriptor> fields) {
         return new ResolvedViewDescriptor(viewCode, viewKind, clientType, title, fields, sourceUiConfigId,
-                formGroups, formComputeRules, formValidationRules);
+                formGroups, formComputeRules, formValidationRules, createDefaults);
     }
 
     public ResolvedViewDescriptor withFormulaProjection(List<ResolvedViewFieldDescriptor> projectedFields,
@@ -63,7 +85,7 @@ public record ResolvedViewDescriptor(String viewCode,
                                                         List<ResolvedFormComputeRuleDescriptor> projectedComputeRules,
                                                         List<ResolvedFormValidationRuleDescriptor> projectedValidationRules) {
         return new ResolvedViewDescriptor(viewCode, viewKind, clientType, title, projectedFields, sourceUiConfigId,
-                formGroups, projectedComputeRules, projectedValidationRules);
+                formGroups, projectedComputeRules, projectedValidationRules, createDefaults);
     }
 
 }

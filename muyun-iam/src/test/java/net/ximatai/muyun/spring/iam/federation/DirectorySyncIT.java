@@ -1097,6 +1097,22 @@ class DirectorySyncIT {
         assertThat(jobPlans.findById(policy.getSyncPlanId()).getEnabled()).isTrue();
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void leaseRenewalDuringVendorReadsDoesNotInvalidateTopicPageCommits(boolean preview) {
+        String jobId = enqueue(preview);
+        departmentHook = () -> jobs.renewNode("node");
+        peopleHook = () -> jobs.renewNode("node");
+        execute();
+        assertThat(jobRuns.findById(jobId).getStatus()).isEqualTo("SUCCEEDED");
+        var run = syncRuns.query(Criteria.of().eq("jobRunId", jobId), new PageRequest(0, 1)).getFirst();
+        assertThat(run.getCompleted()).isTrue();
+        var statistics = DirectorySyncStore.decode(run.getStatistics(), DirectorySyncJob.Statistics.class);
+        assertThat(statistics.failedPages).isZero();
+        assertThat(statistics.people).isEqualTo(1);
+        assertThat(global(() -> db.query("select id from iam_user"))).hasSize(preview ? 0 : 1);
+    }
+
     @Test
     void previewWritesOnlyTopicFactsAndFailurePagesArePartial() {
         String preview = enqueue(true);

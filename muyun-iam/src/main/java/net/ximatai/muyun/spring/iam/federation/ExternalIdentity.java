@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.common.model.constraint.Required;
+import net.ximatai.muyun.spring.common.model.title.TitleField;
 import net.ximatai.muyun.spring.common.model.constraint.TenantUniqueConstraint;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.common.option.OptionField;
@@ -62,6 +63,7 @@ public class ExternalIdentity extends StandardEntity {
     @Column(name = "external_user_id", type = ColumnType.VARCHAR, length = 128, nullable = false,
             comment = "External user id")
     @Required
+    @TitleField
     private String externalUserId;
 
     @Column(name = "display_name", type = ColumnType.VARCHAR, length = 128,

@@ -100,6 +100,48 @@ class WeLinkProtocolTest {
         assertThat(configured.status("other")).isEqualTo("unknown");
     }
 
+    @Test void readsTopLevelDepartmentDetailAndExplicitRootSentinel() {
+        var original = handler;
+        handler = req -> req.path().endsWith("/detail")
+                ? ok("{\"code\":\"0\",\"deptCode\":\"root\",\"parentCode\":\"-1\",\"deptNameCn\":\"Root\"}")
+                : original.apply(req);
+        var department = directory().department(provider(Map.of("rootParentCodes", "-1")), "root");
+        assertThat(department.id()).isEqualTo("root");
+        assertThat(department.parentId()).isNull();
+        assertThat(department.title()).isEqualTo("Root");
+        assertThat(directory().department(provider(), "root").parentId()).isEqualTo("-1");
+    }
+
+    @Test void rejectsMismatchedOrMalformedDepartmentDetailWithoutFallingBack() {
+        var original = handler;
+        for (String body : List.of(
+                "{\"code\":0,\"deptCode\":\"other\",\"deptNameCn\":\"Other\"}",
+                "{\"code\":0,\"deptCode\":\"root\"}",
+                "{\"code\":0,\"data\":null,\"deptCode\":\"root\",\"deptNameCn\":\"Root\"}")) {
+            handler = req -> req.path().endsWith("/detail") ? ok(body) : original.apply(req);
+            assertThatThrownBy(() -> directory().department(provider(), "root"))
+                    .isInstanceOf(ExternalIdentityVerificationException.class);
+        }
+    }
+
+    @Test void userPagesRespectTheEndpointLimitAndContinueAfterAFullCappedPage() {
+        var original = handler;
+        var rows = new ArrayList<String>();
+        for (int i = 0; i < 50; i++)
+            rows.add("{\"userId\":\"u" + i + "\",\"userNameCn\":\"User\",\"userStatus\":3}");
+        handler = req -> req.path().endsWith("/user/list")
+                ? ok("{\"code\":0,\"hasMore\":0,\"data\":[" + String.join(",", rows) + "]}")
+                : original.apply(req);
+        var first = directory().departmentPeople(provider(), "a", null, 200);
+        assertThat(first.items()).hasSize(50);
+        assertThat(first.nextCursor()).isEqualTo("2");
+        assertThat(requests).anySatisfy(r -> assertThat(r.query()).contains("pageSize=50", "pageNo=1"));
+        handler = req -> req.path().endsWith("/user/list")
+                ? ok("{\"code\":0,\"hasMore\":1,\"data\":[]}") : original.apply(req);
+        assertThat(directory().departmentPeople(provider(), "a", first.nextCursor(), 200).nextCursor()).isNull();
+        assertThat(requests).anySatisfy(r -> assertThat(r.query()).contains("pageSize=50", "pageNo=2"));
+    }
+
     @Test void cachesRefreshesAheadOfExpiryAndSeparatesCredentials() {
         var p = provider();
         directory().department(p, "root");

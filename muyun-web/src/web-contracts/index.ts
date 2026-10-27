@@ -1511,6 +1511,8 @@ export interface ResolvedViewDescriptor {
   fields: ResolvedViewFieldDescriptor[];
   /** Dynamic-page provenance used to select the view configured by a menu entry. */
   sourceUiConfigId?: string;
+  /** Model literals in standard wire types; seed new records before context bindings and calculations. */
+  createDefaults?: Record<string, unknown>;
   formGroups?: FormGroupDescriptor[];
   formComputeRules?: ResolvedFormComputeRuleDescriptor[];
   formValidationRules?: ResolvedFormValidationRuleDescriptor[];

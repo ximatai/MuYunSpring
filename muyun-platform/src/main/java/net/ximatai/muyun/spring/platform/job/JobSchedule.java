@@ -8,9 +8,7 @@ import java.util.Objects;
 public record JobSchedule(String kind, String expression, String zoneId, Duration interval, Duration initialDelay) {
     public JobSchedule {
         if ("CRON".equals(kind)) {
-            if (expression == null || !expression.trim().startsWith("0 "))
-                throw new IllegalArgumentException("Job cron seconds must be zero");
-            CronExpression.parse(expression);
+            validateCronExpression(expression);
             zoneId = zoneId == null ? net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.timeService()
                     .resolveZoneId(null).getId() : ZoneId.of(zoneId).getId();
         } else if ("FIXED_DELAY".equals(kind)) {
@@ -18,6 +16,12 @@ public record JobSchedule(String kind, String expression, String zoneId, Duratio
             if (interval.compareTo(Duration.ofMinutes(1)) < 0 || initialDelay.isNegative())
                 throw new IllegalArgumentException("Invalid job fixed delay");
         } else throw new IllegalArgumentException("Unknown job schedule kind");
+    }
+    /** Validates the same minute-precision grammar used when saving and running job plans. */
+    public static void validateCronExpression(String expression) {
+        if (expression == null || !expression.trim().startsWith("0 "))
+            throw new IllegalArgumentException("Job cron seconds must be zero");
+        CronExpression.parse(expression);
     }
     public static JobSchedule cron(String expression, String zoneId) {
         return new JobSchedule("CRON", expression, zoneId, null, null);

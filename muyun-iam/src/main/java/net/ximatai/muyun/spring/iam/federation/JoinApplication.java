@@ -15,7 +15,11 @@ import java.time.Instant;
 @TenantUniqueConstraint(fields = {"providerId", "externalEnterpriseId", "externalUserId"})
 public class JoinApplication extends StandardEntity {
     @Column(name = "provider_id", type = ColumnType.VARCHAR, length = 64, nullable = false)
+    @net.ximatai.muyun.spring.ability.reference.ReferenceTo(target = IdentityProviderService.class,
+            tenantScope = net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope.GLOBAL)
     private String providerId;
+    @net.ximatai.muyun.spring.ability.reference.ReferenceLoad(source = "providerId", field = "title")
+    private transient String providerTitle;
     @Column(name = "authority_fingerprint", type = ColumnType.VARCHAR, length = 64, nullable = false)
     private String authorityFingerprint;
     @Column(name = "external_enterprise_id", type = ColumnType.VARCHAR, length = 128, nullable = false)
@@ -29,6 +33,7 @@ public class JoinApplication extends StandardEntity {
     private JoinApplicationStatus status;
     @Column(name = "user_id", type = ColumnType.VARCHAR, length = 32)
     private String userId;
+    /** Current actor ID may identify a system actor rather than a persisted user account. */
     @Column(name = "reviewer_id", type = ColumnType.VARCHAR, length = 32)
     private String reviewerId;
     @Column(name = "reviewed_at", type = ColumnType.TIMESTAMP)
