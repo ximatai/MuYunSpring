@@ -316,6 +316,10 @@ subprojects {
             classpath = testSourceSet.get().runtimeClasspath
             shouldRunAfter(tasks.named("test"))
             include("**/*IT.class")
+            if (project.name == "muyun-platform") {
+                // Separate JVMs keep process-wide Ability state isolated between concurrent classes.
+                maxParallelForks = 2
+            }
         }
 
         dependencies {

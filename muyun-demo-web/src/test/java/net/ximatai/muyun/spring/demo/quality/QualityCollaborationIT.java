@@ -23,6 +23,7 @@ import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.*;
 import org.springframework.test.web.servlet.*;
 import org.springframework.web.context.WebApplicationContext;
@@ -35,6 +36,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
 
 /** Actual Boot, metadata, schema, controllers and PostgreSQL; this does not replace live business acceptance. */
 @Testcontainers
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(classes = MuYunSpringApplication.class)
 @ContextConfiguration(classes = QualityDemoConfiguration.class)
 @ActiveProfiles("collaboration-demo")

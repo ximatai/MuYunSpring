@@ -8,6 +8,7 @@ import com.sun.source.util.JavacTask;
 import com.sun.source.util.TreeScanner;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import javax.tools.Diagnostic;
@@ -36,11 +37,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Covers production declarations, including sources absent from both language bundles. */
 class DeclaredTextResourcesTest {
     private static final Pattern ARGUMENT = Pattern.compile("\\{([A-Za-z][A-Za-z0-9_.-]*)}");
+    private static Declarations productionDeclarations;
+
+    @BeforeAll
+    static void scanProductionDeclarations() throws Exception {
+        productionDeclarations = parse(productionSources());
+    }
 
     @Test
     void allProductionCodeTitleEnumsHaveEnglishResources() throws Exception {
         var english = messages();
-        var enums = parse(productionSources()).enumTypes();
+        var enums = productionDeclarations.enumTypes();
         assertThat(enums).isNotEmpty();
         var sources = new ArrayList<TextReference>();
         for (var name : enums) {
@@ -57,7 +64,7 @@ class DeclaredTextResourcesTest {
 
     @Test
     void allLiteralProductionTextReferencesIncludingDomainRejectionsHaveEnglishResources() throws Exception {
-        var declarations = parse(productionSources());
+        var declarations = productionDeclarations;
         assertThat(declarations.textKeys()).isNotEmpty();
         var english = messages();
         assertEnglishKeys(declarations.textKeys(), english);
@@ -66,7 +73,7 @@ class DeclaredTextResourcesTest {
 
     @Test
     void allStaticModuleAndMenuAnnotationsIncludingConditionalFeaturesHaveEnglishResources() throws Exception {
-        var declarations = parse(productionSources());
+        var declarations = productionDeclarations;
         var english = messages();
         var baselines = new Properties();
         var urls = getClass().getClassLoader().getResources("META-INF/muyun/i18n/configured_messages_en.properties");

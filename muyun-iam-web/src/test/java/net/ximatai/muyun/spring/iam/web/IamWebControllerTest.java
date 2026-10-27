@@ -112,6 +112,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -154,6 +155,7 @@ class IamWebControllerTest {
     private RoleGrantableActionResolver grantableActionResolver;
     private CurrentUser currentUser;
     private MockMvc mvc;
+    private Supplier<MockMvc> mvcFactory;
 
     @Test
     void shouldUsePositionCategoryToEstablishTenantScopeWithoutASessionMutationConstraint() {
@@ -283,6 +285,12 @@ class IamWebControllerTest {
                 .containsExactlyInAnyOrder("lightLogoAssetId", "darkLogoAssetId");
     }
 
+    // Specialized fixtures and declaration-only checks do not need the default HTTP assembly.
+    private MockMvc mvc() {
+        if (mvc == null) mvc = mvcFactory.get();
+        return mvc;
+    }
+
     @BeforeEach
     void setUp() {
         objectMapper.findAndRegisterModules();
@@ -344,7 +352,8 @@ class IamWebControllerTest {
         ReflectionTestUtils.setField(userAccountController, "standardModuleWebRuntime", userRuntime(userAccountController));
         ReflectionTestUtils.setField(roleController, "service", roleService);
         roleController.setRoleScopeSelectionResolver(roleScopeResolver);
-        mvc = MockMvcBuilders
+        mvc = null;
+        mvcFactory = () -> MockMvcBuilders
                 .standaloneSetup(
                         tenantController,
                         organizationController,
@@ -401,14 +410,14 @@ class IamWebControllerTest {
             return invocation.<Tenant>getArgument(0).getAlias();
         });
 
-        mvc.perform(post("/iam.tenant/query"))
+        mvc().perform(post("/iam.tenant/query"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records[0].alias").value("tenant_a"))
                 .andExpect(jsonPath("$.records[0].title").value("Tenant A"))
                 .andExpect(jsonPath("$.pageNum").value(1))
                 .andExpect(jsonPath("$.pageSize").value(20));
 
-        mvc.perform(post("/iam.tenant/insert")
+        mvc().perform(post("/iam.tenant/insert")
                         .contentType("application/json")
                         .content(json(tenant("tenant_b", "Tenant B"))))
                 .andExpect(status().isCreated())
@@ -421,7 +430,7 @@ class IamWebControllerTest {
         when(tenantDao.pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
                 .thenReturn(PageResult.of(List.of(tenant("tenant_demo", "演示租户")), 1, PageRequest.of(1, 10)));
 
-        mvc.perform(post("/iam.tenant/navigator/reference/query")
+        mvc().perform(post("/iam.tenant/navigator/reference/query")
                         .contentType("application/json")
                         .content(json(Map.of(
                                 "quickSearch", "演示租户",
@@ -461,14 +470,14 @@ class IamWebControllerTest {
             return new RecycleBinActionOutcome<>(deleted.getId(), deleted, report);
         });
 
-        mvc.perform(post("/iam.tenant/recycle-bin/query")
+        mvc().perform(post("/iam.tenant/recycle-bin/query")
                         .contentType("application/json")
                         .content(json(Map.of("page", Map.of("pageNum", 2, "pageSize", 10)))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records[0].sourceDeleteOperationId").value("delete-operation-1"))
                 .andExpect(jsonPath("$.records[0].restorable").value(true));
 
-        mvc.perform(post("/iam.tenant/recycle-bin/delete-operation-1/restore"))
+        mvc().perform(post("/iam.tenant/recycle-bin/delete-operation-1/restore"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sourceOperationId").value("delete-operation-1"))
                 .andExpect(jsonPath("$.restoreOperationId").value("restore-operation-1"));
@@ -480,7 +489,7 @@ class IamWebControllerTest {
 
     @Test
     void shouldRejectUnsupportedStaticQueryConditionsInsteadOfIgnoringThem() throws Exception {
-        mvc.perform(post("/iam.tenant/query")
+        mvc().perform(post("/iam.tenant/query")
                         .contentType("application/json")
                         .content(json(Map.of(
                                 "conditions", List.of(Map.of(
@@ -497,7 +506,7 @@ class IamWebControllerTest {
 
     @Test
     void shouldRejectUnsupportedStaticQueryCriteriaInsteadOfIgnoringThem() throws Exception {
-        mvc.perform(post("/iam.tenant/query")
+        mvc().perform(post("/iam.tenant/query")
                         .contentType("application/json")
                         .content(json(Map.of(
                                 "criteria", Map.of(
@@ -522,7 +531,7 @@ class IamWebControllerTest {
         currentUser = CurrentUser.tenantUser("user-1", "User", "tenant_a");
         when(tenantDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(tenant("tenant_a", "Tenant A")));
 
-        mvc.perform(post("/iam.position/query")
+        mvc().perform(post("/iam.position/query")
                         .contentType("application/json")
                         .content(json(Map.of(
                                 "unpaged", true,
@@ -549,7 +558,7 @@ class IamWebControllerTest {
                 .thenReturn(PageResult.of(List.of(position("pos-1", "category-1", "DEV", "Developer")), 1,
                         PageRequest.of(1, 20)));
 
-        mvc.perform(post("/iam.position/query")
+        mvc().perform(post("/iam.position/query")
                         .contentType("application/json")
                         .content(json(Map.of(
                                 "externalQueryValues", Map.of("categoryId", "category-1"),
@@ -575,7 +584,7 @@ class IamWebControllerTest {
         when(positionDao.list(any(Criteria.class), any(Sort[].class)))
                 .thenReturn(List.of(position("pos-1", "category-1", "DEV", "Developer")));
 
-        mvc.perform(post("/iam.position/query")
+        mvc().perform(post("/iam.position/query")
                         .contentType("application/json")
                         .content(json(Map.of(
                                 "unpaged", true,
@@ -612,7 +621,7 @@ class IamWebControllerTest {
                 })
                 .thenReturn(List.of());
 
-        mvc.perform(get("/iam.organization/tree?flat=true"))
+        mvc().perform(get("/iam.organization/tree?flat=true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records[0].id").value("org-1"))
                 .andExpect(jsonPath("$.records[0].tenantId").value("tenant_a"))
@@ -629,7 +638,7 @@ class IamWebControllerTest {
                 .thenReturn(List.of(root))
                 .thenReturn(List.of());
 
-        mvc.perform(get("/iam.organization/tree?tenantId=demo&flat=true"))
+        mvc().perform(get("/iam.organization/tree?tenantId=demo&flat=true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records[0].id").value("org-1"))
                 .andExpect(jsonPath("$.records[0].tenantId").value("demo"));
@@ -651,7 +660,7 @@ class IamWebControllerTest {
                 .thenReturn(List.of(root))
                 .thenReturn(List.of());
 
-        mvc.perform(get("/iam.organization/tree?flat=true"))
+        mvc().perform(get("/iam.organization/tree?flat=true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records[0].id").value("org-1"))
                 .andExpect(jsonPath("$.records[0].tenantId").value("demo"));
@@ -668,7 +677,7 @@ class IamWebControllerTest {
         currentUser = CurrentUser.tenantUser("user-1", "User", "tenant_a");
         when(tenantDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(tenant("tenant_a", "Tenant A")));
 
-        mvc.perform(get("/iam.organization/tree?tenantId=tenant_b"))
+        mvc().perform(get("/iam.organization/tree?tenantId=tenant_b"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("organization tree tenantId must match current tenant"));
     }
@@ -688,7 +697,7 @@ class IamWebControllerTest {
         when(organizationDao.query(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
                 .thenReturn(List.of(root), List.of(root), List.of(child), List.of(child), List.of());
 
-        mvc.perform(get("/iam.organization/tree"))
+        mvc().perform(get("/iam.organization/tree"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records[0].record.id").value("org-1"))
                 .andExpect(jsonPath("$.records[0].record.tenantId").value("tenant_a"))
@@ -709,7 +718,7 @@ class IamWebControllerTest {
         when(organizationDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(), List.of(organization("org-1", "HQ", "Headquarters")));
 
-        mvc.perform(post("/iam.organization/insert")
+        mvc().perform(post("/iam.organization/insert")
                         .header("X-MuYun-Page-Context", "{\"tenant\":\"tenant_a\"}")
                         .contentType("application/json")
                         .content(json(organization(null, "HQ", "Headquarters"))))
@@ -732,7 +741,7 @@ class IamWebControllerTest {
         when(userAccountDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(), List.of(), List.of(user("user-1", "alice", "Alice")));
 
-        mvc.perform(post("/iam.user/insert")
+        mvc().perform(post("/iam.user/insert")
                         .header("X-MuYun-Page-Context", "{\"tenant\":\"tenant_a\"}")
                         .contentType("application/json")
                         .content("""
@@ -764,7 +773,7 @@ class IamWebControllerTest {
         when(userAccountDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(), List.of(), List.of(user("user-1", "alice", "Alice")));
 
-        mvc.perform(post("/iam.user/insert")
+        mvc().perform(post("/iam.user/insert")
                         .header("X-MuYun-Page-Context", "{\"tenant\":\"demo\"}")
                         .contentType("application/json")
                         .content("""
@@ -794,7 +803,7 @@ class IamWebControllerTest {
         });
         when(roleService.select("role-1")).thenReturn(saved);
 
-        mvc.perform(post("/iam.role/insert")
+        mvc().perform(post("/iam.role/insert")
                         .header("X-MuYun-Page-Selection", roleScopeHeader("tenant:tenant_a"))
                         .contentType("application/json")
                         .content("""
@@ -826,7 +835,7 @@ class IamWebControllerTest {
         });
         when(roleService.select("role-1")).thenReturn(saved);
 
-        mvc.perform(post("/iam.role/insert")
+        mvc().perform(post("/iam.role/insert")
                         .header("X-MuYun-Page-Selection", roleScopeHeader("organization:demo_org"))
                         .contentType("application/json")
                         .content("""
@@ -943,7 +952,7 @@ class IamWebControllerTest {
             return 1;
         });
 
-        mvc.perform(post("/iam.role/delete/{id}", "role-1")
+        mvc().perform(post("/iam.role/delete/{id}", "role-1")
                         .header("X-MuYun-Page-Selection", roleScopeHeader("organization:demo_org"))
                         .contentType("application/json")
                         .content("{\"version\":0}"))
@@ -963,7 +972,7 @@ class IamWebControllerTest {
             return null;
         }).when(roleService).moveAfter("role-1", "role-0");
 
-        mvc.perform(post("/iam.role/sort/{id}", "role-1")
+        mvc().perform(post("/iam.role/sort/{id}", "role-1")
                         .header("X-MuYun-Page-Selection", roleScopeHeader("tenant:demo"))
                 .contentType("application/json")
                 .content("""
@@ -985,7 +994,7 @@ class IamWebControllerTest {
             return 1;
         });
 
-        mvc.perform(post("/iam.role/grant/{roleId}", "role-1")
+        mvc().perform(post("/iam.role/grant/{roleId}", "role-1")
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1018,7 +1027,7 @@ class IamWebControllerTest {
             return 1;
         });
 
-        mvc.perform(post("/iam.user/update/{id}", "user-1")
+        mvc().perform(post("/iam.user/update/{id}", "user-1")
                         .header("X-MuYun-Page-Context", "{\"tenant\":\"tenant_a\"}")
                         .contentType("application/json")
                         .content("""
@@ -1055,7 +1064,7 @@ class IamWebControllerTest {
             return 1;
         });
 
-        mvc.perform(post("/iam.user/changePassword/{id}", "user-1")
+        mvc().perform(post("/iam.user/changePassword/{id}", "user-1")
                         .contentType("application/json")
                         .content("""
                                 {"password":"new-secret"}
@@ -1073,7 +1082,7 @@ class IamWebControllerTest {
         when(userAccountDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(admin));
 
-        mvc.perform(get("/iam.user/view/{id}", UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID))
+        mvc().perform(get("/iam.user/view/{id}", UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID))
                 .andExpect(jsonPath("$.username").value("admin"))
@@ -1085,7 +1094,7 @@ class IamWebControllerTest {
     void shouldRejectResettingCurrentUserPassword() throws Exception {
         currentUser = CurrentUser.systemUser(UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID, "admin");
 
-        mvc.perform(post("/iam.user/resetPassword/{id}", UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID))
+        mvc().perform(post("/iam.user/resetPassword/{id}", UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("iam.user.password-admin-current-user"))
                 .andExpect(jsonPath("$.message")
@@ -1102,7 +1111,7 @@ class IamWebControllerTest {
     void shouldRejectChangingCurrentUserPasswordThroughAdministrationEndpoint() throws Exception {
         currentUser = CurrentUser.systemUser(UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID, "admin");
 
-        mvc.perform(post("/iam.user/changePassword/{id}", UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID)
+        mvc().perform(post("/iam.user/changePassword/{id}", UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID)
                         .contentType("application/json")
                         .content("""
                                 {"password":"new-secret"}
@@ -1125,7 +1134,7 @@ class IamWebControllerTest {
         doThrow(new PlatformException("Tenant is not active: tenant_a"))
                 .when(tenantDao).query(any(Criteria.class), any(PageRequest.class));
 
-        mvc.perform(get("/iam.organization/tree"))
+        mvc().perform(get("/iam.organization/tree"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.traceId").isNotEmpty())
                 .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED))
@@ -1134,7 +1143,7 @@ class IamWebControllerTest {
 
     @Test
     void shouldRequireCurrentUserTenantForOrganizationAccess() throws Exception {
-        mvc.perform(get("/iam.organization/tree"))
+        mvc().perform(get("/iam.organization/tree"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.traceId").isNotEmpty())
                 .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED))
@@ -1151,7 +1160,7 @@ class IamWebControllerTest {
             return 1;
         });
 
-        mvc.perform(post("/iam.tenant/disable/{tenantAlias}", "tenant_a")
+        mvc().perform(post("/iam.tenant/disable/{tenantAlias}", "tenant_a")
                         .contentType("application/json")
                         .content("{\"version\":2}"))
                 .andExpect(status().isOk())
@@ -1181,38 +1190,38 @@ class IamWebControllerTest {
                 null, null, null)).thenReturn(1);
         when(roleService.revokeAction("role-1", "sales.contract", "query")).thenReturn(1);
 
-        mvc.perform(post("/iam.role/{roleId}/account-grants", "role-1")
+        mvc().perform(post("/iam.role/{roleId}/account-grants", "role-1")
                         .contentType("application/json")
                         .content("""
                                 {"userId":"user-2","targetTenantId":"tenant_a"}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value("grant-1"));
-        mvc.perform(get("/iam.role/{roleId}/account-grants", "role-1")
+        mvc().perform(get("/iam.role/{roleId}/account-grants", "role-1")
                         .param("targetTenantId", "tenant_a"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value("grant-1"))
                 .andExpect(jsonPath("$[0].userId").value("user-2"))
                 .andExpect(jsonPath("$[0].managementScopeType").value("tenant"));
-        mvc.perform(post("/iam.role/{roleId}/account-grants/{grantId}/delete", "role-1", "grant-1")
+        mvc().perform(post("/iam.role/{roleId}/account-grants/{grantId}/delete", "role-1", "grant-1")
                         .param("targetTenantId", "tenant_a"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value(1));
-        mvc.perform(post("/iam.role/{roleId}/employment-grants", "role-2")
+        mvc().perform(post("/iam.role/{roleId}/employment-grants", "role-2")
                         .contentType("application/json")
                         .content("""
                                 {"employeePositionId":"position-1"}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value("grant-2"));
-        mvc.perform(get("/iam.role/{roleId}/employment-grants", "role-2"))
+        mvc().perform(get("/iam.role/{roleId}/employment-grants", "role-2"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value("grant-2"))
                 .andExpect(jsonPath("$[0].employeePositionId").value("position-1"));
-        mvc.perform(post("/iam.role/{roleId}/employment-grants/{grantId}/delete", "role-2", "grant-2"))
+        mvc().perform(post("/iam.role/{roleId}/employment-grants/{grantId}/delete", "role-2", "grant-2"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value(1));
-        mvc.perform(post("/iam.role/grant/{roleId}", "role-1")
+        mvc().perform(post("/iam.role/grant/{roleId}", "role-1")
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1224,7 +1233,7 @@ class IamWebControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value(1));
-        mvc.perform(post("/iam.role/revoke/{roleId}", "role-1")
+        mvc().perform(post("/iam.role/revoke/{roleId}", "role-1")
                         .contentType("application/json")
                         .content("""
                                 {"moduleAlias":"sales.contract","actionCode":"query"}
@@ -1294,7 +1303,7 @@ class IamWebControllerTest {
                 .thenThrow(new BusinessException("iam.role.not-account-role",
                         "role is not account role: role-1"));
 
-        mvc.perform(post("/iam.role/{roleId}/account-grants", "role-1")
+        mvc().perform(post("/iam.role/{roleId}/account-grants", "role-1")
                         .contentType("application/json")
                         .content("""
                                 {"userId":"user-2","targetTenantId":"tenant_a"}
@@ -1313,7 +1322,7 @@ class IamWebControllerTest {
         when(roleService.grantActions(any(), any())).thenReturn(2);
         when(roleService.revokeActions(any(), any())).thenReturn(1);
 
-        mvc.perform(post("/iam.role/grant/{roleId}/batch", "role-1")
+        mvc().perform(post("/iam.role/grant/{roleId}/batch", "role-1")
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1326,7 +1335,7 @@ class IamWebControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value(2));
 
-        mvc.perform(post("/iam.role/revoke/{roleId}/batch", "role-1")
+        mvc().perform(post("/iam.role/revoke/{roleId}/batch", "role-1")
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1347,7 +1356,7 @@ class IamWebControllerTest {
         currentUser = CurrentUser.tenantUser("user-1", "User", "tenant_a");
         when(roleService.replacePermissionActions(any(), any())).thenReturn(2);
 
-        mvc.perform(post("/iam.role/permissionMatrix/{roleId}/replace", "role-1")
+        mvc().perform(post("/iam.role/permissionMatrix/{roleId}/replace", "role-1")
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1386,7 +1395,7 @@ class IamWebControllerTest {
                 ))
         ));
 
-        mvc.perform(post("/iam.role/permissionMatrix/{roleId}", "role-1")
+        mvc().perform(post("/iam.role/permissionMatrix/{roleId}", "role-1")
                         .contentType("application/json")
                         .content("""
                                 {"moduleAliases":["sales.contract"]}
@@ -1443,7 +1452,7 @@ class IamWebControllerTest {
                         List.of(new RoleDataScopePolicyCatalog.ReferenceDependency(
                                 "score.studentId", "学生", "school.student", "学生", "view", "查看"))));
 
-        mvc.perform(get("/iam.role/dataScopePolicyCatalog/{roleId}", "role-1")
+        mvc().perform(get("/iam.role/dataScopePolicyCatalog/{roleId}", "role-1")
                         .queryParam("moduleAlias", "sales.score"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.options[0].code").value("inheritDataGrant"))
