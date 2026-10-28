@@ -36,4 +36,11 @@ public class MuYunFileServerTransferConfiguration {
         RestClient rest = RestClient.builder().requestFactory(new JdkClientHttpRequestFactory(http)).build();
         return new MuYunFileServerTransferClient(accessService, rest, objectMapper);
     }
+    @Bean
+    @ConditionalOnProperty(prefix = "muyun.file-transfer.muyun-fileserver.reception", name = "enabled", havingValue = "true")
+    @ConditionalOnMissingBean(net.ximatai.muyun.spring.platform.attachment.FileReceptionClient.class)
+    net.ximatai.muyun.spring.platform.attachment.FileReceptionClient fileReceptionClient(
+            MuYunFileServerTransferProperties properties, ObjectMapper objectMapper) {
+        return new MuYunFileServerReceptionClient(properties, objectMapper);
+    }
 }

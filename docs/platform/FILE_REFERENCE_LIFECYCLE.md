@@ -105,3 +105,26 @@ private Long sourceFileSize;
 所有权记录保存最初的模块、记录和字段位置，解除引用后也保留，防止文件被重新分配后受到旧引用删除的影响；它不是当前引用计数，也不是待删除任务。内联资产的可共享当前引用仍由 `platform_managed_file_asset_reference` 维护。两个模型不互相替代。
 
 该独占约束覆盖当前 Spring 数据库管理的文件字段与附件，不是跨独立业务数据库的全局锁。文件服务凭据属于可信后端边界，直接调用 FileServer 的其他应用不受本地所有权表约束。项目尚未上线，不提供旧数据迁移或兼容分支。
+
+## 受信后端接收任务
+
+`FileReceptionClient` 统一承接 MuYunFileServer 接收任务的创建、查询、对象枚举、本地文件流式写入、清单确认与取消。
+这是供已授权业务服务或后台作业调用的门面，不是浏览器上传入口，也不新增平台接收任务表。
+开启已有 FileServer 配置后，再显式配置 `muyun.file-transfer.muyun-fileserver.reception.enabled=true` 和
+`reception.service-token`；接收服务凭据与 public API 的签名密钥分开配置，不向客户端交付。
+`reception.request-timeout` 默认 60 秒，覆盖完整响应正文；`reception.max-response-bytes` 默认 2 MiB。
+地址沿用部署侧 `base-url`，禁止重定向，错误不保留上游正文、凭据或底层 cause。
+
+门面每次调用从可信 `CurrentUserContext` 读取用户与租户；系统身份必须显式配置 `system-scope-id`，
+不接受业务请求传入任意租户。后台业务先完成授权并进入受信执行身份，再调用该门面。
+返回的 bucket、prefix 仅供受信后端将接收位置传给采集方，不授予对象存储访问权。
+
+业务应在调用前持久化稳定幂等键和接收任务身份，并负责清单与业务操作的对应关系。
+平台不自动重试、换键、取消过期任务或把错误解释成“未执行”：超时、404、409 和服务端失败均不能证明写入未发生。
+`FileReceptionException.kind()` 区分传输、HTTP 与协议错误，`upstreamHttpStatus()` 仅提供实际收到的 HTTP 状态；
+如异常进入 HTTP 交付，统一按上游失败返回 502，不把上游 401 当成当前用户登录失效。
+只有有效的 CANCELLED／EXPIRED 快照且 assets 为空，`retiredWithoutAssets()` 才成立；是否建立新业务尝试由领域决定。
+READY 确认响应必须与提交清单的对象键完整一致，错误身份、缺失状态或不完整响应均拒绝。
+
+接收任务产物为永久文件，不可伪装成普通表单的临时上传登记。业务持久化、归档、录制、转码、校验策略和失败补偿仍归领域；
+元数据和下载复用 `FileTransferClient`，不会为接收任务复制公开文件传输链路。
