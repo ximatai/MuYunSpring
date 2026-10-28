@@ -138,6 +138,7 @@ var page = queries.from(publicationService, PlatformAction.QUERY)
 `requiring(policy)` 增加必须同时满足的动作范围；`whereRelated(localField, relatedQuery, relatedField, records)`
 支持反向关联、嵌套关联和显式 `INCLUDING_DELETED` 的关联来源。历史读取只跳过该来源的 active 条件，
 仍执行其 `tenantCriteria`、动作与数据范围；应由领域决定哪些历史事实可参与查询。
+动态参与方（含 `requiring`）每次执行按动作码解析当前元数据策略，配置刷新后不沿用旧默认授权；静态参与方保留显式策略。
 根分页与计数按 `from` 声明的动作执行，并保留目标 Service 的读取与输出链路；动态入口也不额外叠加 QUERY 范围。
 条件在数据库内编译成参数化半连接，分页与计数使用同一组约束，
 无需加载完整 ID 集合；重复关联不会扩增目标记录。

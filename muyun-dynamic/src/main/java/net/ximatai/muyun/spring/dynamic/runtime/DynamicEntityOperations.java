@@ -17,6 +17,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetProvider;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
@@ -113,6 +114,11 @@ public final class DynamicEntityOperations implements
 
     public List<DynamicActionDescriptor> actions() {
         return service.actions(moduleAlias, entityAlias);
+    }
+
+    /** Resolves the current entity action policy, including configured default grants. Do not cache across refreshes. */
+    public ActionExecutionPolicy actionPolicy(String actionCode) {
+        return service.actionPolicy(moduleAlias, entityAlias, actionCode);
     }
 
     public DynamicActionDescriptor action(String actionCode) {

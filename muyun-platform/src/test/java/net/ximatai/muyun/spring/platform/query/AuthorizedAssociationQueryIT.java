@@ -78,7 +78,7 @@ class AuthorizedAssociationQueryIT extends PlatformPostgresIntegrationTest {
             DataScopeFieldMapping mapping = call.getArgument(4);
             Criteria condition = Criteria.copyOf(call.getArgument(2));
             if (action.actionCode().equals("view")) condition.eq(mapping.ownerUserField(), CurrentUserContext.currentUser().orElseThrow().userId());
-            if (action.actionCode().equals("export")) condition.eq("title", "missing");
+            if (action.actionCode().equals("update")) condition.eq("title", "missing");
             if (emptyActions.contains(action.actionCode())) condition.eq("id", "missing");
             return new DataScopeCriteriaResult(condition, true, crossTenant.contains(moduleAlias));
         });
@@ -106,7 +106,7 @@ class AuthorizedAssociationQueryIT extends PlatformPostgresIntegrationTest {
             // Empty mandatory scope cannot be relaxed by an unrestricted root action.
             assertPage(queries.from(source, PlatformAction.QUERY)
                     .whereRelated("targetId", queries.from(target, PlatformAction.VIEW)
-                            .requiring(PlatformAction.EXPORT.executionPolicy())), 0);
+                            .requiring(PlatformAction.UPDATE.executionPolicy())), 0);
             // Include retained source rows only when the domain deliberately requests it.
             assertPage(queries.from(source, PlatformAction.QUERY).where(Criteria.of().eq("title", "link"))
                     .whereRelated("targetId", queries.from(target, PlatformAction.VIEW), "id",
@@ -206,6 +206,59 @@ class AuthorizedAssociationQueryIT extends PlatformPostgresIntegrationTest {
             assertPage(queries.from(service(false), PlatformAction.QUERY)
                     .whereRelated("targetId", queries.from(service(true), PlatformAction.VIEW)), 0);
         }
+    }
+
+    @Test void dynamicParticipantsUseCurrentDefaultGrantsForEveryRequiredAction() {
+        seed(false, true);
+        db.execute("update association_static set owner_key='reader'");
+        var roles = mock(RoleService.class);
+        actions = new RoleActionExecutionPolicyService(roles);
+        scopes = new RoleDataScopeCriteriaService(roles, mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(), Optional.empty(), Optional.empty());
+        records = new DynamicRecordService(runtime, actions, scopes);
+        queries = new AuthorizedAssociationQuery(db, PlatformEntityManagers.entityMetaResolver(),
+                new PlatformDatabaseValueConverter(), actions, scopes);
+        refreshDefaultGrants(ActionDefaultGrantPolicy.OWNER);
+        try (var tenant = TenantContext.use("a"); var user = CurrentUserContext.use(CurrentUser.tenantUser("reader", "Reader", "a"))) {
+            var dynamic = records.entity("sample.dynamic", "row");
+            var target = Criteria.of().eq("title", "target");
+            var root = queries.from(dynamic, PlatformAction.VIEW).where(target);
+            var extra = queries.from(dynamic, PlatformAction.VIEW).where(target).requiring(PlatformAction.QUERY.executionPolicy());
+            var staticRead = new ActionExecutionPolicy("view", PlatformAction.VIEW.executionPolicy().level(),
+                    ActionAccessMode.AUTH_REQUIRED, true, true, ActionDefaultGrantPolicy.OWNER, null);
+            var related = queries.from(service(false), staticRead).where(Criteria.of().eq("title", "link"))
+                    .whereRelated("targetId", extra);
+            assertThat(dynamic.pageForAction("view", target, PageRequest.of(1, 20)).getTotal()).isEqualTo(1);
+            assertPage(root, 1);
+            assertPage(extra, 1);
+            assertPage(related, 2);
+            refreshDefaultGrants(ActionDefaultGrantPolicy.ANY_LOGIN_USER);
+            // ANY_LOGIN_USER grants the action, not a default data range.
+            assertPage(root, 0);
+            assertPage(extra, 0);
+            assertPage(related, 0);
+            refreshDefaultGrants(ActionDefaultGrantPolicy.OWNER, ActionDefaultGrantPolicy.NONE);
+            assertPage(root, 1);
+            assertThatThrownBy(extra::count).isInstanceOf(PlatformAccessDeniedException.class);
+            assertThatThrownBy(related::count).isInstanceOf(PlatformAccessDeniedException.class);
+            refreshDefaultGrants(ActionDefaultGrantPolicy.NONE);
+            for (var query : List.of(root, extra, related)) {
+                assertThatThrownBy(query::count).isInstanceOf(PlatformAccessDeniedException.class);
+                assertThatThrownBy(() -> query.page(PageRequest.of(1, 20))).isInstanceOf(PlatformAccessDeniedException.class);
+            }
+        }
+    }
+
+    private void refreshDefaultGrants(ActionDefaultGrantPolicy grant) { refreshDefaultGrants(grant, grant); }
+
+    private void refreshDefaultGrants(ActionDefaultGrantPolicy viewGrant, ActionDefaultGrantPolicy queryGrant) {
+        var entity = new EntityDefinition("row", "association_dynamic", "Rows", List.of(
+                FieldDefinition.string("title", "Title"), FieldDefinition.string("targetId", "Target").column("target_id")))
+                .withCapabilities(EntityCapability.DATA_SCOPE);
+        var configured = List.of("view", "query").stream().map(code -> new EntityActionDefinition("row", code, code,
+                true, code.equals("query") ? EntityActionLevel.LIST : EntityActionLevel.RECORD, EntityActionCategory.STANDARD, EntityActionAccessMode.AUTH_REQUIRED,
+                true, true, code.equals("query") ? queryGrant : viewGrant, code.equals("query") ? "view" : null, null, null, EntityActionExecutorType.STANDARD, null)).toList();
+        runtime.refresh(ModuleDefinition.builder("sample.dynamic", "Rows").entities(List.of(entity)).actions(configured).build());
     }
 
     private void assertPage(AuthorizedAssociationQuery.Query<?> query, int expected) {

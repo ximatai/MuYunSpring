@@ -130,7 +130,10 @@ public class AuthorizedAssociationQuery {
         if (user.isEmpty()) throw new PlatformAccessDeniedException("association queries require an authenticated user");
         Criteria criteria = Criteria.copyOf(query.conditions);
         boolean crossTenant = true;
-        for (var action : query.requiredActions) {
+        for (var declaredAction : query.requiredActions) {
+            // Dynamic declarations name actions; their current metadata owns the effective policy.
+            var action = query.service instanceof DynamicEntityOperations dynamic
+                    ? dynamic.actionPolicy(declaredAction.actionCode()) : declaredAction;
             actions.requireAuthorized(ActionExecutionContext.ofPolicy(query.service.getModuleAlias(), action, java.util.Set.of(), user));
             var scope = Objects.requireNonNull(query.service instanceof DataScopeAbility<?> scoped
                     ? scoped.readScopeByPolicy(action, Criteria.of())
