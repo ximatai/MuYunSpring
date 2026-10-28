@@ -160,6 +160,8 @@ public class ModuleDefinitionValidator {
             validateOptionLoad(entity, field);
         }
         validateTenantUniqueConstraints(entity, fields);
+        entity.conditionalIndexes().forEach(index -> net.ximatai.muyun.spring.common.schema.PlatformConditionalIndexes
+                .validate(index, field -> conditionalIndexFieldType(entity, field)));
         validateFileReferences(entity, fields);
         if (!entity.supports(EntityCapability.CRUD)) {
             throw new ModuleDefinitionException(DiagnosticText.code("dynamic.declaration.diagnostic.dynamic-entity-requires-crud-capability",
@@ -242,22 +244,40 @@ public class ModuleDefinitionValidator {
     }
 
     private void validateTenantUniqueConstraints(EntityDefinition entity, List<FieldDefinition> fields) {
-        Set<List<String>> declared = new HashSet<>();
+        Set<net.ximatai.muyun.spring.common.model.constraint.TenantUniqueConstraintDefinition.Identity> declared = new HashSet<>();
         for (net.ximatai.muyun.spring.common.model.constraint.TenantUniqueConstraintDefinition constraint
                 : entity.resolvedTenantUniqueConstraints()) {
-            if (!declared.add(constraint.fieldNames())) {
+            if (!declared.add(constraint.identity())) {
                 throw new ModuleDefinitionException(DiagnosticText.code("dynamic.declaration.diagnostic.duplicate-tenant-unique-constraint",
                     "duplicate tenant unique constraint: {alias}.{fieldNames}", Map.of("alias", String.valueOf(entity.alias()), "fieldNames", String.valueOf(String.join(",", constraint.fieldNames())))));
             }
             for (String fieldName : constraint.fieldNames()) {
-                boolean physical = fields.stream().anyMatch(field -> field.fieldName().equals(fieldName)
-                        && field.isPhysical());
+                boolean physical = DynamicAbilityFields.recordFields(entity).stream().anyMatch(field -> field.fieldName().equals(fieldName)
+                        && field.isPhysical()) || !constraint.conditions().isEmpty() && StandardEntitySchema.fieldNames().contains(fieldName);
                 if (!physical) {
                     throw new ModuleDefinitionException(DiagnosticText.code("dynamic.declaration.diagnostic.tenant-unique-constraint-requires-physical-field",
                     "tenant unique constraint requires physical field: {alias}.{fieldName}", Map.of("alias", String.valueOf(entity.alias()), "fieldName", String.valueOf(fieldName))));
                 }
             }
+            if (!constraint.conditions().isEmpty()) {
+                net.ximatai.muyun.spring.common.schema.PlatformConditionalIndexes.validate(
+                        new net.ximatai.muyun.spring.common.model.constraint.ConditionalIndexDefinition(constraint.indexName(),
+                                constraint.fieldNames(), true, constraint.conditions()), field -> conditionalIndexFieldType(entity, field));
+            }
         }
+    }
+
+    private net.ximatai.muyun.database.core.builder.ColumnType conditionalIndexFieldType(EntityDefinition entity, String name) {
+        if (StandardEntitySchema.ID_FIELD.equals(name)) return StandardEntitySchema.idColumn().getType();
+        if (StandardEntitySchema.fieldNames().contains(name)) {
+            return StandardEntitySchema.auditColumns().stream().filter(column -> column.getName().equals(StandardEntitySchema.columnName(name)))
+                    .findFirst().orElseThrow().getType();
+        }
+        FieldDefinition field = DynamicAbilityFields.recordFields(entity).stream()
+                .filter(item -> item.fieldName().equals(name) && item.isPhysical()).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("conditional index requires a physical field: " + name));
+        if (field.protection().hasStorageProtection()) throw new IllegalArgumentException("conditional index cannot use a protected storage field: " + name);
+        return DynamicFieldColumnMetadata.columnType(field);
     }
 
     public void validateFormulaRules(EntityDefinition entity) {
@@ -1232,7 +1252,7 @@ public class ModuleDefinitionValidator {
         if (!StandardEntitySchema.ID_FIELD.equals(keyField)) {
             requireField(targetEntity, keyField, "reference target key field");
             boolean unique = targetEntity.resolvedTenantUniqueConstraints().stream()
-                    .anyMatch(constraint -> constraint.fieldNames().equals(List.of(keyField)));
+                    .anyMatch(constraint -> constraint.conditions().isEmpty() && constraint.fieldNames().equals(List.of(keyField)));
             if (!unique) {
                 throw new ModuleDefinitionException(DiagnosticText.code("dynamic.declaration.diagnostic.reference-target-key-field-must-be-tenant-unique",
                     "reference target key field must be tenant-unique: {qualifiedName}.{keyField}", Map.of("qualifiedName", String.valueOf(target.qualifiedName()), "keyField", String.valueOf(keyField))));

@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.common.schema;
 
 import net.ximatai.muyun.database.core.builder.Column;
 import net.ximatai.muyun.database.core.builder.Index;
+import net.ximatai.muyun.database.core.builder.IndexColumn;
 import net.ximatai.muyun.database.core.builder.TableWrapper;
 
 import java.util.ArrayList;
@@ -21,9 +22,13 @@ public final class PlatformUniqueIndexes {
                 normalized.add(index);
                 continue;
             }
-            List<String> columns = withTenant(index.getColumns());
-            if (!containsIndex(normalized, columns, true)) {
-                normalized.add(new Index(columns, true));
+            var columns = new ArrayList<IndexColumn>();
+            columns.add(IndexColumn.asc(StandardEntitySchema.TENANT_ID_COLUMN));
+            columns.addAll(index.getIndexColumns());
+            var candidate = new Index(columns, true, index.getPredicate());
+            if (index.getName() != null) candidate.named(index.getName());
+            if (!containsIndex(normalized, candidate)) {
+                normalized.add(candidate);
             }
         }
         table.getIndexes().clear();
@@ -41,15 +46,23 @@ public final class PlatformUniqueIndexes {
     }
 
     public static void addTenantUniqueIndex(TableWrapper table, List<String> columnNames) {
+        addTenantUniqueIndex(table, columnNames, null, null);
+    }
+
+    public static void addTenantUniqueIndex(TableWrapper table, List<String> columnNames, String name, String predicate) {
         if (table == null || columnNames == null || columnNames.isEmpty()
                 || columnNames.stream().anyMatch(column -> column == null || column.isBlank())
-                || shouldKeepGlobal(columnNames)) {
+                || columnNames.contains(StandardEntitySchema.ID_COLUMN) && predicate == null) {
             return;
         }
-        List<String> columns = withTenant(columnNames);
-        table.getIndexes().removeIf(index -> index.isUnique() && index.getColumns().equals(columnNames));
-        if (!containsIndex(table.getIndexes(), columns, true)) {
-            table.addIndex(columns, true);
+        List<String> columns = columnNames.contains(StandardEntitySchema.TENANT_ID_COLUMN) ? columnNames : withTenant(columnNames);
+        table.getIndexes().removeIf(index -> index.isUnique() && index.getColumns().equals(columnNames)
+                && java.util.Objects.equals(index.getPredicate(), predicate) && !columns.equals(columnNames));
+        Index candidate = new Index(columns, true).predicate(predicate);
+        if (name != null) candidate.named(name);
+        PlatformConditionalIndexes.requireAvailableName(table, candidate);
+        if (!containsIndex(table.getIndexes(), candidate)) {
+            table.getIndexes().add(candidate);
         }
     }
 
@@ -65,7 +78,9 @@ public final class PlatformUniqueIndexes {
         return List.copyOf(result);
     }
 
-    private static boolean containsIndex(List<Index> indexes, List<String> columns, boolean unique) {
-        return indexes.stream().anyMatch(index -> index.isUnique() == unique && index.getColumns().equals(columns));
+    private static boolean containsIndex(List<Index> indexes, Index candidate) {
+        return indexes.stream().anyMatch(index -> index.isUnique() == candidate.isUnique()
+                && index.getIndexColumns().equals(candidate.getIndexColumns())
+                && java.util.Objects.equals(index.getPredicate(), candidate.getPredicate()));
     }
 }

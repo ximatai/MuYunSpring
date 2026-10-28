@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.dynamic.metadata;
 
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.model.constraint.TenantUniqueConstraintDefinition;
+import net.ximatai.muyun.spring.common.model.constraint.ConditionalIndexDefinition;
 
 import java.util.EnumSet;
 import java.util.Comparator;
@@ -21,9 +22,21 @@ public record EntityDefinition(
         List<TenantUniqueConstraintDefinition> tenantUniqueConstraints,
         List<String> sortPartitionFields,
         Map<String, FileReferenceDefinition> fileReferences,
-        Map<String, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> businessCodes
+        Map<String, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> businessCodes,
+        List<ConditionalIndexDefinition> conditionalIndexes
 ) {
     public static final String DEFAULT_SCHEMA_NAME = "public";
+
+    /** Source-compatible constructor before conditional index declarations. */
+    public EntityDefinition(String alias, String schemaName, String tableName, String name,
+                            List<FieldDefinition> fields, Set<EntityCapability> capabilities,
+                            List<EntityFormulaRuleDefinition> formulaRules,
+                            List<TenantUniqueConstraintDefinition> tenantUniqueConstraints,
+                            List<String> sortPartitionFields, Map<String, FileReferenceDefinition> fileReferences,
+                            Map<String, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> businessCodes) {
+        this(alias, schemaName, tableName, name, fields, capabilities, formulaRules, tenantUniqueConstraints,
+                sortPartitionFields, fileReferences, businessCodes, List.of());
+    }
 
     public EntityDefinition(String alias, String schemaName, String tableName, String name,
                             List<FieldDefinition> fields, Set<EntityCapability> capabilities,
@@ -91,6 +104,7 @@ public record EntityDefinition(
     }
 
     public EntityDefinition {
+        conditionalIndexes = ConditionalIndexDefinition.normalize(conditionalIndexes);
         businessCodes = businessCodes == null ? Map.of() : Map.copyOf(businessCodes);
         if (businessCodes.values().stream().filter(net.ximatai.muyun.spring.ability.code.CodeFieldDefinition::primary).count() > 1)
             throw new IllegalArgumentException("Only one PRIMARY business code field is allowed: " + alias);
@@ -115,33 +129,39 @@ public record EntityDefinition(
 
     public EntityDefinition withCapabilities(EntityCapability... values) {
         return new EntityDefinition(alias, schemaName, tableName, name, fields, Set.of(values), formulaRules,
-                tenantUniqueConstraints, sortPartitionFields, fileReferences, businessCodes);
+                tenantUniqueConstraints, sortPartitionFields, fileReferences, businessCodes, conditionalIndexes);
     }
 
     public EntityDefinition withFormulaRules(EntityFormulaRuleDefinition... values) {
         return new EntityDefinition(alias, schemaName, tableName, name, fields, capabilities,
-                values == null ? List.of() : List.of(values), tenantUniqueConstraints, sortPartitionFields, fileReferences, businessCodes);
+                values == null ? List.of() : List.of(values), tenantUniqueConstraints, sortPartitionFields, fileReferences, businessCodes, conditionalIndexes);
     }
 
     public EntityDefinition withTenantUniqueConstraints(TenantUniqueConstraintDefinition... values) {
         return new EntityDefinition(alias, schemaName, tableName, name, fields, capabilities, formulaRules,
-                values == null ? List.of() : List.of(values), sortPartitionFields, fileReferences, businessCodes);
+                values == null ? List.of() : List.of(values), sortPartitionFields, fileReferences, businessCodes, conditionalIndexes);
     }
 
     public EntityDefinition withSortPartitionFields(String... values) {
         return new EntityDefinition(alias, schemaName, tableName, name, fields, capabilities, formulaRules,
-                tenantUniqueConstraints, values == null ? List.of() : List.of(values), fileReferences, businessCodes);
+                tenantUniqueConstraints, values == null ? List.of() : List.of(values), fileReferences, businessCodes, conditionalIndexes);
     }
 
     public EntityDefinition withFileReferences(Map<String, FileReferenceDefinition> values) {
         return new EntityDefinition(alias, schemaName, tableName, name, fields, capabilities, formulaRules,
-                tenantUniqueConstraints, sortPartitionFields, values, businessCodes);
+                tenantUniqueConstraints, sortPartitionFields, values, businessCodes, conditionalIndexes);
     }
 
     public EntityDefinition withBusinessCodes(Map<String, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> values) {
         var declared = EnumSet.copyOf(capabilities); declared.remove(EntityCapability.BUSINESS_CODE);
         return new EntityDefinition(alias, schemaName, tableName, name, fields, declared, formulaRules,
-                tenantUniqueConstraints, sortPartitionFields, fileReferences, values);
+                tenantUniqueConstraints, sortPartitionFields, fileReferences, values, conditionalIndexes);
+    }
+
+    public EntityDefinition withConditionalIndexes(ConditionalIndexDefinition... values) {
+        return new EntityDefinition(alias, schemaName, tableName, name, fields, capabilities, formulaRules,
+                tenantUniqueConstraints, sortPartitionFields, fileReferences, businessCodes,
+                values == null ? List.of() : List.of(values));
     }
 
     /**
@@ -149,14 +169,22 @@ public record EntityDefinition(
      * into the tenant-scoped unique facts consumed by schema and runtime validation.
      */
     public List<TenantUniqueConstraintDefinition> resolvedTenantUniqueConstraints() {
-        Map<List<String>, TenantUniqueConstraintDefinition> constraints = new LinkedHashMap<>();
-        tenantUniqueConstraints.forEach(constraint -> constraints.put(constraint.fieldNames(), constraint));
+        Map<TenantUniqueConstraintDefinition.Identity, TenantUniqueConstraintDefinition> constraints = new LinkedHashMap<>();
+        tenantUniqueConstraints.forEach(constraint -> constraints.put(constraint.identity(), constraint));
+        conditionalIndexes.stream().filter(ConditionalIndexDefinition::unique)
+                .map(ConditionalIndexDefinition::uniqueConstraint)
+                .forEach(constraint -> {
+                    var previous = constraints.put(constraint.identity(), constraint);
+                    if (previous != null && !java.util.Objects.equals(previous.indexName(), constraint.indexName())) {
+                        throw new IllegalArgumentException("conflicting conditional unique index names: " + constraint.indexName());
+                    }
+                });
         fields.stream()
                 .filter(FieldDefinition::isPhysical)
                 .filter(FieldDefinition::isUnique)
                 .map(field -> new TenantUniqueConstraintDefinition(List.of(field.fieldName()),
                         (field.name() == null || field.name().isBlank() ? field.fieldName() : field.name()) + "不能重复，请修改后再保存。"))
-                .forEach(constraint -> constraints.putIfAbsent(constraint.fieldNames(), constraint));
+                .forEach(constraint -> constraints.putIfAbsent(constraint.identity(), constraint));
         return List.copyOf(constraints.values());
     }
 

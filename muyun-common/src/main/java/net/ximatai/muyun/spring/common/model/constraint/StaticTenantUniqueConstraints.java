@@ -13,10 +13,13 @@ public final class StaticTenantUniqueConstraints {
         if (modelClass == null) {
             return List.of();
         }
-        Map<List<String>, TenantUniqueConstraintDefinition> constraints = new LinkedHashMap<>();
+        Map<TenantUniqueConstraintDefinition.Identity, TenantUniqueConstraintDefinition> constraints = new LinkedHashMap<>();
         Arrays.stream(modelClass.getAnnotationsByType(TenantUniqueConstraint.class))
                 .map(annotation -> new TenantUniqueConstraintDefinition(List.of(annotation.fields()), annotation.message()))
-                .forEach(constraint -> constraints.put(constraint.fieldNames(), constraint));
+                .forEach(constraint -> constraints.put(constraint.identity(), constraint));
+        ConditionalIndexDefinition.from(modelClass).stream().filter(ConditionalIndexDefinition::unique)
+                .map(ConditionalIndexDefinition::uniqueConstraint)
+                .forEach(constraint -> constraints.put(constraint.identity(), constraint));
         Class<?> type = modelClass;
         while (type != null && type != Object.class) {
             for (java.lang.reflect.Field field : type.getDeclaredFields()) {
@@ -25,8 +28,8 @@ public final class StaticTenantUniqueConstraints {
                 net.ximatai.muyun.database.core.annotation.Indexed indexed =
                         field.getAnnotation(net.ximatai.muyun.database.core.annotation.Indexed.class);
                 if ((column != null && column.unique()) || (indexed != null && indexed.unique())) {
-                    constraints.putIfAbsent(List.of(field.getName()),
-                            new TenantUniqueConstraintDefinition(List.of(field.getName()), ""));
+                    var constraint = new TenantUniqueConstraintDefinition(List.of(field.getName()), "");
+                    constraints.putIfAbsent(constraint.identity(), constraint);
                 }
             }
             type = type.getSuperclass();

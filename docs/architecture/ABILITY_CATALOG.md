@@ -44,6 +44,7 @@
 | 共性业务规则 | 声明入口 | 自动获得 |
 | --- | --- | --- |
 | 租户内单字段或组合字段唯一 | `@TenantUniqueConstraint` | 标准写入校验、数据库唯一冲突翻译、保留记录冲突提示 |
+| 条件唯一与恢复扫描索引 | `@ConditionalIndex` / `EntityDefinition.withConditionalIndexes` | 静动态统一条件编译；唯一索引同时执行租户内预检与数据库约束 |
 | 机构内、部门内等业务分区排序 | `@SortPartitionBy` | 同一分区条件用于查询、移动和树父节点校验；空值也是明确分区，不会省略过滤 |
 | 记录引用及完整性 | `@ReferenceTo` / `@ReferenceIntegrity` | 标准写入和恢复校验、显式删除策略；有缓存时自动维护直接引用依赖 |
 | 关联标题或摘要字段 | `@ReferenceLoad` / `@ReferenceSummary` | 按声明解析、批量读取；不要求注入目标 Service 或另写标题拼装 |
@@ -51,6 +52,12 @@
 | 父子聚合关系 | `@Children` + 子模型外键上的 `@ChildOf`、`@ReferenceTo` | 在父子能力组合内自动发现关系、绑定归属并装配 |
 
 例如 [Department](../../muyun-iam/src/main/java/net/ximatai/muyun/spring/iam/department/Department.java) 声明机构内编码唯一、同机构排序和引用启用机构。业务 Service 保留机构范围等领域意图，不重复实现这些公共流程。员工主岗判定、账号解绑等领域不变量继续放在业务代码中。
+
+### 条件索引
+
+索引键仅支持物理标量字段；条件支持物理字段上的 `IS_NULL`、`IS_NOT_NULL`、`IS_TRUE`、`IS_FALSE`、`IN_CODES`，多项条件取交集；不接收 SQL 片段，受保护存储字段不能参与。唯一索引自动包含租户键，普通索引按声明字段建索引。条件唯一约束不能用于全局唯一引用键或导入匹配键。
+
+条件决定记录是否占用唯一值，不因软删自动释放；需要排除软删记录时显式声明 `deleted IS_FALSE`。索引名是迁移身份，条件变更、以及动态变更集中删除旧声明均属于非增量变更，strict 模式拒绝执行。删除只针对变更集明确移除的旧声明，不清理未知数据库索引；静态注解移除后的索引需通过显式数据库迁移回收。
 
 ### 字段写入约束
 

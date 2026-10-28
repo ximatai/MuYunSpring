@@ -410,7 +410,7 @@ public class PlatformModuleRuntimeContextService {
                 if (entity.alias().equals(facts.mainEntityAlias())) fields.addAll(newFields);
                 candidateEntities.add(new EntityDefinition(entity.alias(), entity.schemaName(), entity.tableName(),
                         entity.name(), fields, entity.capabilities(), entity.formulaRules(), entity.tenantUniqueConstraints(),
-                        entity.sortPartitionFields(), entity.fileReferences()));
+                        entity.sortPartitionFields(), entity.fileReferences(), entity.businessCodes(), entity.conditionalIndexes()));
             }
             for (var child : children) candidateEntities.add(new EntityDefinition(child.alias(), child.alias(), child.title(), child.fields()));
             facts = facts.toBuilder().entities(candidateEntities).build();

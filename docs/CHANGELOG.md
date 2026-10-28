@@ -4,6 +4,9 @@
 
 ## Unreleased
 
+- 静态 `@ConditionalIndex` 与动态 `conditionalIndexes` 共用类型化条件索引声明，支持空值、布尔值和代码集合条件；条件唯一索引复用租户唯一预检与数据库约束，软删不会隐式释放条件仍成立的记录。
+- 条件索引按稳定名称治理，条件变化按非增量迁移处理；依赖 MuYunDatabase `3.26.24-SNAPSHOT` 的 PostgreSQL 谓词幂等比较修复。该依赖当前通过本地 Maven 构件联调，正式发布前须切换至已发布版本。
+
 ## 0.26.26 - 2026-10-28
 
 ### Added

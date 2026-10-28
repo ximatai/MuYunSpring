@@ -390,7 +390,7 @@ public class BusinessRuleGovernanceService {
         List<EntityDefinition> entities = compiled.entities().stream().map(entity -> entity.alias().equals(compiled.mainEntityAlias())
                 ? new EntityDefinition(entity.alias(), entity.schemaName(), entity.tableName(), entity.name(), entity.fields(),
                 entity.capabilities(), candidateRules, entity.tenantUniqueConstraints(), entity.sortPartitionFields(),
-                entity.fileReferences()) : entity).toList();
+                entity.fileReferences(), entity.businessCodes(), entity.conditionalIndexes()) : entity).toList();
         moduleDefinitionValidator.validate(compiled.toBuilder().entities(entities).build());
     }
 
