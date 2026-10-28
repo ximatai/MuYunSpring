@@ -9,7 +9,6 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
-import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 
 import java.util.List;
 import java.util.Map;
@@ -77,8 +76,7 @@ final class DynamicRecordQueryRuntime {
 
     PageResult<DynamicRecord> pageForAction(String moduleAlias, String entityAlias, String actionCode,
                                             Criteria criteria, PageRequest pageRequest, Sort... sorts) {
-        DynamicActionDescriptor action = access.entityActionDescriptor(moduleAlias, entityAlias, actionCode);
-        ActionExecutionPolicy policy = access.actionPolicy(action);
+        ActionExecutionPolicy policy = access.entityActionPolicy(moduleAlias, entityAlias, actionCode);
         access.authorize(moduleAlias, policy, java.util.Set.of());
         return withScope(moduleAlias, policy, criteria,
                 scoped -> access.entityService(moduleAlias, entityAlias).pageQuery(scoped, pageRequest, sorts));
@@ -96,8 +94,7 @@ final class DynamicRecordQueryRuntime {
     List<DynamicRecord> childrenForAction(String moduleAlias, String entityAlias, String actionCode,
                                           Criteria criteria, String parentId) {
         access.requireCapability(moduleAlias, entityAlias, EntityCapability.TREE);
-        DynamicActionDescriptor action = access.entityActionDescriptor(moduleAlias, entityAlias, actionCode);
-        ActionExecutionPolicy policy = access.actionPolicy(action);
+        ActionExecutionPolicy policy = access.entityActionPolicy(moduleAlias, entityAlias, actionCode);
         access.authorize(moduleAlias, policy, java.util.Set.of());
         return withScope(moduleAlias, policy, criteria,
                 scoped -> access.entityService(moduleAlias, entityAlias).children(scoped, parentId));
@@ -109,8 +106,7 @@ final class DynamicRecordQueryRuntime {
     }
 
     long countForAction(String moduleAlias, String entityAlias, String actionCode, Criteria criteria) {
-        DynamicActionDescriptor action = access.entityActionDescriptor(moduleAlias, entityAlias, actionCode);
-        ActionExecutionPolicy policy = access.actionPolicy(action);
+        ActionExecutionPolicy policy = access.entityActionPolicy(moduleAlias, entityAlias, actionCode);
         access.authorize(moduleAlias, policy, java.util.Set.of());
         return withScope(moduleAlias, policy, criteria,
                 scoped -> access.entityService(moduleAlias, entityAlias).count(scoped));

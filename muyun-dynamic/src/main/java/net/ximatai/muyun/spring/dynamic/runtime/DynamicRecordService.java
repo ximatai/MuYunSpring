@@ -305,7 +305,7 @@ public class DynamicRecordService {
     }
 
     ActionExecutionPolicy actionPolicy(String moduleAlias, String entityAlias, String actionCode) {
-        return access.actionPolicy(access.entityActionDescriptor(moduleAlias, entityAlias, actionCode));
+        return access.entityActionPolicy(moduleAlias, entityAlias, actionCode);
     }
 
     public DynamicActionDescriptor action(String moduleAlias, String entityAlias, String actionCode) {
