@@ -197,7 +197,8 @@ it('cancels the response body when an assistant stream is malformed', async () =
   expect(cancel).toHaveBeenCalledOnce();
 });
 
-it('preserves platform error semantics from the stream terminal event', async () => {
+it('rejects and cancels immediately on a platform error without waiting for EOF', async () => {
+  const cancel = vi.fn();
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -206,8 +207,8 @@ it('preserves platform error semantics from the stream terminal event', async ()
           'event: error\ndata: {"code":"CONFIG_MISSING","status":409,"message":"未配置模型","traceId":"trace-1"}\n\n',
         ),
       );
-      controller.close();
     },
+    cancel,
   });
   const requester = createAssistantTurnRequester({
     request: vi.fn(),
@@ -220,6 +221,8 @@ it('preserves platform error semantics from the stream terminal event', async ()
       new AbortController().signal,
     ),
   ).rejects.toMatchObject({ code: 'CONFIG_MISSING', status: 409, message: '未配置模型', traceId: 'trace-1' });
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(body.locked).toBe(false);
 });
 
 it('preserves unknown or partial usage instead of estimating missing tokens', async () => {
@@ -255,3 +258,34 @@ it('reads current-identity availability without sending client identity or accep
   expect(await readAssistantAvailability(client, signal)).toBe(false);
   expect(request).toHaveBeenCalledWith({ method: 'GET', path: '/platform.assistant/availability', signal });
 });
+
+it.each([new DOMException('request aborted', 'AbortError'), new TypeError('connection interrupted')])(
+  'releases the stream reader when reading fails after partial text: %s',
+  async (failure) => {
+    const deltas: string[] = [];
+    let reads = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (reads++ === 0) {
+          controller.enqueue(new TextEncoder().encode('event: text\ndata: {"text":"partial"}\n\n'));
+        } else {
+          controller.error(failure);
+        }
+      },
+    });
+    const requester = createAssistantTurnRequester({
+      request: vi.fn(),
+      stream: vi.fn(async () => body),
+    } as StreamingHttpClient);
+
+    await expect(
+      requester(
+        { message: 'describe', context: { surface: 'workbench', facts: {} }, capabilities: [] },
+        new AbortController().signal,
+        { onTextDelta: (text) => deltas.push(text) },
+      ),
+    ).rejects.toBe(failure);
+    expect(deltas).toEqual(['partial']);
+    expect(body.locked).toBe(false);
+  },
+);

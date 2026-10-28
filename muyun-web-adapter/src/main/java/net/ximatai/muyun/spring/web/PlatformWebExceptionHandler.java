@@ -19,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.http.converter.HttpMessageConversionException;
@@ -247,8 +248,10 @@ public class PlatformWebExceptionHandler {
 
     private ResponseEntity<PlatformWebError> recorded(ResponseEntity<PlatformWebError> response, Throwable exception) {
         requestErrorLogRecorder.recordException(response.getBody(), exception);
+        // Failures before an SSE response starts still use the standard JSON envelope.
+        // A stream-only Accept header must not turn a business rejection into an error dispatch.
         return ResponseEntity.status(response.getStatusCode()).headers(response.getHeaders())
-                .body(presentationError(response.getBody()));
+                .contentType(MediaType.APPLICATION_JSON).body(presentationError(response.getBody()));
     }
 
 }

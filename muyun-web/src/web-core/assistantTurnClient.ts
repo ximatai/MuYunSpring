@@ -69,7 +69,6 @@ async function consumeAssistantTurnStream(
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let output: AssistantTurnOutput | undefined;
-  let streamError: AppError | undefined;
   const parser = createSseParser(({ event, data }) => {
     const value = parseEventData(data);
     if (event === 'text') {
@@ -79,7 +78,7 @@ async function consumeAssistantTurnStream(
     } else if (event === 'complete') {
       output = parseTurnOutput(value);
     } else if (event === 'error') {
-      streamError = parseStreamError(value);
+      throw parseStreamError(value);
     }
   });
   try {
@@ -96,7 +95,6 @@ async function consumeAssistantTurnStream(
   } finally {
     reader.releaseLock();
   }
-  if (streamError) throw streamError;
   if (!output) throw invalidResponse();
   return output;
 }

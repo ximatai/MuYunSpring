@@ -43,6 +43,22 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 
 class PlatformWebExceptionHandlerTest {
     @Test
+    void streamRejectionsPreserveTheOriginalStatusAndJsonEnvelope() throws Exception {
+        var mvc = mvc(new DemoController());
+        for (var accept : new String[]{"text/event-stream", "text/event-stream, application/json"}) {
+            for (var code : new int[]{400, 401, 403, 409, 500}) {
+                mvc.perform(get("/demo/stream-rejection").param("status", String.valueOf(code)).header("Accept", accept))
+                        .andExpect(status().is(code))
+                        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                                .contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                        .andExpect(jsonPath("$.code").value("stream_rejected"))
+                        .andExpect(jsonPath("$.status").value(code))
+                        .andExpect(jsonPath("$.message").value("stream cannot start"));
+            }
+        }
+    }
+
+    @Test
     void declarationFailuresUseTheExistingWebErrorBoundary() {
         var loader = getClass().getClassLoader();
         var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(loader, "zh-CN");
@@ -415,6 +431,11 @@ class PlatformWebExceptionHandlerTest {
 
     @RestController
     private static class DemoController {
+        @GetMapping(value = "/demo/stream-rejection", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter streamRejection(@RequestParam("status") int status) {
+            throw new net.ximatai.muyun.spring.common.exception.PlatformException("stream_rejected", status, "stream cannot start");
+        }
+
         @GetMapping("/demo/validation")
         String validation() {
             throw PlatformErrors.validation("DYNAMIC_FIELD_REQUIRED", "客户名称不能为空",
