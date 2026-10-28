@@ -113,10 +113,10 @@ export function createHttpClient(context: RequestContext = {}): StreamingHttpCli
       return (options.responseType === 'blob' ? await response.blob() : await responseBody(response)) as T;
     },
     async stream(options: HttpRequestOptions): Promise<ReadableStream<Uint8Array>> {
-      // SSE is the default stream representation. A caller may select another
-      // media type for a read-only byte stream such as a file download.
+      // Streams accept SSE data and the standard JSON error envelope before streaming starts.
+      // Callers may select another media type, for example for a file download.
       const response = await send(context, options, {
-        Accept: headerValue(options.headers, 'accept') ?? 'text/event-stream',
+        Accept: headerValue(options.headers, 'accept') ?? 'text/event-stream, application/json',
       });
 
       if (!response.ok) {

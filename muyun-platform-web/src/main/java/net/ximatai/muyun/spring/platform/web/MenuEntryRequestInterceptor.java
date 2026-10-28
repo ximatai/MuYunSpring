@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -20,6 +21,12 @@ public class MenuEntryRequestInterceptor implements AsyncHandlerInterceptor {
     public boolean preHandle(@NonNull HttpServletRequest request,
                              @NonNull HttpServletResponse response,
                              @NonNull Object handler) {
+        // Container error rendering is not a new module-page request. The original
+        // identity scope may already be closed; do not replace its failure with a login error.
+        if (request.getDispatcherType() == DispatcherType.ERROR) {
+            MenuEntryRequestContext.clear(request);
+            return true;
+        }
         String menuId = request.getHeader(MenuEntryRequestContext.HEADER_NAME);
         if (menuId == null || menuId.isBlank()) {
             return true;

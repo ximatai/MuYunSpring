@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import jakarta.servlet.DispatcherType;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.platform.menu.Menu;
 import net.ximatai.muyun.spring.platform.menu.MenuService;
@@ -13,6 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class MenuEntryRequestInterceptorTest {
     @Test
@@ -54,6 +56,38 @@ class MenuEntryRequestInterceptorTest {
         assertThatThrownBy(() -> interceptor.preHandle(request("menu.hidden"), new MockHttpServletResponse(), new Object()))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("not visible");
+    }
+
+    @Test
+    void errorRenderingDoesNotAuthorizeTheMenuAgainOrRetainItsEntryContext() {
+        MenuService menus = mock(MenuService.class);
+        var interceptor = new MenuEntryRequestInterceptor(menus);
+        var request = request("menu.original");
+        request.setDispatcherType(DispatcherType.ERROR);
+        request.setRequestURI("/error");
+        var original = new Menu(); original.setId("menu.original"); original.setModuleAlias("iam.user");
+        MenuEntryRequestContext.bind(request, original);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        try {
+            assertThat(interceptor.preHandle(request, new MockHttpServletResponse(), new Object())).isTrue();
+            assertThat(MenuEntryRequestContext.current()).isEmpty();
+            verifyNoInteractions(menus);
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
+    @Test
+    void requestsForwardsAndAsyncResumesStillRequireVisibleMenuEvenOnErrorPath() {
+        var menus = mock(MenuService.class);
+        var interceptor = new MenuEntryRequestInterceptor(menus);
+        for (var dispatch : new DispatcherType[]{DispatcherType.REQUEST, DispatcherType.FORWARD, DispatcherType.ASYNC}) {
+            var request = request("menu.hidden");
+            request.setRequestURI("/error");
+            request.setDispatcherType(dispatch);
+            assertThatThrownBy(() -> interceptor.preHandle(request, new MockHttpServletResponse(), new Object()))
+                    .isInstanceOf(PlatformException.class).hasMessageContaining("not visible");
+        }
     }
 
     private MockHttpServletRequest request(String menuId) {

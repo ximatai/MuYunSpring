@@ -1,5 +1,5 @@
 import type { IMessage } from '@stomp/stompjs';
-import { assert, expect, it } from 'vitest';
+import { assert, expect, it, vi } from 'vitest';
 import { computed, nextTick } from 'vue';
 import {
   AppError,
@@ -455,7 +455,8 @@ it('http client requests event-stream media type for authenticated streams', asy
     const stream = await http.stream({ path: '/mr.device/device-1/agent-chat/start/stream', method: 'POST' });
 
     assert.ok(stream);
-    assert.equal(requests[0].headers.get('Accept'), 'text/event-stream');
+    assert.equal(await new Response(stream).text(), 'event: complete\n\ndata: {}\n\n');
+    assert.equal(requests[0].headers.get('Accept'), 'text/event-stream, application/json');
     assert.equal(requests[0].headers.get('Authorization'), 'Bearer test-token');
   } finally {
     globalThis.fetch = originalFetch;
@@ -471,11 +472,12 @@ it('http client permits a stream caller to select a binary response media type',
   };
 
   try {
-    await createHttpClient().stream({
+    const stream = await createHttpClient().stream({
       path: '/platform.runtime_log/files/app.log/download',
       headers: { Accept: 'application/octet-stream' },
     });
 
+    assert.equal(await new Response(stream).text(), 'log');
     assert.equal(requests[0].headers.get('Accept'), 'application/octet-stream');
   } finally {
     globalThis.fetch = originalFetch;
@@ -510,7 +512,7 @@ it('header-scoped streaming client preserves stream capability and controlled pa
     });
 
     assert.ok(stream);
-    assert.equal(requests[0].headers.get('Accept'), 'text/event-stream');
+    assert.equal(requests[0].headers.get('Accept'), 'text/event-stream, application/json');
     assert.equal(requests[0].headers.get('X-MuYun-Menu-Id'), 'menu.device');
     assert.equal(requests[0].headers.get('X-MuYun-Page-Context'), '{"device":"device-1"}');
 
@@ -2037,4 +2039,47 @@ it('does not classify realtime failures by localized or misleading message words
   await Promise.resolve();
   assert.equal(realtime.state(), 'failed');
   await realtime.disconnect();
+});
+
+it('stream business errors keep their status and do not trigger login recovery', async () => {
+  const recover = vi.fn();
+  const fetcher = vi.fn();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = fetcher;
+  try {
+    const client = createHttpClient({ token: 'current-session', onAuthenticationRequired: recover });
+    for (const status of [400, 403, 409, 500, 502]) {
+      fetcher.mockResolvedValueOnce(
+        Response.json({ code: 'CHAT_UNAVAILABLE', message: 'unavailable' }, { status }),
+      );
+      await expect(client.stream({ path: '/turn/stream' })).rejects.toMatchObject({
+        status,
+        code: 'CHAT_UNAVAILABLE',
+      });
+      expect(recover).not.toHaveBeenCalled();
+    }
+    expect(fetcher.mock.calls[0]?.[1].headers.Accept).toBe('text/event-stream, application/json');
+    fetcher.mockResolvedValueOnce(
+      Response.json({ code: 'AUTH_REQUIRED', message: 'expired' }, { status: 401 }),
+    );
+    await expect(client.stream({ path: '/turn/stream' })).rejects.toMatchObject({ status: 401 });
+    expect(recover).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ status: 401 }),
+      'current-session',
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+it('stream clients retain explicit Accept overrides', async () => {
+  const fetcher = vi.fn().mockResolvedValue(new Response('data: done\n\n'));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = fetcher;
+  try {
+    await createHttpClient().stream({ path: '/stream', headers: { accept: 'text/event-stream' } });
+    expect(fetcher.mock.calls[0]?.[1].headers.Accept).toBe('text/event-stream');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
