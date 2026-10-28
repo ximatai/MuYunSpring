@@ -1266,7 +1266,7 @@ async function archiveMessage(item: ConversationItem, language: LanguageContext)
     role: item.role,
     ...(item.confirmation?.receiptReference &&
     item.confirmationScope &&
-    ['executing', 'checking', 'unknown'].includes(item.confirmationState ?? '')
+    ['executing', 'checking', 'unknown', 'processing'].includes(item.confirmationState ?? '')
       ? {
           operationReceipt: {
             reference: item.confirmation.receiptReference,
@@ -1313,6 +1313,8 @@ async function archiveMessage(item: ConversationItem, language: LanguageContext)
                   'platform.screen.useAssistantConversation.result-needs-verification',
                   '结果需核实',
                 ),
+                processing: language.t('platform.operation.processing', '已受理，处理中'),
+                failed: language.t('platform.operation.failed', '已确认失败'),
                 succeeded: language.t('platform.workflow.completed', '已完成'),
                 rejected: language.t('platform.workflow.unsubmitted', '未提交'),
                 expired: language.t('platform.screen.useAssistantConversation.expired', '已失效'),

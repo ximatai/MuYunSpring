@@ -3763,7 +3763,9 @@
       "platform.cron.weekday-THU": "周四",
       "platform.cron.weekday-FRI": "周五",
       "platform.cron.weekday-SAT": "周六",
-      "platform.cron.weekday-SUN": "周日"
+      "platform.cron.weekday-SUN": "周日",
+      "platform.operation.processing": "已受理，处理中",
+      "platform.operation.failed": "已确认失败"
     }
   },
   "en": {
@@ -7531,7 +7533,9 @@
       "platform.cron.weekday-THU": "Thursday",
       "platform.cron.weekday-FRI": "Friday",
       "platform.cron.weekday-SAT": "Saturday",
-      "platform.cron.weekday-SUN": "Sunday"
+      "platform.cron.weekday-SUN": "Sunday",
+      "platform.operation.processing": "Accepted, processing",
+      "platform.operation.failed": "Confirmed failed"
     }
   },
   "fr": {
@@ -7640,7 +7644,9 @@
       "platform.screen.WorkflowRecordPanel.business-records": "Enregistrements métier",
       "platform.form.required-marker": "Obligatoire",
       "platform.read-view.refresh": "Actualiser",
-      "platform.read-view.empty": "Aucun enregistrement correspondant"
+      "platform.read-view.empty": "Aucun enregistrement correspondant",
+      "platform.operation.processing": "Acceptée, en cours",
+      "platform.operation.failed": "Échec confirmé"
     }
   }
 }

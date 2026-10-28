@@ -327,8 +327,13 @@ function close() {
                 )
               }}</UiButton>
             </template>
-            <template v-else-if="item.confirmationState === 'unknown'">
-              <span>{{
+            <template
+              v-else-if="item.confirmationState === 'unknown' || item.confirmationState === 'processing'"
+            >
+              <span v-if="item.confirmationState === 'processing'">{{
+                item.confirmation.result?.title
+              }}</span>
+              <span v-else>{{
                 language.t(
                   'platform.screen.WorkbenchAssistantPanel.the-result-is-not-yet-known-check-it-first-the',
                   '操作结果尚不确定，请先查询结果；不会自动重复提交。',
@@ -347,6 +352,7 @@ function close() {
                 )
               }}</span
             >
+            <span v-else-if="item.confirmationState === 'failed'">{{ item.confirmation.result?.title }}</span>
             <span v-else-if="item.confirmationState === 'succeeded'">{{
               language.t('platform.workflow.completed', '已完成')
             }}</span>

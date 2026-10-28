@@ -1,16 +1,18 @@
 import { platformLanguageContext, type LanguageContext } from './language';
-import type { OperationReceiptReference, OperationPresentation } from '@muyun/web-contracts';
+import type { OperationReceiptReference, OperationResult, OperationPresentation } from '@muyun/web-contracts';
 import {
   createOperationConfirmation,
+  restoreOperationConfirmation,
   type OperationProposal,
   type OperationConfirmation,
-  type OperationConfirmationState,
 } from './operationConfirmation';
 export { OperationRejectedError as AssistantOperationRejectedError } from './operationConfirmation';
 export type { OperationConfirmationState as AssistantConfirmationState } from './operationConfirmation';
 
 /** Assistant-only explanation and continuation decorate a platform command. */
-export interface AssistantOperationProposal extends OperationProposal {
+export interface AssistantOperationProposal<
+  TResult extends OperationResult = OperationPresentation,
+> extends OperationProposal<TResult> {
   modelSummary?: string;
   continuation?: { message: string; readOnly?: boolean; isCurrent(): boolean };
 }
@@ -22,12 +24,19 @@ export interface AssistantOperationConfirmation extends OperationConfirmation {
   takeContinuation(): string | undefined;
 }
 export function createAssistantOperationConfirmation(
-  proposal: AssistantOperationProposal,
+  proposal: AssistantOperationProposal<OperationResult>,
   scopeIsCurrent: () => boolean,
   now: () => number = Date.now,
   language: LanguageContext = platformLanguageContext,
+  receiptScopeIsCurrent: () => boolean = scopeIsCurrent,
 ): AssistantOperationConfirmation {
-  const confirmation = createOperationConfirmation(proposal, scopeIsCurrent, now, language);
+  const confirmation = createOperationConfirmation(
+    proposal,
+    scopeIsCurrent,
+    now,
+    language,
+    receiptScopeIsCurrent,
+  );
   const modelSummary = proposal.modelSummary;
   const continuation = proposal.continuation && { ...proposal.continuation };
   const continuationIsCurrent = () =>
@@ -72,13 +81,15 @@ export function createAssistantOperationConfirmation(
 /** Recovered results have no execute path, expiry renewal, or automatic continuation. */
 export function restoreAssistantOperationReceipt(
   reference: OperationReceiptReference,
-  lookup: () => Promise<OperationPresentation | undefined>,
+  lookup: () => Promise<OperationResult | undefined>,
   scopeIsCurrent: () => boolean,
   language: LanguageContext = platformLanguageContext,
 ): AssistantOperationConfirmation {
-  let state: OperationConfirmationState = 'unknown';
-  let result: OperationPresentation | undefined;
-  let pending: Promise<void> | undefined;
+  const confirmation = restoreOperationConfirmation(
+    { presentation: { title: '', lines: [] }, lookup },
+    scopeIsCurrent,
+    language,
+  );
   return {
     receiptReference: structuredClone(reference),
     get modelSummary() {
@@ -103,34 +114,14 @@ export function restoreAssistantOperationReceipt(
       };
     },
     get state() {
-      return state;
+      return confirmation.state;
     },
     get result() {
-      return result;
+      return confirmation.result;
     },
     confirm: async () => {},
     cancel() {},
     takeContinuation: () => undefined,
-    check() {
-      if (pending) return pending;
-      if (state !== 'unknown' || !scopeIsCurrent()) return Promise.resolve();
-      state = 'checking';
-      pending = Promise.resolve().then(async () => {
-        try {
-          if (!scopeIsCurrent()) return;
-          const found = await lookup();
-          if (scopeIsCurrent() && found) {
-            result = found;
-            state = 'succeeded';
-          }
-        } catch {
-          /* Missing access or a failed query does not prove a failed write. */
-        } finally {
-          if (state === 'checking') state = 'unknown';
-          pending = undefined;
-        }
-      });
-      return pending;
-    },
+    check: confirmation.check,
   };
 }
