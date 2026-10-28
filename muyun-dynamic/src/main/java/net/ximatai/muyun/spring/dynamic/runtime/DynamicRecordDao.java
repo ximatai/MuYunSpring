@@ -196,7 +196,11 @@ public class DynamicRecordDao implements BaseDao<DynamicRecord, String> {
         }
     }
 
-    private void validateQueryable(Criteria criteria) {
+    /**
+     * Shared query adapters must retain the dynamic field query restrictions.
+     * @hidden
+     */
+    public void validateQueryable(Criteria criteria) {
         if (criteria == null || criteria.isEmpty()) {
             return;
         }
@@ -219,7 +223,11 @@ public class DynamicRecordDao implements BaseDao<DynamicRecord, String> {
         }
     }
 
-    private TableMeta tableMeta() {
+    /**
+     * Physical query metadata shared with platform association queries.
+     * @hidden
+     */
+    public TableMeta tableMeta() {
         TableMeta.Builder builder = TableMeta.builder(schema, entity.tableName())
                 .id(StandardEntitySchema.ID_FIELD, StandardEntitySchema.ID_COLUMN, ColumnType.VARCHAR, String.class)
                 .field(StandardEntitySchema.TENANT_ID_FIELD, StandardEntitySchema.TENANT_ID_COLUMN, ColumnType.VARCHAR, String.class)

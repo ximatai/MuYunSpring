@@ -304,6 +304,10 @@ public class DynamicRecordService {
         return entityDescriptor(moduleAlias, entityAlias).actions();
     }
 
+    ActionExecutionPolicy actionPolicy(String moduleAlias, String entityAlias, String actionCode) {
+        return access.entityActionPolicy(moduleAlias, entityAlias, actionCode);
+    }
+
     public DynamicActionDescriptor action(String moduleAlias, String entityAlias, String actionCode) {
         return access.entityActionDescriptor(moduleAlias, entityAlias, actionCode);
     }
@@ -778,6 +782,11 @@ public class DynamicRecordService {
 
     public long count(String moduleAlias, String entityAlias, Criteria criteria) {
         return queryRuntime.count(moduleAlias, entityAlias, criteria);
+    }
+
+    /** Counts using the declared action's policy, matching {@link #pageForAction}. */
+    public long countForAction(String moduleAlias, String entityAlias, String actionCode, Criteria criteria) {
+        return queryRuntime.countForAction(moduleAlias, entityAlias, actionCode, criteria);
     }
 
     /** Aggregate through the same QUERY authorization, tenant and data-range scope as list reads. */

@@ -613,7 +613,8 @@ public class RoleDataScopeCriteriaService implements DataScopeCriteriaService {
     }
 
     private Criteria denied() {
-        return Criteria.of().raw(SqlRawCondition.of("1 = 0", Map.of()));
+        // Keep denial in the typed query language; protected dynamic entities reject RAW SQL.
+        return Criteria.of().in(StandardEntitySchema.ID_FIELD, List.of());
     }
 
     private Criteria combine(Criteria base, Criteria scope) {

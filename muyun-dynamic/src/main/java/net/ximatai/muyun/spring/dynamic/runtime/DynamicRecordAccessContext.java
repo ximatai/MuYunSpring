@@ -100,6 +100,10 @@ final class DynamicRecordAccessContext {
         return findAction(moduleAlias, entityDescriptor(moduleAlias, entityAlias), actionCode);
     }
 
+    ActionExecutionPolicy entityActionPolicy(String moduleAlias, String entityAlias, String actionCode) {
+        return actionPolicy(entityActionDescriptor(moduleAlias, entityAlias, actionCode));
+    }
+
     DataScopeCriteriaResult actionCriteriaScope(String moduleAlias,
                                                 String entityAlias,
                                                 ActionExecutionPolicy policy,

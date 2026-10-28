@@ -123,15 +123,31 @@ Node 测试、Vue effect scope 释放与身份隔离的接法见[前端消费者
 继续走标准动作鉴权与 `pageQueryForAction`；确认字段候选、动作语义和多角色范围合并符合需求后再替换适配。
 业务不可放宽的强制关联约束不能直接改写为可被其他角色授权取并集的数据范围策略。
 
-普通静态实体、任意关联方向、强制范围组合和独立只读投影尚未形成完整授权关联分页门面。
-后续应优先补齐既有引用依赖解析与共享查询／能力层，让静态与动态实体均可接入，
-在数据库内完成过滤、分页与计数；不要求业务处理 SQL 方言和字段值转换，也不新建平行授权 SQL 编译器。
-源动作权限、源数据范围、目标访问边界、双方租户／软删与关联字段校验均需显式保留，
-跨租户授权不能被隐式复制到另一个实体。可采用半连接或关联子查询，具体 API 暂不固化。
+强制关联读使用 `AuthorizedAssociationQuery`。静态 Service 与动态实体操作入口均可作为参与方，
+每次执行分别校验各方动作与数据范围，静态字段映射取自对应 Service；关联约束始终取交集，
+跨租户授权只作用于取得该授权的参与方，外层临时 bypass 不替代授权。
 
-最小样例需给出两实体关系、源动作及字段映射、目标列表自身授权语义和期望结果。
-验收覆盖拒绝源动作、空授权、同租户与跨租户、软删、重复关联、参数化查询以及 records／count 一致性。
-不采用“先加载全部源 ID”，也不推荐直接拼接授权 SQL；既有应用适配需单独保持安全验证。
+```java
+var visibleFiles = queries.from(fileService, PlatformAction.VIEW);
+var page = queries.from(publicationService, PlatformAction.QUERY)
+        .where(Criteria.of().eq("status", status))
+        .whereRelated("fileId", visibleFiles)
+        .page(PageRequest.of(pageNumber, 20), Sort.desc("updatedAt"), Sort.asc("id"));
+```
+
+`requiring(policy)` 增加必须同时满足的动作范围；`whereRelated(localField, relatedQuery, relatedField, records)`
+支持反向关联、嵌套关联和显式 `INCLUDING_DELETED` 的关联来源。历史读取只跳过该来源的 active 条件，
+仍执行其 `tenantCriteria`、动作与数据范围；应由领域决定哪些历史事实可参与查询。
+动态参与方（含 `requiring`）每次执行按动作码解析当前元数据策略，配置刷新后不沿用旧默认授权；静态参与方保留显式策略。
+根分页与计数按 `from` 声明的动作执行，并保留目标 Service 的读取与输出链路；动态入口也不额外叠加 QUERY 范围。
+条件在数据库内编译成参数化半连接，分页与计数使用同一组约束，
+无需加载完整 ID 集合；重复关联不会扩增目标记录。
+
+参与方必须使用同一宿主数据库。查询要求登录身份，非全局实体在没有跨租户授权时要求当前租户；
+不支持跨数据库关联，也不把该门面当作授权结果缓存。现有角色配置的引用依赖策略保持原有边界。
+真实 PostgreSQL 契约覆盖静静、静动、动静、动动关联、独立跨租户授权、历史来源、空范围、
+拒绝动作、自定义字段映射、身份变化、元数据刷新、受保护字段下的空范围、不同动作范围、
+反向重复关联与 records／count 一致性。
 
 ## 事务与缓存可见性
 
