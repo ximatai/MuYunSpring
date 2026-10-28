@@ -138,13 +138,15 @@ var page = queries.from(publicationService, PlatformAction.QUERY)
 `requiring(policy)` 增加必须同时满足的动作范围；`whereRelated(localField, relatedQuery, relatedField, records)`
 支持反向关联、嵌套关联和显式 `INCLUDING_DELETED` 的关联来源。历史读取只跳过该来源的 active 条件，
 仍执行其 `tenantCriteria`、动作与数据范围；应由领域决定哪些历史事实可参与查询。
-普通分页保留目标 Service 的读取与输出链路。条件在数据库内编译成参数化半连接，分页与计数使用同一组约束，
+根分页与计数按 `from` 声明的动作执行，并保留目标 Service 的读取与输出链路；动态入口也不额外叠加 QUERY 范围。
+条件在数据库内编译成参数化半连接，分页与计数使用同一组约束，
 无需加载完整 ID 集合；重复关联不会扩增目标记录。
 
 参与方必须使用同一宿主数据库。查询要求登录身份，非全局实体在没有跨租户授权时要求当前租户；
 不支持跨数据库关联，也不把该门面当作授权结果缓存。现有角色配置的引用依赖策略保持原有边界。
 真实 PostgreSQL 契约覆盖静静、静动、动静、动动关联、独立跨租户授权、历史来源、空范围、
-拒绝动作、自定义字段映射、身份变化、反向重复关联与 records／count 一致性。
+拒绝动作、自定义字段映射、身份变化、元数据刷新、受保护字段下的空范围、不同动作范围、
+反向重复关联与 records／count 一致性。
 
 ## 事务与缓存可见性
 

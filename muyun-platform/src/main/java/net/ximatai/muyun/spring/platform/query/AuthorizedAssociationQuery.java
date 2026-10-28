@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.platform.*;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordDao;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicEntityOperations;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -101,15 +102,20 @@ public class AuthorizedAssociationQuery {
             return new Query<>(service, requiredActions, conditions, relations);
         }
 
+        @SuppressWarnings("unchecked") // The dynamic operations service's entity type is DynamicRecord.
         public PageResult<T> page(PageRequest page, Sort... sorts) {
             Objects.requireNonNull(page);
             Resolved resolved = resolve(this, RelatedRecords.ACTIVE, 0);
-            return inScope(service, resolved.crossTenant(), () -> service.pageQuery(resolved.criteria(), page, sorts));
+            return inScope(service, resolved.crossTenant(), () -> service instanceof DynamicEntityOperations dynamic
+                    ? (PageResult<T>) dynamic.pageForAction(requiredActions.getFirst().actionCode(), resolved.criteria(), page, sorts)
+                    : service.pageQuery(resolved.criteria(), page, sorts));
         }
 
         public long count() {
             Resolved resolved = resolve(this, RelatedRecords.ACTIVE, 0);
-            return inScope(service, resolved.crossTenant(), () -> service.count(resolved.criteria()));
+            return inScope(service, resolved.crossTenant(), () -> service instanceof DynamicEntityOperations dynamic
+                    ? dynamic.countForAction(requiredActions.getFirst().actionCode(), resolved.criteria())
+                    : service.count(resolved.criteria()));
         }
 
         private AuthorizedAssociationQuery owner() { return AuthorizedAssociationQuery.this; }
@@ -137,6 +143,8 @@ public class AuthorizedAssociationQuery {
         for (var association : query.associations) {
             Resolved related = resolve(association.related(), association.records(), depth + 1);
             var table = table(association.related().service);
+            // A reusable plan may outlive a dynamic metadata refresh.
+            validate(association.related().service, Criteria.of().isNotNull(association.relatedField()));
             validate(association.related().service, related.criteria());
             var dialect = database.getDBInfo().getDatabaseType();
             var compiled = compiler.compile(related.criteria(), table, dialect);

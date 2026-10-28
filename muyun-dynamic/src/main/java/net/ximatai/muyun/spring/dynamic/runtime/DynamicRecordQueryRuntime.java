@@ -108,6 +108,14 @@ final class DynamicRecordQueryRuntime {
                 scoped -> access.entityService(moduleAlias, entityAlias).count(scoped));
     }
 
+    long countForAction(String moduleAlias, String entityAlias, String actionCode, Criteria criteria) {
+        DynamicActionDescriptor action = access.entityActionDescriptor(moduleAlias, entityAlias, actionCode);
+        ActionExecutionPolicy policy = access.actionPolicy(action);
+        access.authorize(moduleAlias, policy, java.util.Set.of());
+        return withScope(moduleAlias, policy, criteria,
+                scoped -> access.entityService(moduleAlias, entityAlias).count(scoped));
+    }
+
     List<Map<String, Object>> aggregate(String moduleAlias, String entityAlias, Criteria criteria,
                                         AggregateQuery query) {
         return withScope(moduleAlias, PlatformAction.QUERY.executionPolicy(), criteria,

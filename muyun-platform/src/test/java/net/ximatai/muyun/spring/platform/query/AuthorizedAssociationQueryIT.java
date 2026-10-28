@@ -14,11 +14,13 @@ import net.ximatai.muyun.spring.common.identity.*;
 import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
 import net.ximatai.muyun.spring.common.platform.*;
 import net.ximatai.muyun.spring.common.schema.*;
+import net.ximatai.muyun.spring.common.security.*;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.dynamic.metadata.*;
 import net.ximatai.muyun.spring.dynamic.runtime.*;
 import net.ximatai.muyun.spring.dynamic.schema.DynamicSchemaService;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
+import net.ximatai.muyun.spring.iam.role.*;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -48,6 +50,7 @@ class AuthorizedAssociationQueryIT extends PlatformPostgresIntegrationTest {
     private DataScopeCriteriaService scopes;
     private final Set<String> crossTenant = new HashSet<>();
     private final Set<String> denied = new HashSet<>();
+    private final Set<String> emptyActions = new HashSet<>();
 
     @DynamicPropertySource static void properties(DynamicPropertyRegistry registry) {
         registry.add("muyun.database.repository-schema-mode", () -> "ENSURE");
@@ -76,6 +79,7 @@ class AuthorizedAssociationQueryIT extends PlatformPostgresIntegrationTest {
             Criteria condition = Criteria.copyOf(call.getArgument(2));
             if (action.actionCode().equals("view")) condition.eq(mapping.ownerUserField(), CurrentUserContext.currentUser().orElseThrow().userId());
             if (action.actionCode().equals("export")) condition.eq("title", "missing");
+            if (emptyActions.contains(action.actionCode())) condition.eq("id", "missing");
             return new DataScopeCriteriaResult(condition, true, crossTenant.contains(moduleAlias));
         });
         when(scopes.resolveReadScope(anyString(), any(ActionExecutionPolicy.class), any(), any())).thenAnswer(call ->
@@ -156,6 +160,51 @@ class AuthorizedAssociationQueryIT extends PlatformPostgresIntegrationTest {
             assertPage(query, 2);
             assertThat(query.page(PageRequest.of(1, 20)).getRecords())
                     .extracting(row -> row.getId()).containsExactlyInAnyOrder("link-a-a-open0", "link-a-a-open1");
+        }
+    }
+
+    @Test void rechecksRelatedProjectionAfterDynamicMetadataRefresh() {
+        var query = queries.from(service(false), PlatformAction.QUERY).whereRelated("id",
+                queries.from(service(true), PlatformAction.QUERY), "targetId", AuthorizedAssociationQuery.RelatedRecords.ACTIVE);
+        var entity = new EntityDefinition("row", "association_dynamic", "Rows", List.of(
+                FieldDefinition.string("title", "Title"), FieldDefinition.string("targetId", "Target").column("target_id")
+                        .protection(new FieldProtectionDefinition(FieldEncryptionMode.ENCRYPTED,
+                                FieldSignatureMode.NONE, FieldMaskingPolicy.NONE))))
+                .withCapabilities(EntityCapability.DATA_SCOPE);
+        runtime.refresh(new ModuleDefinition("sample.dynamic", "Rows", List.of(entity)));
+        try (var tenant = TenantContext.use("a"); var user = CurrentUserContext.use(CurrentUser.tenantUser("reader", "Reader", "a"))) {
+            assertThatThrownBy(query::count).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("protected");
+        }
+    }
+
+    @Test void declaredViewRangeDoesNotInheritTheUnrelatedQueryRange() {
+        seed(false, false);
+        seed(true, true);
+        emptyActions.add("query");
+        try (var tenant = TenantContext.use("a"); var user = CurrentUserContext.use(CurrentUser.tenantUser("reader", "Reader", "a"))) {
+            for (boolean dynamic : List.of(false, true)) {
+                assertPage(queries.from(service(dynamic), PlatformAction.VIEW).where(Criteria.of().eq("title", "target")), 1);
+                assertPage(queries.from(service(dynamic), PlatformAction.QUERY), 0);
+            }
+        }
+    }
+
+    @Test void realIamEmptyRangeRemainsAnEmptyPageWithUnrelatedProtectedFields() {
+        var entity = new EntityDefinition("row", "association_dynamic", "Rows", List.of(
+                FieldDefinition.string("title", "Title"), FieldDefinition.string("targetId", "Target").column("target_id")
+                        .protection(new FieldProtectionDefinition(FieldEncryptionMode.ENCRYPTED,
+                                FieldSignatureMode.NONE, FieldMaskingPolicy.NONE))))
+                .withCapabilities(EntityCapability.DATA_SCOPE);
+        runtime.refresh(new ModuleDefinition("sample.dynamic", "Rows", List.of(entity)));
+        scopes = new RoleDataScopeCriteriaService(mock(RoleService.class), mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(), Optional.empty(), Optional.empty());
+        queries = new AuthorizedAssociationQuery(db, PlatformEntityManagers.entityMetaResolver(),
+                new PlatformDatabaseValueConverter(), actions, scopes);
+        records = new DynamicRecordService(runtime, actions, scopes);
+        try (var tenant = TenantContext.use("a"); var user = CurrentUserContext.use(CurrentUser.tenantUser("reader", "Reader", "a"))) {
+            assertPage(queries.from(service(true), PlatformAction.VIEW), 0);
+            assertPage(queries.from(service(false), PlatformAction.QUERY)
+                    .whereRelated("targetId", queries.from(service(true), PlatformAction.VIEW)), 0);
         }
     }
 

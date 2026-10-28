@@ -780,6 +780,11 @@ public class DynamicRecordService {
         return queryRuntime.count(moduleAlias, entityAlias, criteria);
     }
 
+    /** Counts using the declared action's policy, matching {@link #pageForAction}. */
+    public long countForAction(String moduleAlias, String entityAlias, String actionCode, Criteria criteria) {
+        return queryRuntime.countForAction(moduleAlias, entityAlias, actionCode, criteria);
+    }
+
     /** Aggregate through the same QUERY authorization, tenant and data-range scope as list reads. */
     public List<Map<String, Object>> aggregate(String moduleAlias, String entityAlias, Criteria criteria,
                                                AggregateQuery query) {

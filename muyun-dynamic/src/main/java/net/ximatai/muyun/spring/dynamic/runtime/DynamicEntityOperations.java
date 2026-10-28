@@ -247,6 +247,16 @@ public final class DynamicEntityOperations implements
         return service.page(moduleAlias, entityAlias, criteria, pageRequest, sorts);
     }
 
+    /** Reads through the declared action's authorization and data range. */
+    public PageResult<DynamicRecord> pageForAction(String actionCode, Criteria criteria, PageRequest pageRequest, Sort... sorts) {
+        return service.pageForAction(moduleAlias, entityAlias, actionCode, criteria, pageRequest, sorts);
+    }
+
+    /** Counts through the same declared action as {@link #pageForAction}. */
+    public long countForAction(String actionCode, Criteria criteria) {
+        return service.countForAction(moduleAlias, entityAlias, actionCode, criteria);
+    }
+
     @Override
     public PageResult<DynamicRecord> pageRecycleBin(Criteria criteria, PageRequest pageRequest, Sort... sorts) {
         requireRecycleBinCapability();
