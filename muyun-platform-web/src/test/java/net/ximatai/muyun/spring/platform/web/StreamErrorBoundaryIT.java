@@ -8,11 +8,15 @@ import net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.platform.assistant.AssistantTurnService;
+import net.ximatai.muyun.spring.platform.assistant.AssistantTurnStreamConsumer;
 import net.ximatai.muyun.spring.platform.menu.Menu;
 import net.ximatai.muyun.spring.platform.menu.MenuService;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
 import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -26,15 +30,22 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -45,6 +56,53 @@ import static org.mockito.Mockito.when;
 class StreamErrorBoundaryIT {
     @LocalServerPort
     int port;
+
+    @Autowired
+    AssistantTurnService assistant;
+
+    @Test
+    @Timeout(15)
+    void assistantFailureAfterCommittedTextUsesAnSseErrorAndKeepsHttpStatus() throws Exception {
+        var textReceived = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            AssistantTurnStreamConsumer consumer = invocation.getArgument(1);
+            consumer.onTextDelta("partial");
+            if (!textReceived.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("text not received");
+            }
+            throw new PlatformException("MODEL_UNAVAILABLE", 502, "model unavailable");
+        }).when(assistant).stream(any(), any());
+        try (var client = HttpClient.newHttpClient()) {
+            var response = client.send(HttpRequest.newBuilder(
+                            URI.create("http://localhost:" + port + "/api/platform.assistant/turn/stream"))
+                    .timeout(Duration.ofSeconds(10))
+                    .header("Accept", "text/event-stream, application/json")
+                    .header("Content-Type", "application/json")
+                    .header(MenuEntryRequestContext.HEADER_NAME, "menu.stream")
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"message\":\"inspect\"}"))
+                    .build(), HttpResponse.BodyHandlers.ofInputStream());
+            try (var reader = new BufferedReader(new InputStreamReader(
+                    response.body(), StandardCharsets.UTF_8))) {
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(response.headers().firstValue("Content-Type").orElseThrow()).startsWith("text/event-stream");
+                assertThat(reader.readLine()).isEqualTo("event:text");
+                assertThat(reader.readLine()).contains("partial");
+                assertThat(reader.readLine()).isEmpty();
+                textReceived.countDown();
+                assertThat(reader.readLine()).isEqualTo("event:error");
+                var data = reader.readLine();
+                assertThat(data).startsWith("data:");
+                var error = new ObjectMapper().readTree(data.substring(5));
+                assertThat(error.path("code").asText()).isEqualTo("MODEL_UNAVAILABLE");
+                assertThat(error.path("status").asInt()).isEqualTo(502);
+                assertThat(error.path("message").asText()).isEqualTo("model unavailable");
+                assertThat(reader.readLine()).isEmpty();
+                assertThat(reader.readLine()).isNull();
+            } finally {
+                textReceived.countDown();
+            }
+        }
+    }
 
     @Test
     void preStreamRejectionsKeepTheirStatusAndJsonForBothAcceptHeaders() throws Exception {
@@ -87,8 +145,13 @@ class StreamErrorBoundaryIT {
             "org.springframework.boot.transaction.autoconfigure.TransactionAutoConfiguration",
             "net.ximatai.muyun.database.spring.boot.MuYunDatabaseAutoConfiguration"
     })
-    @Import({Endpoints.class, PlatformWebExceptionHandler.class})
+    @Import({Endpoints.class, PlatformWebExceptionHandler.class, AssistantWebController.class})
     static class Application implements WebMvcConfigurer {
+        @Bean
+        AssistantTurnService assistantService() {
+            return mock(AssistantTurnService.class);
+        }
+
         @Bean
         CurrentUserWebFilter identityFilter() {
             return new CurrentUserWebFilter(() -> Optional.of(CurrentUser.tenantUser("viewer", "Viewer", "tenant-a")));
