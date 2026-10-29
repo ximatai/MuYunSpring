@@ -27,9 +27,16 @@ const restoredTopId = ref<string>();
 const dismissed = ref(new Set<string>());
 const handled = ref(new Set<string>());
 const shelved = ref(new Set<string>());
+const executing = shallowRef(new Map<string, { key: string; token: symbol }>());
+let identityGeneration = 0;
 watch(
   () => props.presentationKey,
   (key) => {
+    identityGeneration++;
+    executing.value = new Map();
+    dismissed.value = new Set();
+    handled.value = new Set();
+    expanded.value = false;
     let ids: unknown = [];
     try {
       if (key && typeof sessionStorage !== 'undefined')
@@ -41,7 +48,7 @@ watch(
       Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string').slice(-200) : [],
     );
   },
-  { immediate: true },
+  { immediate: true, flush: 'sync' },
 );
 function rememberViewed() {
   try {
@@ -55,7 +62,6 @@ function rememberViewed() {
   }
 }
 
-const executing = shallowRef(new Map<string, { key: string; token: symbol }>());
 const now = ref(Date.now());
 const panelId = useId();
 const panelElement = ref<HTMLElement>();
@@ -181,6 +187,7 @@ async function run(notice: WebBusinessNotification, action: WebBusinessNotificat
     (originalAction.kind === 'record' && recordHandled(original.id))
   )
     return;
+  const generation = identityGeneration;
   const signature = JSON.stringify(originalAction);
   const token = Symbol(original.id);
   executing.value = new Map(executing.value).set(original.id, { key: originalAction.key, token });
@@ -189,6 +196,7 @@ async function run(notice: WebBusinessNotification, action: WebBusinessNotificat
     const current = latest.value.get(original.id);
     if (
       disposed ||
+      generation !== identityGeneration ||
       executing.value.get(original.id)?.token !== token ||
       result === false ||
       dismissed.value.has(original.id) ||

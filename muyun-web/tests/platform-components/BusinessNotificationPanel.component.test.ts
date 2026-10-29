@@ -494,3 +494,43 @@ it('restores viewed presentation for one identity without hiding another identit
     sessionStorage.removeItem('muyun-notification-viewed:tenant:user-a');
   }
 });
+
+it('ignores navigation completion from a previous identity even after switching back', async () => {
+  let finish!: (success: boolean) => void;
+  const executeAction = vi.fn(
+    () =>
+      new Promise<boolean>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const notice = notification('same-id', false, {
+    displayPolicy: 'persistent',
+    actions: [
+      { kind: 'navigate', key: 'view', label: '查看', moduleAlias: 'demo.order', dismissOnSuccess: false },
+    ],
+  });
+  const wrapper = mount(BusinessNotificationPanel, {
+    props: { presentationKey: 'review-a', notifications: [notice], executeAction },
+    global: { stubs: { Teleport: true } },
+  });
+  try {
+    await wrapper.get('.business-notification-actions button').trigger('click');
+    await wrapper.setProps({ presentationKey: 'review-b' });
+    await wrapper.setProps({ presentationKey: 'review-a' });
+    finish(true);
+    await flushPromises();
+    expect(wrapper.find('.business-notification-card').exists()).toBe(true);
+    expect(wrapper.find('.business-notification-bell').exists()).toBe(false);
+    expect(sessionStorage.getItem('muyun-notification-viewed:review-a')).toBeNull();
+    expect(sessionStorage.getItem('muyun-notification-viewed:review-b')).toBeNull();
+    await wrapper.get('.business-notification-actions button').trigger('click');
+    expect(executeAction).toHaveBeenCalledTimes(2);
+    finish(true);
+    await flushPromises();
+    expect(wrapper.find('.business-notification-bell').exists()).toBe(true);
+  } finally {
+    wrapper.unmount();
+    sessionStorage.removeItem('muyun-notification-viewed:review-a');
+    sessionStorage.removeItem('muyun-notification-viewed:review-b');
+  }
+});

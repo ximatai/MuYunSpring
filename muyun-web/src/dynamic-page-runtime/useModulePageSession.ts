@@ -1526,8 +1526,21 @@ export function useModulePageSession(
     },
     { immediate: true, deep: true },
   );
-  const detailSurfaceUsesDrawer = computed(
+  const preferredDetailSurfaceUsesDrawer = computed(
     () => narrowDetailSurface.value || detailSurfacePreference.value === 'drawer',
+  );
+  // Keep the owning detail surface stable through the extension's closing animation.
+  // Moving between card and drawer hosts would remount the extension and discard its draft.
+  const enhancementDetailSurface = ref<boolean>();
+  watch(
+    enhancementDrawer,
+    (drawer) => {
+      enhancementDetailSurface.value = drawer ? preferredDetailSurfaceUsesDrawer.value : undefined;
+    },
+    { flush: 'sync' },
+  );
+  const detailSurfaceUsesDrawer = computed(
+    () => enhancementDetailSurface.value ?? preferredDetailSurfaceUsesDrawer.value,
   );
   const flatManagementContent = computed(() => {
     const explorer = runtimePage.value?.explorer;
