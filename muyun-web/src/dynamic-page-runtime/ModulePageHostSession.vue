@@ -312,7 +312,10 @@ onDeactivated(deactivateAssistantSurface);
 onUnmounted(() => {
   deactivateAssistantSurface();
 });
-defineExpose({ refreshList, retry: startBusinessSession });
+function confirmLeave() {
+  return pending.value || interaction.value.busy ? false : (view.value?.confirmDetailDrawerClose() ?? true);
+}
+defineExpose({ refreshList, confirmLeave, retry: startBusinessSession });
 </script>
 
 <template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, onBeforeUnmount, shallowRef, watch } from 'vue';
 import { ModuleContextProvider, type HttpClient } from '@muyun/web-core';
 import {
   ReferenceRecordDetailBrowser,
@@ -33,13 +33,25 @@ const emit = defineEmits<{
   'interaction-state-change': [state: { editing: boolean; busy: boolean; dirty?: boolean }];
 }>();
 const browser = props.browser ?? createReferenceRecordDetailBrowser(requireHttp(props.http));
+const host = shallowRef<InstanceType<typeof ModulePageHost>>();
+const unregisterLeaveGuard = browser.setBeforeLeave(() => host.value?.confirmLeave() ?? true);
+onBeforeUnmount(unregisterLeaveGuard);
+defineExpose({ openRecord: browser.open, closeRecord: browser.close });
 
 function reportInteraction(
+  moduleAlias: string,
+  recordId: string,
   state: { editing: boolean; busy: boolean; dirty?: boolean },
-  setBusy: (busy: boolean) => void,
 ) {
-  setBusy(state.busy);
+  const active = browser.active.value;
+  if (active?.targetModuleAlias !== moduleAlias || active.recordId !== recordId) return;
+  browser.setBusy(moduleAlias, recordId, state.busy);
   emit('interaction-state-change', state);
+}
+
+function releaseClosedRecord(moduleAlias: string, recordId: string) {
+  const active = browser.active.value;
+  if (active?.targetModuleAlias === moduleAlias && active.recordId === recordId) browser.dispose();
 }
 
 // The standard browser may dismiss a target after a delete or access loss. Reset
@@ -84,9 +96,10 @@ const presentation = computed(() => {
     @record-change="emit('record-change', $event)"
   >
     <slot />
-    <template #full-surface="{ context, record, reportMutation, setBusy, close }">
+    <template #full-surface="{ context, record, reportMutation }">
       <ModuleContextProvider v-if="context && record" :context="context">
         <ModulePageHost
+          ref="host"
           :key="`${context.moduleAlias}:${String(record.id)}`"
           :descriptor="recordOnlyDescriptor(context.moduleAlias)"
           :record-only="{
@@ -94,8 +107,8 @@ const presentation = computed(() => {
             renderMode: presentation.renderMode,
             scope: presentation.scope,
           }"
-          @interaction-state-change="reportInteraction($event, setBusy)"
-          @record-only-close="close"
+          @interaction-state-change="reportInteraction(context.moduleAlias, String(record.id), $event)"
+          @record-only-close="releaseClosedRecord(context.moduleAlias, String(record.id))"
           @record-only-change="
             (mutation) =>
               reportMutation({
