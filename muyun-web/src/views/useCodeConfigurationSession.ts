@@ -1,5 +1,10 @@
 import { computed, onActivated, onBeforeUnmount, onDeactivated, ref } from 'vue';
-import { prepareCodeRule, type CodeRule, type CodeTarget } from './codeConfiguration';
+import {
+  codeSegmentSourcesVisible,
+  validateCodeRuleDraft,
+  type CodeRule,
+  type CodeTarget,
+} from './codeConfiguration';
 import { AssistantCapabilityUsageError, type LanguageContext } from '@muyun/web-core';
 
 /** The editor and assistant own one candidate and one saved baseline. */
@@ -79,7 +84,7 @@ export function useCodeConfigurationSession(language: LanguageContext) {
             'SEQUENCE',
             'VALUE_MAPPING',
             'FORMULA',
-          ].includes(String(segment.segmentType))
+          ].includes(segment.segmentType)
         )
           throw new AssistantCapabilityUsageError('编号片段类型无效');
         if (!Array.isArray(segment.mappings) || segment.mappings.length > 100)
@@ -111,8 +116,8 @@ export function useCodeConfigurationSession(language: LanguageContext) {
           throw new AssistantCapabilityUsageError('计数依据无效');
       }
     }
-    if (patch.sequencePolicy != null)
-      object(patch.sequencePolicy, [
+    if (patch.sequencePolicy != null) {
+      const policy = object(patch.sequencePolicy, [
         'startValue',
         'stepValue',
         'sequenceLength',
@@ -120,29 +125,31 @@ export function useCodeConfigurationSession(language: LanguageContext) {
         'resetPolicy',
         'overflowPolicy',
       ]);
-    if (patch.sequencePolicy != null) {
-      const policy = patch.sequencePolicy as Record<string, unknown>;
       if (
         typeof policy.resetPolicy !== 'string' ||
         typeof policy.overflowPolicy !== 'string' ||
-        !['NONE', 'DAY', 'MONTH', 'YEAR'].includes(String(policy.resetPolicy)) ||
-        !['ERROR', 'RESET'].includes(String(policy.overflowPolicy))
+        !['NONE', 'DAY', 'MONTH', 'YEAR'].includes(policy.resetPolicy) ||
+        !['ERROR', 'RESET'].includes(policy.overflowPolicy)
       )
         throw new AssistantCapabilityUsageError('流水周期或溢出策略无效');
     }
-    Object.assign(candidate, patch);
-    const normalized = prepareCodeRule(candidate, language);
     const sources = new Set(target.sources.map((source) => source.fieldName));
-    for (const segment of 'segments' in patch ? normalized.segments : []) {
-      if (segment.sourceRef && !sources.has(segment.sourceRef))
-        throw new AssistantCapabilityUsageError('只能引用当前可见来源字段');
-      for (const match of segment.formulaExpr?.matchAll(/\{([^{}]+)\}/g) ?? [])
-        if (!sources.has(match[1]!)) throw new AssistantCapabilityUsageError('公式只能引用当前可见来源字段');
-    }
+    const restrictedFormat = candidate.segments.some(
+      (segment) => !codeSegmentSourcesVisible(segment, sources),
+    );
+    if (restrictedFormat && ('segments' in patch || ('mode' in patch && patch.mode !== candidate.mode)))
+      throw new AssistantCapabilityUsageError('当前格式含目录之外来源，请人工维护格式和编号方式');
+    Object.assign(candidate, patch);
+    validateCodeRuleDraft(candidate, language);
+    if (
+      'segments' in patch &&
+      candidate.segments.some((segment) => !codeSegmentSourcesVisible(segment, sources))
+    )
+      throw new AssistantCapabilityUsageError('片段只能引用当前可见来源字段');
     return () => {
       if (!current() || !active.value || recoveryRequired.value || JSON.stringify(draft.value) !== before)
         throw new AssistantCapabilityUsageError('编码草稿已变化，请重新读取');
-      draft.value = normalized;
+      draft.value = candidate;
       return { changedFields: Object.keys(patch), unsaved: dirty.value, saved: false };
     };
   }

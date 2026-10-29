@@ -6,7 +6,12 @@ import {
   type AssistantSurface,
   type AssistantTurnRequester,
 } from '@muyun/web-core';
-import type { CodeRule, CodeTarget, CodePreview } from './codeConfiguration';
+import {
+  codeSegmentSourcesVisible,
+  type CodeRule,
+  type CodeTarget,
+  type CodePreview,
+} from './codeConfiguration';
 
 export interface CodeConfigurationAssistantAdapter {
   state(): {
@@ -47,8 +52,7 @@ export function createCodeConfigurationAssistantSurface(
       const rule = {
         ...state.draft,
         segments: state.draft.segments.map((segment) =>
-          (segment.sourceRef && !visible.has(segment.sourceRef)) ||
-          [...(segment.formulaExpr?.matchAll(/\{([^{}]+)\}/g) ?? [])].some((match) => !visible.has(match[1]!))
+          !codeSegmentSourcesVisible(segment, visible)
             ? {
                 segmentType: segment.segmentType,
                 restricted: true,
@@ -193,15 +197,7 @@ export function createCodeConfigurationAssistantSurface(
       if (state.busy || state.recoveryRequired || state.previewable === false)
         throw new AssistantCapabilityUsageError('请先完成当前操作或恢复核对');
       const visible = new Set(state.target.sources.map((source) => source.fieldName));
-      if (
-        state.draft.segments.some(
-          (segment) =>
-            (segment.sourceRef && !visible.has(segment.sourceRef)) ||
-            [...(segment.formulaExpr?.matchAll(/\{([^{}]+)\}/g) ?? [])].some(
-              (match) => !visible.has(match[1]!),
-            ),
-        )
-      )
+      if (state.draft.segments.some((segment) => !codeSegmentSourcesVisible(segment, visible)))
         throw new AssistantCapabilityUsageError('当前规则含目录之外来源，请在页面人工试算');
       return { ...(await adapter.trial(context.signal, context.isCurrent)), reserved: false, saved: false };
     },
