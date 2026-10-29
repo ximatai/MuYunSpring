@@ -2,8 +2,10 @@ package net.ximatai.muyun.spring.starter.configuration.filetransfer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
+import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.attachment.FileReceptionClient;
 import net.ximatai.muyun.spring.platform.attachment.FileReceptionException;
 import org.junit.jupiter.api.*;
@@ -62,7 +64,7 @@ class MuYunFileServerReceptionClientTest {
         response = snapshot("OPEN", Map.of());
     }
     @AfterEach void stop() {
-        releaseBody.countDown(); server.stop(0); executor.shutdownNow(); CurrentUserContext.clear();
+        releaseBody.countDown(); server.stop(0); executor.shutdownNow(); CurrentUserContext.clear(); TenantContext.clear();
     }
     private FileReceptionClient client() { return new MuYunFileServerTransferConfiguration().fileReceptionClient(properties, json); }
     private FileReceptionClient.Create request() { return new FileReceptionClient.Create("persisted_key", 2, 100, 60); }
@@ -129,6 +131,67 @@ class MuYunFileServerReceptionClientTest {
             properties.setBaseUrl(URI.create(url));
             assertThatThrownBy(this::client).hasMessage("invalid file reception deployment configuration");
         }
+    }
+
+    @Test void receptionAndTransferShareAuthorizedTenantScopeWithoutChangingActor() throws Exception {
+        properties.setSystemScopeId("system-files");
+        var client = client();
+        var access = new MuYunFileServerTransferAccessService(properties, json);
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("admin", "Admin"))) {
+            try (var tenant = TenantContext.use("tenant-a")) {
+                client.create(request());
+                assertThat(transferScope(access)).isEqualTo("tenant-a");
+                try (var nested = TenantContext.use("tenant-b")) {
+                    client.get(ID);
+                    assertThat(transferScope(access)).isEqualTo("tenant-b");
+                }
+                client.get(ID);
+                assertThat(transferScope(access)).isEqualTo("tenant-a");
+            }
+            try (var system = TenantContext.system("system files")) {
+                client.get(ID);
+                assertThat(transferScope(access)).isEqualTo("system-files");
+            }
+        }
+        assertThat(requests).extracting(Request::tenant)
+                .containsExactly("tenant-a", "tenant-b", "tenant-a", "system-files");
+        assertThat(requests).allSatisfy(r -> assertThat(r.user()).isEqualTo("admin"));
+    }
+
+    @Test void tenantScopedSystemActorDoesNotRequireSystemStorageConfiguration() throws Exception {
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("admin", "Admin"));
+             var tenant = TenantContext.tenantSystem("tenant-a", "file-reception")) {
+            client().get(ID);
+            assertThat(requests.getFirst().tenant()).isEqualTo("tenant-a");
+            assertThat(transferScope(new MuYunFileServerTransferAccessService(properties, json))).isEqualTo("tenant-a");
+        }
+    }
+
+    @Test void tenantContextCannotGrantAnonymousOrCrossTenantFileAccess() {
+        var client = client();
+        var access = new MuYunFileServerTransferAccessService(properties, json);
+        try (var tenant = TenantContext.use("tenant-b")) {
+            assertThatThrownBy(() -> client.get(ID)).isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(access::issueUploadAccess).hasMessageContaining("authenticated");
+            try (var actor = CurrentUserContext.use(CurrentUser.tenantUser("user", "User", "tenant-a"));
+                 var bypass = TenantContext.bypassTenantFilter("trusted query only")) {
+                assertThatThrownBy(() -> client.get(ID)).isInstanceOf(PlatformAccessDeniedException.class);
+                assertThatThrownBy(access::issueUploadAccess).isInstanceOf(PlatformAccessDeniedException.class);
+            }
+        }
+        try (var actor = CurrentUserContext.use(CurrentUser.tenantUser("user", "User", "tenant-a"));
+             var system = TenantContext.system("internal scope")) {
+            assertThatThrownBy(() -> client.get(ID)).isInstanceOf(PlatformAccessDeniedException.class);
+            assertThatThrownBy(access::issueUploadAccess).isInstanceOf(PlatformAccessDeniedException.class);
+        }
+        assertThat(requests).isEmpty();
+    }
+
+    private String transferScope(MuYunFileServerTransferAccessService access) throws Exception {
+        String token = access.issueDownloadAccess("file_1").accessToken();
+        var payload = json.readTree(Base64.getUrlDecoder().decode(token.substring(0, token.indexOf('.'))));
+        assertThat(payload.path("sub").asText()).isEqualTo("admin");
+        return payload.path("tenant_id").asText();
     }
 
     @Test void neverFollowsRedirectsOrTurnsFailuresIntoRetirement() {

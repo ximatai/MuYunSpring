@@ -100,7 +100,7 @@ public final class MuYunFileServerTransferAccessService
     private FileTransferAccess issue(FileTransferOperation operation, String fileId, Duration ttl) {
         CurrentUser user = CurrentUserContext.currentUser()
                 .orElseThrow(() -> new PlatformException("file transfer requires an authenticated user"));
-        String scopeId = resolveStorageScopeId(user);
+        String scopeId = MuYunFileServerStorageScope.resolve(user, properties.getSystemScopeId());
         String normalizedFileId = operation == FileTransferOperation.UPLOAD ? null : requireFileId(fileId);
         Instant issuedAt = clock.instant();
         Instant expiresAt = issuedAt.plus(requirePositive(ttl, operation));
@@ -184,17 +184,6 @@ public final class MuYunFileServerTransferAccessService
 
     private String requireFileId(RecordAttachment attachment) {
         return requireFileId(attachment == null ? null : attachment.getFileId());
-    }
-
-    private String resolveStorageScopeId(CurrentUser user) {
-        if (user.tenantId() != null) {
-            return user.tenantId();
-        }
-        if (user.system()) {
-            return requireText(properties.getSystemScopeId(),
-                    "muyun.file-transfer.muyun-fileserver.system-scope-id");
-        }
-        throw new PlatformException("file transfer requires an authenticated tenant user");
     }
 
     private Duration requirePositive(Duration value, FileTransferOperation operation) {

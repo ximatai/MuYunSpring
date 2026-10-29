@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.starter.configuration.filetransfer;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.platform.attachment.FileTransferAccess;
@@ -24,6 +25,7 @@ class MuYunFileServerTransferAccessServiceTest {
     @AfterEach
     void clearCurrentUser() {
         CurrentUserContext.clear();
+        TenantContext.clear();
     }
 
     @Test
@@ -72,6 +74,20 @@ class MuYunFileServerTransferAccessServiceTest {
                 Clock.fixed(Instant.parse("2026-08-08T00:00:00Z"), ZoneOffset.UTC));
         try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("admin-1", "admin"))) {
             assertThat(payload(service.issueUploadAccess()).path("tenant_id").asText()).isEqualTo("mr-system");
+        }
+    }
+
+    @Test
+    void everyOperationUsesTheSelectedBusinessTenantForSystemActors() throws Exception {
+        var service = service();
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("admin", "Admin"));
+             var tenant = TenantContext.use("tenant-a")) {
+            for (var ticket : java.util.List.of(service.issueUploadAccess(), service.issueMetadataAccess("file_1"),
+                    service.issuePromoteAccess("file_1"), service.issueDeleteAccess("file_1"),
+                    service.issuePreviewAccess("file_1"), service.issueDownloadAccess("file_1"))) {
+                assertThat(payload(ticket).path("tenant_id").asText()).isEqualTo("tenant-a");
+                assertThat(payload(ticket).path("sub").asText()).isEqualTo("admin");
+            }
         }
     }
 

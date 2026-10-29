@@ -115,9 +115,8 @@ final class MuYunFileServerReceptionClient implements FileReceptionClient, AutoC
     private JsonNode call(String method, String path, HttpRequest.BodyPublisher body, String contentType) {
         var user = CurrentUserContext.currentUser().orElseThrow(
                 () -> new IllegalStateException("file reception requires an authenticated identity"));
-        String tenant = user.tenantId() != null ? user.tenantId() : user.system() ? systemScopeId : null;
-        if (tenant == null || !tenant.matches("[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
-                || !user.userId().matches("[\\x21-\\x7E]{1,256}")) {
+        String tenant = MuYunFileServerStorageScope.resolve(user, systemScopeId);
+        if (!user.userId().matches("[\\x21-\\x7E]{1,256}")) {
             throw new IllegalStateException("file reception requires a valid storage identity");
         }
         var request = HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(timeout)

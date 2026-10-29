@@ -2,7 +2,7 @@
 
 [MuYunFileServer](https://github.com/ximatai/MuYunFileserver) 是 MuYunSpring 唯一关联的文件服务，不按可替换存储 provider 或 SPI 建模。它维护文件二进制、哈希、类型、大小、上传者、租户、临时状态和物理清理；MuYunSpring 维护业务授权、文件引用、业务生命周期和审计。
 
-MuYunSpring 的 Starter 以 `muyun.file-transfer.muyun-fileserver` 配置启用官方无状态适配器；`base-url`、`issuer` 和 `secret` 是必填项，系统态写入还必须显式配置 `system-scope-id`。适配器从可信当前用户上下文签发短时 token，并固定传递 `purpose`、`tenant_id` 和 `sub` 等协同声明，业务请求不能自行指定租户或主体。地址与签名密钥由部署侧共同授权，业务配置与请求不能替换目标；官方适配器的文件标识只接受 1—64 位字母、数字、下划线或连字符，不接受路径、查询或片段；后端元数据、转正、删除及内容下载均拒绝 HTTP 重定向，失败异常不保留可能携带票据或响应正文的底层 cause。FileServer 的 public API、token 校验和存储部署细节以其仓库为准，本仓库不重复维护另一份传输接口文档。
+MuYunSpring 的 Starter 以 `muyun.file-transfer.muyun-fileserver` 配置启用官方无状态适配器；`base-url`、`issuer` 和 `secret` 是必填项，系统范围访问还必须显式配置 `system-scope-id`。适配器结合可信当前用户身份与租户上下文签发短时 token，并固定传递 `purpose`、`tenant_id` 和 `sub` 等协同声明，业务请求不能自行指定租户或主体。地址与签名密钥由部署侧共同授权，业务配置与请求不能替换目标；官方适配器的文件标识只接受 1—64 位字母、数字、下划线或连字符，不接受路径、查询或片段；后端元数据、转正、删除及内容下载均拒绝 HTTP 重定向，失败异常不保留可能携带票据或响应正文的底层 cause。FileServer 的 public API、token 校验和存储部署细节以其仓库为准，本仓库不重复维护另一份传输接口文档。
 
 ## 存储中立引用与小文件资产
 
@@ -115,8 +115,9 @@ private Long sourceFileSize;
 `reception.request-timeout` 默认 60 秒，覆盖完整响应正文；`reception.max-response-bytes` 默认 2 MiB。
 地址沿用部署侧 `base-url`，禁止重定向，错误不保留上游正文、凭据或底层 cause。
 
-门面每次调用从可信 `CurrentUserContext` 读取用户与租户；系统身份必须显式配置 `system-scope-id`，
-不接受业务请求传入任意租户。后台业务先完成授权并进入受信执行身份，再调用该门面。
+接收门面与公开文件票据每次调用都从 `CurrentUserContext` 读取主体，并优先使用可信 `TenantContext` 的业务租户作为存储范围；系统用户选择业务租户后，文件随该租户隔离，主体身份保持不变。
+普通用户的上下文租户必须与身份租户一致，租户过滤绕过不授予文件跨租户权限。没有租户上下文的非 Web 调用沿用身份租户；系统范围访问必须同时具备系统身份和显式配置的 `system-scope-id`。
+租户上下文本身不替代已认证身份，也不接受业务请求传入任意租户。后台业务先完成授权并进入受信执行身份和作用域，再调用该门面。
 返回的 bucket、prefix 仅供受信后端将接收位置传给采集方，不授予对象存储访问权。
 
 业务应在调用前持久化稳定幂等键和接收任务身份，并负责清单与业务操作的对应关系。
