@@ -35,7 +35,10 @@ const controlSessionKey = computed(() =>
 function refreshList() {
   session.value?.refreshList();
 }
-defineExpose({ refreshList });
+function confirmLeave() {
+  return session.value?.confirmLeave() ?? true;
+}
+defineExpose({ refreshList, confirmLeave });
 </script>
 
 <template>

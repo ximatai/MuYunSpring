@@ -38,10 +38,13 @@ export interface ReferenceRecordDetailBrowser {
   fields: { value: Map<string, RecordFormFieldDescriptor> };
   title: { value: string };
   canBrowse(targetModuleAlias: string, recordId: string): boolean;
-  open(targetModuleAlias: string, recordId: string): void;
+  open(targetModuleAlias: string, recordId: string): Promise<void>;
+  /** Registers the owning full surface's leave authority. */
+  setBeforeLeave(guard: () => boolean | Promise<boolean>): () => void;
+  confirmLeave(): boolean | Promise<boolean>;
   setBusy(targetModuleAlias: string, recordId: string, busy: boolean): void;
   reportMutation(mutation: ReferenceRecordDetailMutation): void;
-  close(): void;
+  close(): void | Promise<void>;
   /** Component teardown bypasses the user-facing busy close gate. */
   dispose(): void;
 }
@@ -60,6 +63,9 @@ export function createReferenceRecordDetailBrowser(
   const revision = ref(0);
   const active = ref<ActiveReferenceRecord>();
   let requestRevision = 0;
+  let navigationRevision = 0;
+  let pendingLeave: Promise<boolean> | undefined;
+  let beforeLeave: (() => boolean | Promise<boolean>) | undefined;
   const activeContext = computed(() => {
     const current = active.value;
     return current ? contexts.get(current.targetModuleAlias) : undefined;
@@ -101,24 +107,44 @@ export function createReferenceRecordDetailBrowser(
     }
     return context;
   };
-  const close = () => {
-    if (active.value?.busy) return;
-    requestRevision += 1;
-    active.value = undefined;
+  const confirmLeave = () => {
+    if (active.value?.busy) return false;
+    if (!active.value || !beforeLeave) return true;
+    if (pendingLeave) return pendingLeave;
+    const result = beforeLeave();
+    if (typeof result === 'boolean') return result;
+    const pending = result.finally(() => {
+      if (pendingLeave === pending) pendingLeave = undefined;
+    });
+    pendingLeave = pending;
+    return pending;
   };
+  const transition = (commit: () => void | Promise<void>) => {
+    const navigation = ++navigationRevision;
+    const request = requestRevision;
+    const finish = (allowed: boolean) => {
+      if (allowed && navigation === navigationRevision && request === requestRevision && !active.value?.busy)
+        return commit();
+    };
+    try {
+      const allowed = confirmLeave();
+      return typeof allowed === 'boolean' ? finish(allowed) : allowed.then(finish, () => undefined);
+    } catch {
+      // Failed leave confirmations preserve the current record and its draft.
+    }
+  };
+  const close = () =>
+    transition(() => {
+      requestRevision += 1;
+      active.value = undefined;
+    });
   const dispose = () => {
+    pendingLeave = undefined;
+    navigationRevision += 1;
     requestRevision += 1;
     active.value = undefined;
   };
-  const open = async (targetModuleAlias: string, recordId: string) => {
-    if (
-      !targetModuleAlias ||
-      !recordId ||
-      accessByModule.get(targetModuleAlias) === 'denied' ||
-      deniedRecordKeys.has(recordKey(targetModuleAlias, recordId)) ||
-      active.value?.busy
-    )
-      return;
+  const load = async (targetModuleAlias: string, recordId: string) => {
     const currentRequestRevision = ++requestRevision;
     active.value = { targetModuleAlias, recordId, loading: true, failed: false };
     const context = contextFor(targetModuleAlias);
@@ -159,6 +185,16 @@ export function createReferenceRecordDetailBrowser(
       };
     }
   };
+  const open = async (targetModuleAlias: string, recordId: string) => {
+    if (
+      !targetModuleAlias ||
+      !recordId ||
+      accessByModule.get(targetModuleAlias) === 'denied' ||
+      deniedRecordKeys.has(recordKey(targetModuleAlias, recordId))
+    )
+      return;
+    await transition(() => load(targetModuleAlias, recordId));
+  };
   return {
     revision,
     active,
@@ -169,6 +205,14 @@ export function createReferenceRecordDetailBrowser(
       accessByModule.get(targetModuleAlias) !== 'denied' &&
       !deniedRecordKeys.has(recordKey(targetModuleAlias, recordId)),
     open,
+    confirmLeave,
+    setBeforeLeave(guard) {
+      pendingLeave = undefined;
+      beforeLeave = guard;
+      return () => {
+        if (beforeLeave === guard) beforeLeave = undefined;
+      };
+    },
     setBusy: (targetModuleAlias, recordId, busy) => {
       const current = active.value;
       if (!current || current.targetModuleAlias !== targetModuleAlias || current.recordId !== recordId)
@@ -188,9 +232,7 @@ export function createReferenceRecordDetailBrowser(
         requestRevision += 1;
         active.value = undefined;
       } else if (mutation.record) {
-        active.value = { ...current, record: mutation.record, busy: false };
-      } else {
-        active.value = { ...current, busy: false };
+        active.value = { ...current, record: mutation.record };
       }
       revision.value += 1;
     },

@@ -572,6 +572,8 @@ export function useModulePageSession(
   const localEditFormValid = ref(true);
   const recordOnlyAuthorizing = ref(false);
   let recordOnlySession = 0;
+  let recordRefreshRevision = 0;
+  const pendingRecordOnlyRefresh = shallowRef<{ recordId: string; session: number }>();
   const recordDraftValidityRevision = ref(0);
   function updateMainFormValidity(validity: { valid: boolean; pending?: boolean }) {
     recordDraftValidityRevision.value += 1;
@@ -740,7 +742,11 @@ export function useModulePageSession(
     scope: () => modulePageActionStateContext().scope,
     refreshList,
     reload: reloadModulePage,
-    closeDetail,
+    closeDetail: async () => {
+      if (!(await mayLeaveDetailSession())) return;
+      if (props.recordOnly) closeRecordOnlyDetail();
+      else closeDetail();
+    },
   });
   const treeSearchKeyword = ref('');
   const flatManagementSearchKeyword = ref('');
@@ -1156,6 +1162,7 @@ export function useModulePageSession(
   const interactionBusy = computed(
     () =>
       detailActionBusy.value ||
+      Boolean(enhancementDrawerOpen.value && enhancementDrawer.value?.closeBlocked) ||
       recordOnlyAuthorizing.value ||
       localEditSaving.value ||
       navigatorManagementDetail.loading.value ||
@@ -1171,6 +1178,17 @@ export function useModulePageSession(
       localEditOpen.value ||
       referenceRecordDetailInteraction.value.editing ||
       workflowInteraction.value.editing,
+  );
+  watch(
+    [
+      pendingRecordOnlyRefresh,
+      interactionBusy,
+      interactionEditing,
+      detailLoading,
+      detailOpen,
+      () => selectedRecord.value?.id,
+    ],
+    flushRecordOnlyRefresh,
   );
   useModuleRecordDataChanges({
     moduleAlias: context.moduleAlias,
@@ -4796,13 +4814,26 @@ export function useModulePageSession(
   async function reloadDetailAfterMutation(
     recordId: string,
   ): Promise<{ record?: QueryListRecord; failure?: unknown }> {
+    const session = recordOnlySession;
+    const mode = editorMode.value;
+    const formSession = formSessionKey.value;
+    const revision = ++recordRefreshRevision;
+    const current = () =>
+      !disposed &&
+      detailOpen.value &&
+      session === recordOnlySession &&
+      revision === recordRefreshRevision &&
+      String(selectedRecord.value?.id) === recordId &&
+      editorMode.value === mode &&
+      formSessionKey.value === formSession;
     try {
       const refreshed = await context.crud.view(recordId);
+      if (props.recordOnly && !current()) return {};
       detail.resolveLoad(refreshed);
       if (props.recordOnly) emit('record-only-change', { type: 'saved', record: refreshed });
       return { record: refreshed };
     } catch (failure) {
-      return { failure };
+      return props.recordOnly && !current() ? {} : { failure };
     }
   }
 
@@ -5174,6 +5205,16 @@ export function useModulePageSession(
   }
 
   function refreshList() {
+    // Independent record surfaces have no list observer. Business-owned mutations
+    // must refresh the target and notify their source through the same lifecycle.
+    if (props.recordOnly) {
+      const record = selectedRecord.value;
+      if (record?.id != null && detailOpen.value) {
+        pendingRecordOnlyRefresh.value = { recordId: String(record.id), session: recordOnlySession };
+        flushRecordOnlyRefresh();
+      }
+      return;
+    }
     if (workflowInteraction.value.editing || workflowInteraction.value.busy) return;
     if (persistentTreeDetail.value) {
       treeReloadKey.value += 1;
@@ -5186,9 +5227,34 @@ export function useModulePageSession(
     reloadKey.value += 1;
   }
 
+  function flushRecordOnlyRefresh() {
+    const pending = pendingRecordOnlyRefresh.value;
+    if (!pending) return;
+    const record = selectedRecord.value;
+    if (
+      disposed ||
+      !detailOpen.value ||
+      pending.session !== recordOnlySession ||
+      !record ||
+      String(record.id) !== pending.recordId
+    ) {
+      pendingRecordOnlyRefresh.value = undefined;
+      return;
+    }
+    if (
+      editorMode.value !== 'view' ||
+      interactionEditing.value ||
+      interactionBusy.value ||
+      detailLoading.value
+    )
+      return;
+    pendingRecordOnlyRefresh.value = undefined;
+    void reportRecordOnlyRefresh(record);
+  }
+
   /** Refreshes a source view after a target mutation without replaying an in-progress source form. */
   function handleReferenceRecordChange(mutation: ReferenceRecordDetailMutation) {
-    refreshList();
+    if (!props.recordOnly) refreshList();
     const source = selectedRecord.value;
     if (!source?.id) return;
     if (editorMode.value === 'view') {
@@ -5215,7 +5281,15 @@ export function useModulePageSession(
    */
   async function mayLeaveDetailSession() {
     if (workflowLeaveGuard && !(await workflowLeaveGuard())) return false;
-    if (detailActionBusy.value) return false;
+    if (interactionBusy.value) return false;
+    if (
+      enhancementDrawerOpen.value &&
+      enhancementDrawer.value?.beforeClose &&
+      !(await enhancementDrawer.value.beforeClose())
+    )
+      return false;
+    if (!(await referenceRecordDetailBrowser.confirmLeave())) return false;
+    if (interactionBusy.value) return false;
     if (!detailDirty.value) return true;
     return confirmAction(
       {

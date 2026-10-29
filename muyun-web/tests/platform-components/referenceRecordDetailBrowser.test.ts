@@ -95,3 +95,92 @@ it('binds independent record context to each target request while retaining the 
   nested.dispose();
   browser.dispose();
 });
+
+function navigationBrowser() {
+  const reads: string[] = [];
+  const http: HttpClient = {
+    async request(options) {
+      reads.push(options.path);
+      return (
+        options.path.endsWith('context')
+          ? { moduleAlias: 'demo.target', actions: [], capabilities: [] }
+          : { id: options.path.split('/').at(-1), title: '目标' }
+      ) as never;
+    },
+  };
+  return { browser: createReferenceRecordDetailBrowser(http), reads };
+}
+
+it('keeps the current record when the owner rejects a switch or close', async () => {
+  const { browser, reads } = navigationBrowser();
+  await browser.open('demo.target', 'a');
+  browser.setBeforeLeave(() => false);
+  await browser.open('demo.target', 'b');
+  await browser.close();
+  expect(browser.active.value?.recordId).toBe('a');
+  expect(reads).not.toContain('/demo.target/view/b');
+});
+
+it('shares a pending leave confirmation and commits only the latest requested target', async () => {
+  const { browser, reads } = navigationBrowser();
+  await browser.open('demo.target', 'a');
+  let finish!: (allowed: boolean) => void;
+  let confirmations = 0;
+  browser.setBeforeLeave(() => {
+    confirmations++;
+    return new Promise<boolean>((resolve) => {
+      finish = resolve;
+    });
+  });
+  const first = browser.open('demo.target', 'b');
+  const second = browser.open('demo.target', 'c');
+  expect(confirmations).toBe(1);
+  finish(true);
+  await Promise.all([first, second]);
+  expect(browser.active.value?.recordId).toBe('c');
+  expect(reads).not.toContain('/demo.target/view/b');
+});
+
+it('does not replace a record if an operation starts while confirmation is pending', async () => {
+  const { browser } = navigationBrowser();
+  await browser.open('demo.target', 'a');
+  let finish!: (allowed: boolean) => void;
+  browser.setBeforeLeave(
+    () =>
+      new Promise<boolean>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const opening = browser.open('demo.target', 'b');
+  browser.setBusy('demo.target', 'a', true);
+  finish(true);
+  await opening;
+  expect(browser.active.value?.recordId).toBe('a');
+  expect(browser.active.value?.busy).toBe(true);
+});
+
+it('teardown invalidates an approved late navigation and mutations do not clear owner busy state', async () => {
+  const { browser } = navigationBrowser();
+  await browser.open('demo.target', 'a');
+  browser.setBusy('demo.target', 'a', true);
+  browser.reportMutation({
+    type: 'saved',
+    targetModuleAlias: 'demo.target',
+    recordId: 'a',
+    record: { id: 'a', title: '已更新' },
+  });
+  expect(browser.active.value?.busy).toBe(true);
+  browser.setBusy('demo.target', 'a', false);
+  let finish!: (allowed: boolean) => void;
+  browser.setBeforeLeave(
+    () =>
+      new Promise<boolean>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const opening = browser.open('demo.target', 'b');
+  browser.dispose();
+  finish(true);
+  await opening;
+  expect(browser.active.value).toBeUndefined();
+});
