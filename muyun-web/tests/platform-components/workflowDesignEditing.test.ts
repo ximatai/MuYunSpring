@@ -1,5 +1,8 @@
 import { expect, it } from 'vitest';
+import { createLanguageContext } from '@muyun/web-core';
 import {
+  createWorkflowApprovalNode,
+  createWorkflowDesign,
   insertWorkflowNode,
   removeWorkflowNode,
   insertWorkflowBranch,
@@ -75,6 +78,43 @@ it('refuses deleting a branch that also receives an external path', () => {
   branched.links.push({ routeKey: 'cross', sourceNodeKey: 'approve', targetNodeKey: 'b_path1' });
   expect(() => removeWorkflowBranch(branched, 'b')).toThrow('外部交叉');
 });
+it('removes serial nested branches with bounded graph work instead of enumerating every path', () => {
+  let branched = insertWorkflowBranch(design, 'in', 'outer');
+  let route = 'outer_exit1';
+  for (let index = 0; index < 24; index++) {
+    const key = `nested_${index}`;
+    branched = insertWorkflowBranch(branched, route, key);
+    route = `${key}_next`;
+  }
+  const snapshot = JSON.stringify(branched);
+  let reads = 0;
+  // An access budget fails deterministically before an exponential traversal can freeze the test runner.
+  const bounded = {
+    ...branched,
+    links: branched.links.map(
+      (link) =>
+        new Proxy(link, {
+          get(target, property, receiver) {
+            if (property === 'sourceNodeKey' && ++reads > branched.links.length * 10)
+              throw new Error('Branch removal exceeded the graph traversal budget');
+            return Reflect.get(target, property, receiver);
+          },
+        }),
+    ),
+  };
+  expect(removeWorkflowBranch(bounded, 'outer')).toEqual(design);
+  expect(JSON.stringify(branched)).toBe(snapshot);
+});
+it('still rejects cycles and paths that do not reach the paired join', () => {
+  const branched = insertWorkflowBranch(design, 'in', 'b');
+  const cycle = {
+    ...branched,
+    links: [...branched.links, { routeKey: 'cycle', sourceNodeKey: 'b_path1', targetNodeKey: 'b' }],
+  };
+  expect(() => removeWorkflowBranch(cycle, 'b')).toThrow('循环');
+  const broken = { ...branched, links: branched.links.filter((link) => link.routeKey !== 'b_return1') };
+  expect(() => removeWorkflowBranch(broken, 'b')).toThrow('未到达');
+});
 it('default exit is unique per branch, clears its ignored condition, and leaves other branches unchanged', () => {
   const branched = insertWorkflowBranch(design, 'in', 'b');
   const first = updateWorkflowRoute(branched, 'b_exit1', {
@@ -89,4 +129,75 @@ it('default exit is unique per branch, clears its ignored condition, and leaves 
   });
   expect(second.links.find((link) => link.routeKey === 'in')?.conditionExpression).toBe('{amount}>0');
   expect(branched.links.find((link) => link.routeKey === 'b_exit1')?.defaultRoute).toBeUndefined();
+});
+
+it('produces English branch defaults at creation and keeps existing titles verbatim', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const before = {
+    ...design,
+    nodes: design.nodes.map((node) => ({ ...node, title: '条件分支' })),
+    links: design.links.map((route) => ({ ...route, title: '路径1' })),
+  };
+  const next = appendWorkflowBranchPath(
+    insertWorkflowBranch(before, 'in', 'b', language),
+    'b',
+    'third',
+    language,
+  );
+  expect(next.nodes.slice(0, 3)).toEqual(before.nodes);
+  expect(next.links.find((route) => route.routeKey === 'in')?.title).toBe('路径1');
+  expect(next.nodes.slice(3).map((node) => node.title)).toEqual([
+    'Conditional branch',
+    'Branch approval 1',
+    'Branch approval 2',
+    'Branch join',
+    'Branch approval 3',
+  ]);
+  expect(next.links.slice(2).map((route) => route.title)).toEqual([
+    'Path 1',
+    'Converge',
+    'Path 2',
+    'Converge',
+    'Continue',
+    'Path 3',
+    'Converge',
+  ]);
+});
+
+it('preserves supplied approval titles even when they match generated Chinese defaults', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  for (const title of ['条件分支', '分支审批1', '路径2', '继续', '  User title  ']) {
+    const node = createWorkflowApprovalNode('new', title);
+    expect(node.title).toBe(title);
+    const next = insertWorkflowNode(design, 'in', node, language);
+    expect(next.nodes.at(-1)?.title).toBe(title);
+    expect(next.links.at(-1)?.title).toBe('Continue');
+  }
+});
+
+it('produces structural errors in the current language directly from the shared editor', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const node = createWorkflowApprovalNode('new', '原文');
+  expect(() => insertWorkflowNode(design, '', node, language)).toThrow('Choose a route for the new node');
+  expect(() => insertWorkflowBranch(design, '', 'b', language)).toThrow('Choose a route for the new branch');
+  expect(() => insertWorkflowNode(design, 'in', { ...node, nodeKey: 'approve' }, language)).toThrow(
+    'The node key already exists',
+  );
+  expect(() => appendWorkflowBranchPath(design, 'missing', 'b', language)).toThrow(
+    'The branch must have a valid paired join',
+  );
+  expect(() => removeWorkflowBranch(design, 'missing', language)).toThrow(
+    'The branch must have a valid paired join',
+  );
+  expect(() => removeWorkflowNode(design, 'start', language)).toThrow('Start and end nodes must be retained');
+  expect(() => updateWorkflowRoute(design, 'missing', {}, language)).toThrow('The route does not exist');
+  language.setLanguage('zh-CN');
+  expect(() => insertWorkflowNode(design, '', node, language)).toThrow('请选择需要插入节点的路径');
+});
+
+it('creates initial defaults using the supplied language', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const next = createWorkflowDesign(true, language);
+  expect(next.nodes.map((node) => node.title)).toEqual(['Submit', 'Approval', 'Approval completed', 'Done']);
+  expect(next.links.every((route) => route.title === 'Continue')).toBe(true);
 });
