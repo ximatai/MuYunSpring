@@ -110,8 +110,10 @@ private Long sourceFileSize;
 
 `FileReceptionClient` 统一承接 MuYunFileServer 接收任务的创建、查询、对象枚举、本地文件流式写入、清单确认与取消。
 这是供已授权业务服务或后台作业调用的门面，不是浏览器上传入口，也不新增平台接收任务表。
-开启已有 FileServer 配置后，再显式配置 `muyun.file-transfer.muyun-fileserver.reception.enabled=true` 和
-`reception.service-token`；接收服务凭据与 public API 的签名密钥分开配置，不向客户端交付。
+公开签名访问由 `muyun.file-transfer.muyun-fileserver.enabled=true` 启用，要求 `base-url`、`issuer` 和 `secret`。
+内部接收独立由 `muyun.file-transfer.muyun-fileserver.reception.enabled=true` 启用，要求接收地址和
+`reception.service-token`；只使用接收时无需启用公开签名访问或配置其地址、issuer、secret。两个开关均默认关闭，关闭公开访问不会关闭已显式启用的接收。
+接收服务凭据与 public API 的签名密钥分开配置，不向客户端交付。
 `reception.request-timeout` 默认 60 秒，覆盖完整响应正文；`reception.max-response-bytes` 默认 2 MiB。
 接收地址由 `reception.base-url` 独立配置，未配置时沿用 `base-url`，兼容单入口部署。内外网分离部署必须将 `reception.base-url` 指向受信内部接收入口；`base-url` 继续指向浏览器可达的签名 public API，内部接收地址和服务令牌不会进入浏览器票据。不得为适配接收客户端而公开 internal API。两种地址均按服务根路径配置，客户端追加对应 API 路径；禁止重定向，错误不保留上游正文、凭据或底层 cause。
 

@@ -297,13 +297,61 @@ class MuYunFileServerReceptionClientTest {
         assertThat(requests).isEmpty();
     }
 
+    @Test void receptionOnlyWorksWithoutPublicAddressOrSigningCredentials() {
+        var prefix = "muyun.file-transfer.muyun-fileserver.";
+        var runner = new ApplicationContextRunner().withUserConfiguration(MuYunFileServerTransferConfiguration.class)
+                .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withPropertyValues(prefix + "reception.enabled=true",
+                        prefix + "reception.base-url=" + properties.getBaseUrl(),
+                        prefix + "reception.service-token=private-reception-service-token");
+        for (String enabled : List.of("", prefix + "enabled=false")) {
+            var configured = enabled.isEmpty() ? runner : runner.withPropertyValues(enabled);
+            configured.run(context -> {
+                assertThat(context).hasNotFailed().hasSingleBean(FileReceptionClient.class)
+                        .doesNotHaveBean(net.ximatai.muyun.spring.platform.attachment.FileTransferAccessService.class)
+                        .doesNotHaveBean(net.ximatai.muyun.spring.platform.attachment.FileTransferClient.class);
+                try (var ignored = CurrentUserContext.use(CurrentUser.tenantUser("user-a", "A", "tenant-a"))) {
+                    assertThat(context.getBean(FileReceptionClient.class).create(request()).state())
+                            .isEqualTo(FileReceptionClient.State.OPEN);
+                }
+            });
+        }
+        assertThat(requests).hasSize(2).allSatisfy(r -> {
+            assertThat(r.tenant()).isEqualTo("tenant-a");
+            assertThat(r.bearer()).isEqualTo("Bearer private-reception-service-token");
+        });
+    }
+
+    @Test void disabledAdaptersNeedNoConfigurationAndReceptionStillValidatesItsOwnConfiguration() {
+        var prefix = "muyun.file-transfer.muyun-fileserver.";
+        var runner = new ApplicationContextRunner().withUserConfiguration(MuYunFileServerTransferConfiguration.class)
+                .withBean(ObjectMapper.class, ObjectMapper::new);
+        runner.run(context -> assertThat(context).hasNotFailed().doesNotHaveBean(FileReceptionClient.class)
+                .doesNotHaveBean(net.ximatai.muyun.spring.platform.attachment.FileTransferAccessService.class)
+                .doesNotHaveBean(net.ximatai.muyun.spring.platform.attachment.FileTransferClient.class));
+        runner.withPropertyValues(prefix + "reception.enabled=true",
+                        prefix + "reception.service-token=private-reception-service-token")
+                .run(context -> assertThat(context).hasFailed());
+        runner.withPropertyValues(prefix + "reception.enabled=true",
+                        prefix + "reception.base-url=" + properties.getBaseUrl())
+                .run(context -> assertThat(context).hasFailed());
+        runner.withPropertyValues(prefix + "enabled=true")
+                .run(context -> assertThat(context).hasFailed());
+        var replacement = org.mockito.Mockito.mock(FileReceptionClient.class);
+        runner.withPropertyValues(prefix + "reception.enabled=true")
+                .withBean(FileReceptionClient.class, () -> replacement)
+                .run(context -> assertThat(context.getBean(FileReceptionClient.class)).isSameAs(replacement));
+    }
+
     @Test void assemblyIsSeparatelyOptInAndSupportsHostOverride() {
         var runner = new ApplicationContextRunner().withUserConfiguration(MuYunFileServerTransferConfiguration.class)
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .withPropertyValues("muyun.file-transfer.muyun-fileserver.enabled=true",
                         "muyun.file-transfer.muyun-fileserver.base-url=" + properties.getBaseUrl(),
                         "muyun.file-transfer.muyun-fileserver.issuer=test", "muyun.file-transfer.muyun-fileserver.secret=test");
-        runner.run(context -> assertThat(context).doesNotHaveBean(FileReceptionClient.class));
+        runner.run(context -> assertThat(context).hasNotFailed().doesNotHaveBean(FileReceptionClient.class)
+                .hasSingleBean(net.ximatai.muyun.spring.platform.attachment.FileTransferAccessService.class)
+                .hasSingleBean(net.ximatai.muyun.spring.platform.attachment.FileTransferClient.class));
         var enabled = runner.withPropertyValues("muyun.file-transfer.muyun-fileserver.reception.enabled=true",
                 "muyun.file-transfer.muyun-fileserver.reception.service-token=private-reception-service-token");
         enabled.run(context -> assertThat(context).hasSingleBean(FileReceptionClient.class));

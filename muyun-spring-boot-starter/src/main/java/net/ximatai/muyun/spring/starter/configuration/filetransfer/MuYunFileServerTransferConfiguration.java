@@ -17,9 +17,9 @@ import java.net.http.HttpClient;
 /** Registers the official FileServer adapter only when an application explicitly enables it. */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(MuYunFileServerTransferProperties.class)
-@ConditionalOnProperty(prefix = "muyun.file-transfer.muyun-fileserver", name = "enabled", havingValue = "true")
 public class MuYunFileServerTransferConfiguration {
     @Bean
+    @ConditionalOnProperty(prefix = "muyun.file-transfer.muyun-fileserver", name = "enabled", havingValue = "true")
     @ConditionalOnMissingBean(FileTransferAccessService.class)
     MuYunFileServerTransferAccessService muYunFileServerTransferAccessService(
             MuYunFileServerTransferProperties properties,
@@ -28,6 +28,7 @@ public class MuYunFileServerTransferConfiguration {
     }
 
     @Bean
+    @ConditionalOnProperty(prefix = "muyun.file-transfer.muyun-fileserver", name = "enabled", havingValue = "true")
     @ConditionalOnBean(MuYunFileServerTransferAccessService.class)
     @ConditionalOnMissingBean(FileTransferClient.class)
     FileTransferClient fileTransferClient(MuYunFileServerTransferAccessService accessService,

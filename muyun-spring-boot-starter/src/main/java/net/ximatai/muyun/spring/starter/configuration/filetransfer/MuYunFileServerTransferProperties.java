@@ -8,6 +8,7 @@ import java.time.Duration;
 /** External configuration for the official MuYunFileServer transport adapter. */
 @ConfigurationProperties("muyun.file-transfer.muyun-fileserver")
 public class MuYunFileServerTransferProperties {
+    /** Enables public signed file access independently of privileged reception. */
     private boolean enabled;
     private URI baseUrl;
     private String issuer;
