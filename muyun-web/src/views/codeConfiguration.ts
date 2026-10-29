@@ -92,6 +92,14 @@ export interface CodeSegment {
   sortOrder: number;
   mappings: CodeMapping[];
 }
+/** Check source references against the current catalog without evaluating formulas. */
+export function codeSegmentSourcesVisible(segment: CodeSegment, sources: ReadonlySet<string>): boolean {
+  return (
+    (!segment.sourceRef || sources.has(segment.sourceRef)) &&
+    [...(segment.formulaExpr?.matchAll(/\{([^{}]+)\}/g) ?? [])].every((match) => sources.has(match[1]!))
+  );
+}
+
 export interface CodeSequencePolicy {
   id?: string;
   version?: number;
