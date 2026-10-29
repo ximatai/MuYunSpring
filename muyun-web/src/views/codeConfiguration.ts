@@ -327,15 +327,50 @@ export function createCodeConfigurationClient(
         }),
       );
     },
-    async save(rule: CodeRule) {
+    async save(rule: CodeRule, requestId?: string) {
       return actionResultData(
         await http.request<CodeRule>({
           method: 'POST',
-          path: root + '/saveTree',
+          path: requestId ? `${root}/save-requests/${encodeURIComponent(requestId)}` : root + '/saveTree',
           body: prepareCodeRule(rule, language),
         }),
       );
     },
+    view: (id: string) => http.request<CodeRule>({ path: `${root}/viewTree/${encodeURIComponent(id)}` }),
+    receipt: (reference: {
+      requestId: string;
+      moduleAlias: string;
+      entityAlias: string;
+      fieldName: string;
+    }) =>
+      http.request<{
+        committed: boolean;
+        cancelled: boolean;
+        ruleId: string | null;
+        savedVersion: number | null;
+      }>({
+        path: `${root}/save-requests/${encodeURIComponent(reference.requestId)}?moduleAlias=${encodeURIComponent(reference.moduleAlias)}&entityAlias=${encodeURIComponent(reference.entityAlias)}&fieldName=${encodeURIComponent(reference.fieldName)}`,
+      }),
+    abandon: (reference: {
+      requestId: string;
+      moduleAlias: string;
+      entityAlias: string;
+      fieldName: string;
+    }) =>
+      http.request<{
+        committed: boolean;
+        cancelled: boolean;
+        ruleId: string | null;
+        savedVersion: number | null;
+      }>({
+        method: 'POST',
+        path: `${root}/save-requests/${encodeURIComponent(reference.requestId)}/abandon`,
+        body: {
+          moduleAlias: reference.moduleAlias,
+          entityAlias: reference.entityAlias,
+          fieldName: reference.fieldName,
+        },
+      }),
     async preview(
       rule: CodeRule,
       context: Record<string, unknown>,

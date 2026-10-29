@@ -58,7 +58,7 @@ it.each([
     http: {
       async request(options: HttpRequestOptions) {
         paths.push(options.path);
-        if (options.path.endsWith('/saveTree')) {
+        if (/\/save-requests\/[^/?]+$/.test(options.path)) {
           const saved = options.body as typeof rule;
           if (saved.enabled) configured = true;
           return { ...saved, id: 'rule', version: 1 };
