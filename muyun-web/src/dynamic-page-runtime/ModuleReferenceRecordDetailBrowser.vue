@@ -6,6 +6,7 @@ import {
   createReferenceRecordDetailBrowser,
   type ReferenceRecordDetailBrowserState,
   type ReferenceRecordDetailMutation,
+  type ReferenceRecordOpenResult,
 } from '@muyun/platform-components';
 import ModulePageHost from './ModulePageHost.vue';
 
@@ -30,6 +31,7 @@ const props = withDefaults(
 );
 const emit = defineEmits<{
   'record-change': [mutation: ReferenceRecordDetailMutation];
+  'open-failed': [result: Extract<ReferenceRecordOpenResult, { status: 'rejected' }>];
   'interaction-state-change': [state: { editing: boolean; busy: boolean; dirty?: boolean }];
 }>();
 const browser = props.browser ?? createReferenceRecordDetailBrowser(requireHttp(props.http));
@@ -95,6 +97,7 @@ const presentation = computed(() => {
     :inline-anchor="presentation.renderMode === 'inline'"
     :scope="presentation.scope"
     @record-change="emit('record-change', $event)"
+    @open-failed="emit('open-failed', $event)"
   >
     <slot />
     <template #full-surface="{ context, record, reportMutation }">

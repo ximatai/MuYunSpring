@@ -31,6 +31,26 @@ export type ReferenceRecordDetailMutation = {
   record?: QueryListRecord;
 };
 
+/** `loaded` reports data readiness, not a DOM visibility or animation acknowledgement. */
+export type ReferenceRecordOpenResult =
+  | { status: 'loaded' }
+  | {
+      status: 'rejected';
+      reason:
+        | 'missing-host'
+        | 'invalid-target'
+        | 'access-denied'
+        | 'busy'
+        | 'leave-blocked'
+        | 'superseded'
+        | 'not-found'
+        | 'load-failed';
+    };
+
+export type ReferenceRecordOpenCheck = () =>
+  | Extract<ReferenceRecordOpenResult, { status: 'rejected' }>
+  | undefined;
+
 export interface ReferenceRecordDetailBrowser {
   revision: { value: number };
   active: { value: ActiveReferenceRecord | undefined };
@@ -38,7 +58,9 @@ export interface ReferenceRecordDetailBrowser {
   fields: { value: Map<string, RecordFormFieldDescriptor> };
   title: { value: string };
   canBrowse(targetModuleAlias: string, recordId: string): boolean;
-  open(targetModuleAlias: string, recordId: string): Promise<void>;
+  open(targetModuleAlias: string, recordId: string): Promise<ReferenceRecordOpenResult>;
+  /** Presentation adapters register readiness here so every open entry uses the same gate. */
+  setBeforeOpen(check: ReferenceRecordOpenCheck): () => void;
   /** Registers the owning full surface's leave authority. */
   setBeforeLeave(guard: () => boolean | Promise<boolean>): () => void;
   confirmLeave(): boolean | Promise<boolean>;
@@ -65,6 +87,14 @@ export function createReferenceRecordDetailBrowser(
   let requestRevision = 0;
   let navigationRevision = 0;
   let pendingLeave: Promise<boolean> | undefined;
+  let beforeOpen: ReferenceRecordOpenCheck | undefined;
+  let presentationBound = false;
+  const checkBeforeOpen: ReferenceRecordOpenCheck = () =>
+    beforeOpen
+      ? beforeOpen()
+      : presentationBound
+        ? { status: 'rejected', reason: 'missing-host' }
+        : undefined;
   let beforeLeave: (() => boolean | Promise<boolean>) | undefined;
   const activeContext = computed(() => {
     const current = active.value;
@@ -119,18 +149,28 @@ export function createReferenceRecordDetailBrowser(
     pendingLeave = pending;
     return pending;
   };
-  const transition = (commit: () => void | Promise<void>) => {
+  const transition = (
+    commit: () => void | Promise<void>,
+    reject?: (reason: 'leave-blocked' | 'superseded' | 'busy') => void,
+  ) => {
     const navigation = ++navigationRevision;
     const request = requestRevision;
     const finish = (allowed: boolean) => {
-      if (allowed && navigation === navigationRevision && request === requestRevision && !active.value?.busy)
-        return commit();
+      if (navigation !== navigationRevision || request !== requestRevision) return reject?.('superseded');
+      if (active.value?.busy) return reject?.('busy');
+      if (!allowed) return reject?.('leave-blocked');
+      return commit();
     };
     try {
       const allowed = confirmLeave();
-      return typeof allowed === 'boolean' ? finish(allowed) : allowed.then(finish, () => undefined);
+      return typeof allowed === 'boolean'
+        ? finish(allowed)
+        : allowed.then(finish, () => {
+            reject?.('leave-blocked');
+          });
     } catch {
       // Failed leave confirmations preserve the current record and its draft.
+      reject?.('leave-blocked');
     }
   };
   const close = () =>
@@ -144,56 +184,73 @@ export function createReferenceRecordDetailBrowser(
     requestRevision += 1;
     active.value = undefined;
   };
-  const load = async (targetModuleAlias: string, recordId: string) => {
+  const load = async (targetModuleAlias: string, recordId: string): Promise<ReferenceRecordOpenResult> => {
     const currentRequestRevision = ++requestRevision;
+    const superseded = (): ReferenceRecordOpenResult => ({ status: 'rejected', reason: 'superseded' });
     active.value = { targetModuleAlias, recordId, loading: true, failed: false };
     const context = contextFor(targetModuleAlias);
     try {
       await context.runtime.load();
-      if (currentRequestRevision !== requestRevision) return;
+      if (currentRequestRevision !== requestRevision) return superseded();
       accessByModule.set(targetModuleAlias, 'granted');
       revision.value += 1;
     } catch (cause) {
-      if (currentRequestRevision !== requestRevision) return;
+      if (currentRequestRevision !== requestRevision) return superseded();
       if (statusOf(cause) === 403) {
         accessByModule.set(targetModuleAlias, 'denied');
         revision.value += 1;
         active.value = undefined;
-        return;
+        return { status: 'rejected', reason: 'access-denied' };
       }
       active.value = { targetModuleAlias, recordId, loading: false, failed: true, failureKind: 'temporary' };
-      return;
+      return { status: 'rejected', reason: 'load-failed' };
     }
     try {
       const record = await context.crud.view(recordId);
-      if (currentRequestRevision !== requestRevision) return;
+      if (currentRequestRevision !== requestRevision) return superseded();
       active.value = { targetModuleAlias, recordId, record, loading: false, failed: false };
+      return { status: 'loaded' };
     } catch (cause) {
-      if (currentRequestRevision !== requestRevision) return;
+      if (currentRequestRevision !== requestRevision) return superseded();
       if (statusOf(cause) === 403) {
         deniedRecordKeys.add(recordKey(targetModuleAlias, recordId));
         revision.value += 1;
         active.value = undefined;
-        return;
+        return { status: 'rejected', reason: 'access-denied' };
       }
+      const notFound = statusOf(cause) === 404;
       active.value = {
         targetModuleAlias,
         recordId,
         loading: false,
         failed: true,
-        failureKind: statusOf(cause) === 404 ? 'notFound' : 'temporary',
+        failureKind: notFound ? 'notFound' : 'temporary',
       };
+      return { status: 'rejected', reason: notFound ? 'not-found' : 'load-failed' };
     }
   };
-  const open = async (targetModuleAlias: string, recordId: string) => {
+  const open = async (targetModuleAlias: string, recordId: string): Promise<ReferenceRecordOpenResult> => {
+    if (!targetModuleAlias || !recordId) return { status: 'rejected', reason: 'invalid-target' };
     if (
-      !targetModuleAlias ||
-      !recordId ||
       accessByModule.get(targetModuleAlias) === 'denied' ||
       deniedRecordKeys.has(recordKey(targetModuleAlias, recordId))
     )
-      return;
-    await transition(() => load(targetModuleAlias, recordId));
+      return { status: 'rejected', reason: 'access-denied' };
+    const unavailable = checkBeforeOpen();
+    if (unavailable) return unavailable;
+    if (active.value?.busy) return { status: 'rejected', reason: 'busy' };
+    let result: ReferenceRecordOpenResult = { status: 'rejected', reason: 'leave-blocked' };
+    await transition(
+      async () => {
+        // A leave confirmation or data request may outlive its presentation host.
+        result = checkBeforeOpen() ?? (await load(targetModuleAlias, recordId));
+        if (result.status === 'loaded') result = checkBeforeOpen() ?? result;
+      },
+      (reason) => {
+        result = { status: 'rejected', reason };
+      },
+    );
+    return result;
   };
   return {
     revision,
@@ -205,6 +262,13 @@ export function createReferenceRecordDetailBrowser(
       accessByModule.get(targetModuleAlias) !== 'denied' &&
       !deniedRecordKeys.has(recordKey(targetModuleAlias, recordId)),
     open,
+    setBeforeOpen(check) {
+      presentationBound = true;
+      beforeOpen = check;
+      return () => {
+        if (beforeOpen === check) beforeOpen = undefined;
+      };
+    },
     confirmLeave,
     setBeforeLeave(guard) {
       pendingLeave = undefined;

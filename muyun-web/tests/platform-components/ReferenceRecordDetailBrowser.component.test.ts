@@ -1,6 +1,7 @@
+import { sidePanelHostKey } from '@/vue-ui-antdv/components/sidePanelHost';
 /* eslint-disable vue/one-component-per-file -- Local slot fixtures cover distinct reference-field layouts. */
 import { flushPromises, mount } from '@vue/test-utils';
-import { defineComponent, h, nextTick } from 'vue';
+import { defineComponent, h, nextTick, ref } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { AppError, type HttpClient } from '@/web-core';
 import ReferenceRecordDetailBrowser from '@/platform-components/ReferenceRecordDetailBrowser.vue';
@@ -72,6 +73,7 @@ describe('ReferenceRecordDetailBrowser', () => {
           ...(fullSurface ? { 'full-surface': () => h('p', '完整详情') } : {}),
         },
         global: {
+          provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
           stubs: {
             RecordDetailDrawer: {
               name: 'RecordDetailDrawer',
@@ -122,6 +124,7 @@ describe('ReferenceRecordDetailBrowser', () => {
       props: { http: { request } as unknown as HttpClient },
       slots: { default: ReferenceField },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: { template: '<aside><slot /></aside>' },
           UiModal: { template: '<div />' },
@@ -149,6 +152,7 @@ describe('ReferenceRecordDetailBrowser', () => {
       props: { http },
       slots: { default: ReferenceField },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: { template: '<aside><slot /></aside>' },
           RecordPanelState: { props: ['description'], template: '<p>{{ description }}</p>' },
@@ -178,6 +182,7 @@ describe('ReferenceRecordDetailBrowser', () => {
       props: { http },
       slots: { default: ReferenceField },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: { template: '<aside><slot /></aside>' },
           RecordPanelState: { template: '<p />' },
@@ -229,7 +234,10 @@ describe('ReferenceRecordDetailBrowser', () => {
             '保存',
           ),
       },
-      global: { stubs: { RecordDetailDrawer: { template: '<aside><slot /></aside>' } } },
+      global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
+        stubs: { RecordDetailDrawer: { template: '<aside><slot /></aside>' } },
+      },
     });
 
     await wrapper.get('button[title="查看 平台管理员"]').trigger('click');
@@ -256,7 +264,10 @@ describe('ReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ReferenceRecordDetailBrowser, {
       props: { http },
       slots: { default: ReferenceField },
-      global: { stubs: { RecordDetailDrawer: { template: '<aside><slot /></aside>' } } },
+      global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
+        stubs: { RecordDetailDrawer: { template: '<aside><slot /></aside>' } },
+      },
     });
 
     await wrapper.get('button').trigger('click');
@@ -279,6 +290,7 @@ describe('ReferenceRecordDetailBrowser', () => {
       props: { http },
       slots: { default: TwoReferenceFields },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: { template: '<aside><slot /></aside>' },
           RecordDetailFields: { props: ['record'], template: '<p>{{ record.title }}</p>' },
@@ -309,7 +321,10 @@ describe('ReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ReferenceRecordDetailBrowser, {
       props: { http },
       slots: { default: ReferenceField },
-      global: { stubs: { RecordDetailDrawer: { template: '<aside><slot /></aside>' } } },
+      global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
+        stubs: { RecordDetailDrawer: { template: '<aside><slot /></aside>' } },
+      },
     });
 
     await wrapper.get('button').trigger('click');
@@ -365,6 +380,7 @@ describe('ReferenceRecordDetailBrowser', () => {
       props: { http },
       slots: { default: TwoReferenceFields },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: { template: '<aside><slot /></aside>' },
           RecordDetailFields: { props: ['record'], template: '<p>{{ record.title }}</p>' },
@@ -398,7 +414,10 @@ describe('ReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ReferenceRecordDetailBrowser, {
       props: { http: { request } as HttpClient },
       slots: { default: ReferenceField },
-      global: { stubs: { RecordDetailDrawer: { template: '<aside><slot /></aside>' } } },
+      global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
+        stubs: { RecordDetailDrawer: { template: '<aside><slot /></aside>' } },
+      },
     });
 
     await wrapper.get('button').trigger('click');
@@ -427,6 +446,7 @@ describe('ReferenceRecordDetailBrowser', () => {
       props: { http },
       slots: { default: ReferenceField },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: { template: '<aside><slot /></aside>' },
           RecordPanelState: { props: ['description'], template: '<p>{{ description }}</p>' },
@@ -454,6 +474,7 @@ describe('ReferenceRecordDetailBrowser', () => {
       props: { http, inlineAnchor: true },
       slots: { default: ReferenceField },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           ADrawer: {
             name: 'ADrawer',
@@ -486,6 +507,7 @@ describe('ReferenceRecordDetailBrowser', () => {
       props: { http, scope: 'viewport' },
       slots: { default: ReferenceField },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           UiSidePanel: {
             name: 'UiSidePanel',
@@ -521,6 +543,7 @@ describe('ReferenceRecordDetailBrowser', () => {
       props: { http },
       slots: { default: ReferenceField },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: { template: '<aside><slot /></aside>' },
           RecordPanelState: { props: ['description'], template: '<p>{{ description }}</p>' },
@@ -551,7 +574,10 @@ describe('ReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ReferenceRecordDetailBrowser, {
       props: { http },
       slots: { default: ReferenceField },
-      global: { stubs: { RecordDetailDrawer: { template: '<aside><slot /></aside>' } } },
+      global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
+        stubs: { RecordDetailDrawer: { template: '<aside><slot /></aside>' } },
+      },
     });
 
     await wrapper.get('button').trigger('click');

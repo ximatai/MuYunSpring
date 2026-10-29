@@ -57,6 +57,8 @@ export {
 export type {
   ReferenceRecordDetailBrowser as ReferenceRecordDetailBrowserState,
   ReferenceRecordDetailMutation,
+  ReferenceRecordOpenResult,
+  ReferenceRecordOpenCheck,
 } from './referenceRecordDetailBrowser';
 export type { DrawerPromotion } from './drawerPromotion';
 export { default as RecordExternalChangeNotice } from './RecordExternalChangeNotice.vue';

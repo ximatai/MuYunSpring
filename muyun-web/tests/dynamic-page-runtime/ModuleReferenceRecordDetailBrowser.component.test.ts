@@ -1,5 +1,6 @@
+import { sidePanelHostKey } from '@/vue-ui-antdv/components/sidePanelHost';
 import { flushPromises, mount } from '@vue/test-utils';
-import { defineComponent, h } from 'vue';
+import { defineComponent, h, ref } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as platformComponents from '@muyun/platform-components';
 import ModuleReferenceRecordDetailBrowser from '@/dynamic-page-runtime/ModuleReferenceRecordDetailBrowser.vue';
@@ -67,7 +68,10 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
             },
           ),
       },
-      global: { stubs: { RecordDetailDrawer: DrawerLayoutHarness } },
+      global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
+        stubs: { RecordDetailDrawer: DrawerLayoutHarness },
+      },
     });
 
     await wrapper.get('button').trigger('click');
@@ -173,6 +177,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
       props: { http, inlineAnchor: true },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: DrawerLayoutHarness,
           RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
@@ -389,6 +394,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
       props: { http, inlineAnchor: true },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: DrawerLayoutHarness,
           RecordDetailFields: true,
@@ -511,6 +517,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
       props: { browser, inlineAnchor: true },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: DrawerLayoutHarness,
           RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
@@ -602,6 +609,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
       props: { browser, inlineAnchor: true },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: DrawerLayoutHarness,
           RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
@@ -700,6 +708,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
       const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
         props: { browser, inlineAnchor: true },
         global: {
+          provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
           stubs: {
             RecordDetailDrawer: DrawerLayoutHarness,
             RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
@@ -857,7 +866,10 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
       const browser = createReferenceRecordDetailBrowser(http);
       const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
         props: { browser, inlineAnchor: true },
-        global: { stubs: { RecordDetailDrawer: DrawerLayoutHarness } },
+        global: {
+          provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
+          stubs: { RecordDetailDrawer: DrawerLayoutHarness },
+        },
       });
       browser.open('purchase.supplier', 'supplier-1');
       await flush();
@@ -934,6 +946,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
       props: { browser, inlineAnchor: true },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: DrawerLayoutHarness,
           RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
@@ -1036,6 +1049,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
       props: { browser, inlineAnchor: false },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: DrawerLayoutHarness,
           RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
@@ -1162,6 +1176,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
         },
       },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordQueryListPanel: { name: 'RecordQueryListPanel', template: '<section />' },
           RecordDetailDrawer: { template: '<aside><slot /></aside>' },
@@ -1214,7 +1229,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
 
 it('keeps the consumer openRecord facade bound to the same browser state', () => {
   const browser = createReferenceRecordDetailBrowser({ request: async () => ({}) as never });
-  const wrapper = mount(ModuleReferenceRecordDetailBrowser, { props: { browser } });
+  const wrapper = mount(ModuleReferenceRecordDetailBrowser, { props: { browser, inlineAnchor: true } });
   try {
     expect(typeof wrapper.vm.openRecord).toBe('function');
     wrapper.vm.openRecord('crm.customer', 'record-1');

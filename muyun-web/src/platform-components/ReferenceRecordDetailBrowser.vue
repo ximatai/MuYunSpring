@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useLanguageContext, type HttpClient } from '@muyun/web-core';
 import { onUnmounted, useSlots } from 'vue';
+import { useUiSidePanelAvailability } from '@muyun/vue-ui-antdv';
 
 import type { RecordFormRecord } from './recordFormFieldModel';
 import RecordDetailDrawer from './RecordDetailDrawer.vue';
@@ -10,6 +11,7 @@ import {
   createReferenceRecordDetailBrowser,
   provideReferenceRecordDetailBrowser,
   type ReferenceRecordDetailMutation,
+  type ReferenceRecordOpenResult,
   type ReferenceRecordDetailBrowser as ReferenceRecordDetailBrowserState,
 } from './referenceRecordDetailBrowser';
 
@@ -34,7 +36,20 @@ onUnmounted(browser.dispose);
 
 const emit = defineEmits<{
   'record-change': [mutation: ReferenceRecordDetailMutation];
+  'open-failed': [result: Extract<ReferenceRecordOpenResult, { status: 'rejected' }>];
 }>();
+
+const available = useUiSidePanelAvailability(
+  () => (props.inlineAnchor ? 'inline' : 'portal'),
+  () => props.scope,
+);
+const unregisterOpenCheck = browser.setBeforeOpen(() => {
+  if (available.value) return;
+  const result = { status: 'rejected', reason: 'missing-host' } as const;
+  emit('open-failed', result);
+  return result;
+});
+onUnmounted(unregisterOpenCheck);
 
 function reportMutation(mutation: ReferenceRecordDetailMutation) {
   const active = browser.active.value;
