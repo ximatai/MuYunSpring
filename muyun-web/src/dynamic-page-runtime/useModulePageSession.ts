@@ -572,6 +572,8 @@ export function useModulePageSession(
   const localEditFormValid = ref(true);
   const recordOnlyAuthorizing = ref(false);
   let recordOnlySession = 0;
+  let recordRefreshRevision = 0;
+  const pendingRecordOnlyRefresh = shallowRef<{ recordId: string; session: number }>();
   const recordDraftValidityRevision = ref(0);
   function updateMainFormValidity(validity: { valid: boolean; pending?: boolean }) {
     recordDraftValidityRevision.value += 1;
@@ -1176,6 +1178,17 @@ export function useModulePageSession(
       localEditOpen.value ||
       referenceRecordDetailInteraction.value.editing ||
       workflowInteraction.value.editing,
+  );
+  watch(
+    [
+      pendingRecordOnlyRefresh,
+      interactionBusy,
+      interactionEditing,
+      detailLoading,
+      detailOpen,
+      () => selectedRecord.value?.id,
+    ],
+    flushRecordOnlyRefresh,
   );
   useModuleRecordDataChanges({
     moduleAlias: context.moduleAlias,
@@ -4803,13 +4816,16 @@ export function useModulePageSession(
   ): Promise<{ record?: QueryListRecord; failure?: unknown }> {
     const session = recordOnlySession;
     const mode = editorMode.value;
-    const draft = editingRecord.value;
+    const formSession = formSessionKey.value;
+    const revision = ++recordRefreshRevision;
     const current = () =>
       !disposed &&
+      detailOpen.value &&
       session === recordOnlySession &&
+      revision === recordRefreshRevision &&
       String(selectedRecord.value?.id) === recordId &&
       editorMode.value === mode &&
-      editingRecord.value === draft;
+      formSessionKey.value === formSession;
     try {
       const refreshed = await context.crud.view(recordId);
       if (props.recordOnly && !current()) return {};
@@ -5193,8 +5209,10 @@ export function useModulePageSession(
     // must refresh the target and notify their source through the same lifecycle.
     if (props.recordOnly) {
       const record = selectedRecord.value;
-      if (record && editorMode.value === 'view' && !interactionEditing.value && !interactionBusy.value)
-        void reportRecordOnlyRefresh(record);
+      if (record?.id != null && detailOpen.value) {
+        pendingRecordOnlyRefresh.value = { recordId: String(record.id), session: recordOnlySession };
+        flushRecordOnlyRefresh();
+      }
       return;
     }
     if (workflowInteraction.value.editing || workflowInteraction.value.busy) return;
@@ -5207,6 +5225,31 @@ export function useModulePageSession(
       return;
     }
     reloadKey.value += 1;
+  }
+
+  function flushRecordOnlyRefresh() {
+    const pending = pendingRecordOnlyRefresh.value;
+    if (!pending) return;
+    const record = selectedRecord.value;
+    if (
+      disposed ||
+      !detailOpen.value ||
+      pending.session !== recordOnlySession ||
+      !record ||
+      String(record.id) !== pending.recordId
+    ) {
+      pendingRecordOnlyRefresh.value = undefined;
+      return;
+    }
+    if (
+      editorMode.value !== 'view' ||
+      interactionEditing.value ||
+      interactionBusy.value ||
+      detailLoading.value
+    )
+      return;
+    pendingRecordOnlyRefresh.value = undefined;
+    void reportRecordOnlyRefresh(record);
   }
 
   /** Refreshes a source view after a target mutation without replaying an in-progress source form. */

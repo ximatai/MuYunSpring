@@ -286,6 +286,33 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     expect(wrapper.emitted('record-change')).toHaveLength(changesBeforeReload + 1);
     expect(browser.active.value?.recordId).toBe('supplier-1');
 
+    // Both response orders must retain the latest requested snapshot.
+    for (const latestFirst of [false, true]) {
+      let finishOld!: (record: { id: string; version: number; title: string }) => void;
+      let finishNew!: (record: { id: string; version: number; title: string }) => void;
+      delayedView.response = new Promise((resolve) => {
+        finishOld = resolve;
+      });
+      session.detailSectionContext({ id: 'supplier-1' }).reload();
+      await flush();
+      delayedView.response = new Promise((resolve) => {
+        finishNew = resolve;
+      });
+      session.detailSectionContext({ id: 'supplier-1' }).reload();
+      await flush();
+      const before = wrapper.emitted('record-change')?.length ?? 0;
+      const oldResult = { id: 'supplier-1', version: 3, title: '旧快照' };
+      const newResult = { id: 'supplier-1', version: 4, title: '最新快照' };
+      if (latestFirst) finishNew(newResult);
+      else finishOld(oldResult);
+      await flush();
+      if (latestFirst) finishOld(oldResult);
+      else finishNew(newResult);
+      await flush();
+      expect(browser.active.value?.record).toMatchObject(newResult);
+      expect(wrapper.emitted('record-change')).toHaveLength(before + 1);
+    }
+
     let finishRefresh!: (record: { id: string; version: number; title: string }) => void;
     delayedView.response = new Promise((resolve) => {
       finishRefresh = resolve;
@@ -393,11 +420,18 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     expect(await parent.props('beforeClose')!('close-button')).toBe(false);
     expect(browser.active.value?.recordId).toBe('supplier-1');
     expect(requests).not.toContain('/purchase.supplier/view/supplier-2');
+    const changesBeforeUnlock = wrapper.emitted('record-change')?.length ?? 0;
+    const readsBeforeUnlock = requests.filter((path) => path.includes('/view/')).length;
+    context.refreshList();
+    context.refreshList();
+    await flush();
+    expect(requests.filter((path) => path.includes('/view/'))).toHaveLength(readsBeforeUnlock);
+    expect(wrapper.emitted('record-change') ?? []).toHaveLength(changesBeforeUnlock);
     context.setCloseBlocked(false);
     await flush();
-    context.reload();
     await flush();
-    await flush();
+    expect(requests.filter((path) => path.includes('/view/'))).toHaveLength(readsBeforeUnlock + 1);
+    expect(wrapper.emitted('record-change')).toHaveLength(changesBeforeUnlock + 1);
     expect(wrapper.emitted('record-change')?.at(-1)?.[0]).toMatchObject({
       type: 'saved',
       recordId: 'supplier-1',
