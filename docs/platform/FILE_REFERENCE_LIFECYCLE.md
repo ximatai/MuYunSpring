@@ -113,7 +113,7 @@ private Long sourceFileSize;
 开启已有 FileServer 配置后，再显式配置 `muyun.file-transfer.muyun-fileserver.reception.enabled=true` 和
 `reception.service-token`；接收服务凭据与 public API 的签名密钥分开配置，不向客户端交付。
 `reception.request-timeout` 默认 60 秒，覆盖完整响应正文；`reception.max-response-bytes` 默认 2 MiB。
-地址沿用部署侧 `base-url`，禁止重定向，错误不保留上游正文、凭据或底层 cause。
+接收地址由 `reception.base-url` 独立配置，未配置时沿用 `base-url`，兼容单入口部署。内外网分离部署必须将 `reception.base-url` 指向受信内部接收入口；`base-url` 继续指向浏览器可达的签名 public API，内部接收地址和服务令牌不会进入浏览器票据。不得为适配接收客户端而公开 internal API。两种地址均按服务根路径配置，客户端追加对应 API 路径；禁止重定向，错误不保留上游正文、凭据或底层 cause。
 
 接收门面与公开文件票据每次调用都从 `CurrentUserContext` 读取主体，并优先使用可信 `TenantContext` 的业务租户作为存储范围；系统用户选择业务租户后，文件随该租户隔离，主体身份保持不变。
 普通用户的上下文租户必须与身份租户一致，租户过滤绕过不授予文件跨租户权限。没有租户上下文的非 Web 调用沿用身份租户；系统范围访问必须同时具备系统身份和显式配置的 `system-scope-id`。

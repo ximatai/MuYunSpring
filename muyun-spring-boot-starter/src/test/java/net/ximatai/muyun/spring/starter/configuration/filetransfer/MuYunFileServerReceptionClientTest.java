@@ -245,6 +245,58 @@ class MuYunFileServerReceptionClientTest {
         }
     }
 
+    @Test void internalReceptionAndPublicFileTicketsUseSeparateEndpoints() throws Exception {
+        var publicServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var publicRequests = new CopyOnWriteArrayList<String>();
+        publicServer.createContext("/", exchange -> {
+            publicRequests.add(exchange.getRequestURI().getPath());
+            assertThat(exchange.getRequestHeaders().getFirst("Authorization")).isNull();
+            assertThat(exchange.getRequestHeaders().getFirst("X-Tenant-Id")).isNull();
+            boolean download = exchange.getRequestURI().getPath().equals("/files/api/v1/public/files/file_1/download");
+            exchange.sendResponseHeaders(download ? 200 : 404, -1);
+            exchange.close();
+        });
+        publicServer.start();
+        String publicBase = "http://127.0.0.1:" + publicServer.getAddress().getPort() + "/files";
+        try {
+            new ApplicationContextRunner().withUserConfiguration(MuYunFileServerTransferConfiguration.class)
+                    .withBean(ObjectMapper.class, ObjectMapper::new)
+                    .withPropertyValues("muyun.file-transfer.muyun-fileserver.enabled=true",
+                            "muyun.file-transfer.muyun-fileserver.base-url=" + publicBase,
+                            "muyun.file-transfer.muyun-fileserver.issuer=test",
+                            "muyun.file-transfer.muyun-fileserver.secret=test-public-ticket-key",
+                            "muyun.file-transfer.muyun-fileserver.reception.enabled=true",
+                            "muyun.file-transfer.muyun-fileserver.reception.base-url=" + properties.getBaseUrl() + "/",
+                            "muyun.file-transfer.muyun-fileserver.reception.service-token=private-reception-service-token")
+                    .run(context -> {
+                        assertThat(context).hasNotFailed();
+                        try (var actor = CurrentUserContext.use(CurrentUser.tenantUser("user-a", "A", "tenant-a"))) {
+                            assertThat(context.getBean(FileReceptionClient.class).create(request()).id()).isEqualTo(ID);
+                            var access = context.getBean(net.ximatai.muyun.spring.platform.attachment.FileTransferAccessService.class)
+                                    .issueDownloadAccess("file_1");
+                            assertThat(access.url()).startsWith(publicBase + "/api/v1/public/files/file_1/download?");
+                            assertThat(access.url()).doesNotContain("private-reception-service-token");
+                            try (var content = context.getBean(net.ximatai.muyun.spring.platform.attachment.FileTransferClient.class).openContent("file_1")) {
+                                assertThat(content.read()).isEqualTo(-1);
+                            }
+                        }
+                    });
+            assertThat(publicRequests).containsExactly("/files/api/v1/public/files/file_1/download");
+            assertThat(requests).singleElement().satisfies(r -> {
+                assertThat(r.tenant()).isEqualTo("tenant-a");
+                assertThat(r.bearer()).isEqualTo("Bearer private-reception-service-token");
+            });
+        } finally { publicServer.stop(0); }
+    }
+
+    @Test void invalidExplicitReceptionAddressNeverFallsBackToPublicAddress() {
+        for (String url : List.of("file:///tmp", "http://u:secret@localhost", "http://localhost?secret", "http://localhost#secret", "/relative")) {
+            properties.getReception().setBaseUrl(URI.create(url));
+            assertThatThrownBy(this::client).hasMessage("invalid file reception deployment configuration");
+        }
+        assertThat(requests).isEmpty();
+    }
+
     @Test void assemblyIsSeparatelyOptInAndSupportsHostOverride() {
         var runner = new ApplicationContextRunner().withUserConfiguration(MuYunFileServerTransferConfiguration.class)
                 .withBean(ObjectMapper.class, ObjectMapper::new)

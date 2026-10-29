@@ -31,6 +31,10 @@ public class MuYunFileServerTransferProperties {
     /** Privileged reception access is separately opt-in; never exposed as a browser ticket. */
     public static class Reception {
         private boolean enabled;
+        /** Trusted backend endpoint; defaults to the public base URL for single-endpoint deployments. */
+        private URI baseUrl;
+        public URI getBaseUrl() { return baseUrl; }
+        public void setBaseUrl(URI baseUrl) { this.baseUrl = baseUrl; }
         private String serviceToken;
         private Duration requestTimeout = Duration.ofSeconds(60);
         private int maxResponseBytes = 2 * 1024 * 1024;

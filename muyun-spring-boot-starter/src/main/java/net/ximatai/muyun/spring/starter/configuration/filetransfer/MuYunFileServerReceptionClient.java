@@ -30,8 +30,9 @@ final class MuYunFileServerReceptionClient implements FileReceptionClient, AutoC
     private final HttpClient http;
 
     MuYunFileServerReceptionClient(MuYunFileServerTransferProperties properties, ObjectMapper json) {
-        URI base = properties.getBaseUrl();
         var reception = properties.getReception();
+        URI base = reception != null && reception.getBaseUrl() != null
+                ? reception.getBaseUrl() : properties.getBaseUrl();
         if (base == null || base.getHost() == null || base.getUserInfo() != null
                 || base.getQuery() != null || base.getFragment() != null
                 || !("http".equalsIgnoreCase(base.getScheme()) || "https".equalsIgnoreCase(base.getScheme()))
