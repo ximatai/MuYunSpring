@@ -35,7 +35,7 @@ class WorkflowPublishFacadeTest {
     private final TestWorkflowLinkDefinitionDao linkDefinitionDao = new TestWorkflowLinkDefinitionDao();
     private final WorkflowDesignCompiler compiler = new WorkflowDesignCompiler(new WorkflowConditionService(WorkflowTestSupport.facts()));
     private final WorkflowDesignService designs = new WorkflowDesignService(definitionService, versionService,
-            nodeDefinitionDao, linkDefinitionDao, compiler, org.mockito.Mockito.mock(WorkflowBusinessTaskResolver.class));
+            nodeDefinitionDao, linkDefinitionDao, compiler, org.mockito.Mockito.mock(WorkflowBusinessTaskResolver.class), new WorkflowDesignSaveReceiptService(new TestMemoryDao<>()));
     private final WorkflowPublishFacade facade = new WorkflowPublishFacade(
             definitionService,
             versionService,
@@ -70,6 +70,32 @@ class WorkflowPublishFacadeTest {
         assertThat(action.getBindingAlias()).isEqualTo(withAlias ? "sync" : null);
         assertThat(action.getBindingId()).isEqualTo(definition.getId());
         assertThat(publishedDefinition.getAlias()).isEqualTo(withAlias ? "sync" : null);
+    }
+
+    @Test
+    void designReceiptRetryDoesNotMutateCallerDocumentOrWriteAgain() {
+        moduleService.insert(module("sales.contract"));
+        var definition = definition();
+        definitionService.insert(definition);
+        var version = version(definition.getId(), 1, WorkflowPublishStatus.DRAFT);
+        versionService.insert(version);
+        graph(version.getId());
+        var document = designs.read(definition.getId(), version.getId());
+        String before = compiler.serialize(document);
+        int expected = version.getVersion();
+        String request = java.util.UUID.randomUUID().toString();
+        try (var user = net.ximatai.muyun.spring.common.identity.CurrentUserContext.use(
+                net.ximatai.muyun.spring.common.identity.CurrentUser.systemUser("author", "Author"))) {
+            var saved = designs.save(definition.getId(), version.getId(), expected, document, request);
+            assertThat(compiler.serialize(document)).isEqualTo(before);
+            var retry = designs.save(definition.getId(), version.getId(), expected, document, request);
+            assertThat(retry.getVersion()).isEqualTo(saved.getVersion());
+            assertThat(designs.saveReceipt(definition.getId(), version.getId(), request).savedVersion())
+                    .isEqualTo(saved.getVersion());
+            document.nodes().getFirst().setTitle("Changed command");
+            assertThatThrownBy(() -> designs.save(definition.getId(), version.getId(), expected, document, request))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
     }
 
     @Test

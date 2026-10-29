@@ -70,10 +70,10 @@ class WorkflowSelectionSettingsTest {
             stored.set(copy(draft)); return 1;
         });
         var nodes = mock(WorkflowNodeDefinitionDao.class); var links = mock(WorkflowLinkDefinitionDao.class);
-        var compiler = mock(WorkflowDesignCompiler.class);
+        var compiler = new WorkflowDesignCompiler(new WorkflowConditionService(mock(ModuleRecordFacts.class)));
         when(nodes.query(any(), any(), any(net.ximatai.muyun.database.core.orm.Sort.class))).thenReturn(java.util.List.of());
         when(links.query(any(), any(), any(net.ximatai.muyun.database.core.orm.Sort.class))).thenReturn(java.util.List.of());
-        var service = new WorkflowDesignService(definitions, versions, nodes, links, compiler, mock(WorkflowBusinessTaskResolver.class));
+        var service = new WorkflowDesignService(definitions, versions, nodes, links, compiler, mock(WorkflowBusinessTaskResolver.class), mock(WorkflowDesignSaveReceiptService.class));
         var draft = service.upgrade("definition");
         assertThat(draft.getVersion()).isEqualTo(stored.get().getVersion()).isEqualTo(1);
         assertThatCode(() -> service.save("definition", draft.getId(), draft.getVersion(),
@@ -108,6 +108,6 @@ class WorkflowSelectionSettingsTest {
     private WorkflowDesignService service(WorkflowDefinitionService definitions) {
         return new WorkflowDesignService(definitions,mock(WorkflowVersionService.class),mock(WorkflowNodeDefinitionDao.class),
                 mock(WorkflowLinkDefinitionDao.class),new WorkflowDesignCompiler(new WorkflowConditionService(mock(ModuleRecordFacts.class))),
-                mock(WorkflowBusinessTaskResolver.class));
+                mock(WorkflowBusinessTaskResolver.class), mock(WorkflowDesignSaveReceiptService.class));
     }
 }

@@ -1,7 +1,7 @@
 import { appDataChangeDispatcher } from '@/platform-admin-runtime/realtime';
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h, KeepAlive, ref } from 'vue';
-import { expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   AppError,
   createLanguageContext,
@@ -11,6 +11,9 @@ import {
   type HttpRequestOptions,
 } from '@muyun/web-core';
 import WorkflowConfigurationView from '@/views/WorkflowConfigurationView.vue';
+
+beforeEach(() => sessionStorage.clear());
+afterEach(() => vi.unstubAllGlobals());
 
 vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@muyun/vue-ui-antdv')>()),
@@ -540,6 +543,7 @@ it.each(['lost-response', 'conflict'])(
     let storedVersion = 1;
     let posts = 0;
     const request = vi.fn(async (options: HttpRequestOptions) => {
+      if (options.path.includes('/design-save-receipts/')) return { committed: true, savedVersion: 2 };
       if (options.path.endsWith('/view/definition')) return { id: 'definition', title: '采购审批' };
       if (options.path.endsWith('/context') || options.path.endsWith('/view-context'))
         return { moduleAlias: 'demo.purchase', capabilities: [], actions: [] };
@@ -615,6 +619,110 @@ it.each(['lost-response', 'conflict'])(
     await flushPromises();
     expect(posts).toBe(2);
     expect(wrapper.text()).not.toContain('上次保存未能确认');
+    wrapper.unmount();
+  },
+);
+
+it.each(['committed', 'advanced', 'pending'])(
+  'restores query protection after remount: %s',
+  async (outcome) => {
+    vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) });
+    let saved = false;
+    let cancelled = false;
+    let posts = 0;
+    const request = vi.fn(async (options: HttpRequestOptions) => {
+      if (options.path.endsWith('/view/definition')) return { id: 'definition', title: '流程' };
+      if (options.path.endsWith('/configuration-catalog'))
+        return { tasks: [], queries: [], generations: [], associations: [] };
+      if (options.path.endsWith('/versions/query'))
+        return {
+          records: [
+            {
+              id: 'draft',
+              version: saved && outcome !== 'pending' ? 2 : 1,
+              versionNo: 1,
+              publishStatus: 'draft',
+            },
+          ],
+        };
+      if (options.path.endsWith('/abandon')) {
+        cancelled = true;
+        return { committed: false, cancelled: true, savedVersion: null };
+      }
+      if (options.path.includes('/design-save-receipts/'))
+        return {
+          cancelled,
+          committed: outcome === 'committed',
+          savedVersion: outcome === 'committed' ? 2 : null,
+        };
+      if (options.path.endsWith('/design') && options.method === 'POST') {
+        posts++;
+        saved = true;
+        throw new Error('response lost');
+      }
+      if (options.path.endsWith('/design'))
+        return {
+          nodes: [{ nodeKey: 'approval', nodeType: 'approval', title: '审批' }],
+          links: [],
+          layoutJson: 'server',
+        };
+      return { moduleAlias: 'demo.purchase', capabilities: [], actions: [] };
+    });
+    const context = {
+      moduleAlias: 'platform.workflow.definition',
+      http: { request },
+    } as unknown as ModuleContext<unknown>;
+    const render = () =>
+      mount(ModuleContextProvider, {
+        props: { context },
+        slots: {
+          default: () =>
+            h(WorkflowConfigurationView, { moduleAlias: 'demo.purchase', definitionId: 'definition' }),
+        },
+        global: {
+          stubs: {
+            WorkflowDiagram: true,
+            WorkflowParticipantEditor: true,
+            WorkflowBusinessTaskEditor: true,
+            RecordDetailDrawer: true,
+            AdaptiveHeaderActionBar: true,
+          },
+        },
+      });
+    let wrapper = render();
+    await flushPromises();
+    wrapper.findComponent({ name: 'WorkflowDiagram' }).vm.$emit('layout-change', 'private-unsaved-layout');
+    await flushPromises();
+    wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: 'save' });
+    await flushPromises();
+    expect(posts).toBe(1);
+    expect(JSON.stringify(sessionStorage)).not.toContain('private-unsaved-layout');
+    wrapper.unmount();
+    wrapper = render();
+    await flushPromises();
+    expect(wrapper.text()).toContain('检测到上次保存的查询引用');
+    expect(wrapper.findComponent({ name: 'WorkflowDiagram' }).props('editable')).toBe(false);
+    const button = (text: string) =>
+      wrapper.findAllComponents({ name: 'UiButton' }).find((item) => item.text() === text)!;
+    await button('读取当前版本').trigger('click');
+    await flushPromises();
+    expect(button('保留本地草稿并重新核对').props('disabled')).toBe(true);
+    expect(button('采用当前版本').props('disabled')).toBe(outcome === 'pending');
+    if (outcome !== 'pending') {
+      await button('采用当前版本').trigger('click');
+      await flushPromises();
+      expect(wrapper.findComponent({ name: 'WorkflowDiagram' }).props('editable')).toBe(true);
+      expect(sessionStorage.length).toBe(0);
+    } else {
+      expect(wrapper.text()).toContain('结果仍不确定');
+      await button('终止原请求并核对当前版本').trigger('click');
+      await flushPromises();
+      expect(wrapper.text()).toContain('原请求已终止');
+      expect(button('采用当前版本').props('disabled')).toBe(false);
+      wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: 'save' });
+      await flushPromises();
+    }
+    expect(posts).toBe(1);
     wrapper.unmount();
   },
 );

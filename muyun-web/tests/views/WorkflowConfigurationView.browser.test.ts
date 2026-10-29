@@ -278,6 +278,7 @@ it('keeps save recovery controls reachable in a narrow workspace', async () => {
       return { records: [{ id: 'draft', version: 1, versionNo: 1, publishStatus: 'draft' }] };
     if (call.path.endsWith('/configuration-catalog'))
       return { tasks: [], queries: [], generations: [], associations: [] };
+    if (call.path.includes('/design-save-receipts/')) return { committed: true, savedVersion: 1 };
     if (call.path.endsWith('/design') && call.method === 'POST') throw new Error('lost response');
     if (call.path.endsWith('/design'))
       return {

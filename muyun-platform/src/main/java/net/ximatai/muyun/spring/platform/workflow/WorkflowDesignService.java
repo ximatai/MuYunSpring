@@ -27,16 +27,19 @@ public class WorkflowDesignService {
     private final WorkflowLinkDefinitionDao links;
     private final WorkflowDesignCompiler compiler;
     private final WorkflowBusinessTaskResolver taskSpecifications;
+    private final WorkflowDesignSaveReceiptService receipts;
 
     public WorkflowDesignService(WorkflowDefinitionService definitions, WorkflowVersionService versions,
                                  WorkflowNodeDefinitionDao nodes, WorkflowLinkDefinitionDao links,
-                                 WorkflowDesignCompiler compiler, WorkflowBusinessTaskResolver taskSpecifications) {
+                                 WorkflowDesignCompiler compiler, WorkflowBusinessTaskResolver taskSpecifications,
+                                 WorkflowDesignSaveReceiptService receipts) {
         this.definitions = definitions;
         this.versions = versions;
         this.nodes = nodes;
         this.links = links;
         this.compiler = compiler;
         this.taskSpecifications = taskSpecifications;
+        this.receipts = java.util.Objects.requireNonNull(receipts);
     }
 
     public WorkflowDesignDocument read(String definitionId, String versionId) {
@@ -90,6 +93,34 @@ public class WorkflowDesignService {
 
     @Transactional
     public WorkflowVersion save(String definitionId, String versionId, Integer expectedVersion,
+                                WorkflowDesignDocument document, String requestId) {
+        if (requestId == null) return save(definitionId, versionId, expectedVersion, document);
+        lock(definitionId);
+        requireDefinition(definitionId);
+        requireVersion(definitionId, versionId);
+        // Fingerprint before save assigns persistence identities to the authored nodes and links.
+        String payload = expectedVersion + ":" + compiler.serialize(document);
+        return receipts.execute(requestId, definitionId, versionId, payload,
+                () -> save(definitionId, versionId, expectedVersion, document),
+                () -> requireVersion(definitionId, versionId));
+    }
+
+    @Transactional
+    public WorkflowDesignSaveReceiptService.Result abandonSave(String definitionId, String versionId, String requestId) {
+        lock(definitionId);
+        requireDefinition(definitionId);
+        requireVersion(definitionId, versionId);
+        return receipts.abandon(requestId, definitionId, versionId);
+    }
+
+    public WorkflowDesignSaveReceiptService.Result saveReceipt(String definitionId, String versionId, String requestId) {
+        requireDefinition(definitionId);
+        requireVersion(definitionId, versionId);
+        return receipts.lookup(requestId, definitionId, versionId);
+    }
+
+    @Transactional
+    public WorkflowVersion save(String definitionId, String versionId, Integer expectedVersion,
                                  WorkflowDesignDocument document) {
         lock(definitionId);
         var definition = requireDefinition(definitionId);
@@ -101,6 +132,8 @@ public class WorkflowDesignService {
         if (expectedVersion == null || !expectedVersion.equals(version.getVersion()))
             throw new OptimisticLockException("workflow design version conflict: " + versionId);
         compiler.validate(document, false, Boolean.TRUE.equals(definition.getApprovalEnabled()));
+        // Persistence identities belong to the saved copy, not the caller's retryable command.
+        document = compiler.deserialize(compiler.serialize(document));
         nodes.query(Criteria.of().eq("workflowVersionId", versionId), ALL).forEach(item -> nodes.deleteById(item.getId()));
         links.query(Criteria.of().eq("workflowVersionId", versionId), ALL).forEach(item -> links.deleteById(item.getId()));
         int order = 0;
