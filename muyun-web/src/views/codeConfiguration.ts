@@ -195,10 +195,11 @@ export function codeRuleSupportsRenumbering(rule: CodeRule): boolean {
     )
   );
 }
-export function prepareCodeRule(
+/** Validate the active draft without discarding temporarily inactive editor values. */
+export function validateCodeRuleDraft(
   rule: CodeRule,
   language: LanguageContext = platformLanguageContext,
-): CodeRule {
+): void {
   if (rule.mode !== 'MANUAL') {
     const values = [
       ...rule.segments.map((segment) => segment.length),
@@ -216,6 +217,14 @@ export function prepareCodeRule(
         ),
       );
   }
+}
+
+/** Normalize only at the save/preview boundary, never while editing a candidate. */
+export function prepareCodeRule(
+  rule: CodeRule,
+  language: LanguageContext = platformLanguageContext,
+): CodeRule {
+  validateCodeRuleDraft(rule, language);
   const result = JSON.parse(JSON.stringify(rule)) as CodeRule;
   result.orgScopeId = result.orgScopeType === 'GLOBAL' ? null : result.orgScopeId;
   result.globalDefault = result.orgScopeType === 'GLOBAL';

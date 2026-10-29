@@ -153,11 +153,30 @@ it('allows visible format changes and preserves a human manual-mode candidate du
     });
     expect(page.session.draft.value!.segments[0]!.sourceRef).toBe('department');
     await page.invoke('code-rule.revise-draft', { mode: 'MANUAL' });
-    expect(page.session.draft.value!.segments).toEqual([]);
+    expect(page.session.draft.value!.segments[0]!.sourceRef).toBe('department');
+    const visibleFormat = JSON.stringify(page.session.draft.value!.segments);
+    await page.invoke('code-rule.revise-draft', { title: '保留可见格式' });
+    expect(JSON.stringify(page.session.draft.value!.segments)).toBe(visibleFormat);
     const hidden = { ...newCodeSegment('FIELD_VALUE'), sourceRef: 'password' };
     page.session.draft.value!.segments = [hidden];
     await page.invoke('code-rule.revise-draft', { title: '人工候选保留' });
     expect(page.session.draft.value!.segments).toEqual([hidden]);
+  } finally {
+    page.wrapper.unmount();
+  }
+});
+
+it('keeps inactive sequence policy through unrelated assistant edits and validates active candidates', async () => {
+  const page = harness();
+  try {
+    const policy = JSON.parse(JSON.stringify(page.session.draft.value!.sequencePolicy));
+    page.session.draft.value!.segments = [newCodeSegment()];
+    await page.invoke('code-rule.revise-draft', { title: '保留流水候选' });
+    expect(page.session.draft.value!.sequencePolicy).toEqual(policy);
+    await expect(
+      page.invoke('code-rule.revise-draft', { segments: [{ ...newCodeSegment(), length: 1.5 }] }),
+    ).rejects.toThrow();
+    expect(page.session.draft.value!.sequencePolicy).toEqual(policy);
   } finally {
     page.wrapper.unmount();
   }

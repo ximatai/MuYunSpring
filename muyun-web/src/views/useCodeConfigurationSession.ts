@@ -1,7 +1,7 @@
 import { computed, onActivated, onBeforeUnmount, onDeactivated, ref } from 'vue';
 import {
   codeSegmentSourcesVisible,
-  prepareCodeRule,
+  validateCodeRuleDraft,
   type CodeRule,
   type CodeTarget,
 } from './codeConfiguration';
@@ -140,21 +140,16 @@ export function useCodeConfigurationSession(language: LanguageContext) {
     if (restrictedFormat && ('segments' in patch || ('mode' in patch && patch.mode !== candidate.mode)))
       throw new AssistantCapabilityUsageError('当前格式含目录之外来源，请人工维护格式和编号方式');
     Object.assign(candidate, patch);
-    const prepared = prepareCodeRule(candidate, language);
-    // A human may have switched to manual mode without saving yet. Keep their
-    // hidden format candidate intact when the assistant only edits other properties.
-    const normalized = restrictedFormat
-      ? { ...prepared, segments: candidate.segments, sequencePolicy: candidate.sequencePolicy }
-      : prepared;
+    validateCodeRuleDraft(candidate, language);
     if (
       'segments' in patch &&
-      normalized.segments.some((segment) => !codeSegmentSourcesVisible(segment, sources))
+      candidate.segments.some((segment) => !codeSegmentSourcesVisible(segment, sources))
     )
       throw new AssistantCapabilityUsageError('片段只能引用当前可见来源字段');
     return () => {
       if (!current() || !active.value || recoveryRequired.value || JSON.stringify(draft.value) !== before)
         throw new AssistantCapabilityUsageError('编码草稿已变化，请重新读取');
-      draft.value = normalized;
+      draft.value = candidate;
       return { changedFields: Object.keys(patch), unsaved: dirty.value, saved: false };
     };
   }
