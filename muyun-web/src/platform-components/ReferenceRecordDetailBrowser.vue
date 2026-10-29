@@ -32,6 +32,9 @@ const emit = defineEmits<{
 }>();
 
 function reportMutation(mutation: ReferenceRecordDetailMutation) {
+  const active = browser.active.value;
+  if (active?.targetModuleAlias !== mutation.targetModuleAlias || active.recordId !== mutation.recordId)
+    return;
   browser.reportMutation(mutation);
   emit('record-change', mutation);
 }

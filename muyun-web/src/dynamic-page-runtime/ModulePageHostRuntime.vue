@@ -124,6 +124,8 @@ export default defineComponent({
       },
       canBrowse: (...args) => props.session.referenceRecordDetailBrowser.canBrowse(...args),
       open: (...args) => props.session.referenceRecordDetailBrowser.open(...args),
+      setBeforeLeave: (...args) => props.session.referenceRecordDetailBrowser.setBeforeLeave(...args),
+      confirmLeave: () => props.session.referenceRecordDetailBrowser.confirmLeave(),
       setBusy: (...args) => props.session.referenceRecordDetailBrowser.setBusy(...args),
       reportMutation: (...args) => props.session.referenceRecordDetailBrowser.reportMutation(...args),
       close: (...args) => props.session.referenceRecordDetailBrowser.close(...args),

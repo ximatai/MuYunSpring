@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as platformComponents from '@muyun/platform-components';
 import ModuleReferenceRecordDetailBrowser from '@/dynamic-page-runtime/ModuleReferenceRecordDetailBrowser.vue';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
 import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements';
@@ -36,7 +37,10 @@ function flush() {
 }
 
 describe('ModuleReferenceRecordDetailBrowser', () => {
-  afterEach(() => configureModulePageEnhancements([]));
+  afterEach(() => {
+    configureModulePageEnhancements([]);
+    vi.restoreAllMocks();
+  });
 
   it('uses one standard drawer layout for a loaded full surface, with status in the header and actions in the footer', async () => {
     const http: HttpClient = {
@@ -80,6 +84,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
   it('runs the real Host in VIEW scope without target menu, query, or navigator initialization', async () => {
     const requests: Array<{ path: string; method?: string; body?: unknown }> = [];
     let viewCount = 0;
+    const delayedView: { response?: Promise<{ id: string; version: number; title: string }> } = {};
     const http: HttpClient = {
       async request(options) {
         requests.push({ path: options.path, method: options.method, body: options.body });
@@ -149,6 +154,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
         }
         if (options.path === '/purchase.supplier/view/supplier-1') {
           viewCount += 1;
+          if (delayedView.response) return delayedView.response as never;
           return {
             id: 'supplier-1',
             enabled: true,
@@ -164,10 +170,8 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
         throw new Error(`unexpected request: ${options.path}`);
       },
     };
-    const browser = createReferenceRecordDetailBrowser(http);
     const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
-      props: { browser, inlineAnchor: true },
-      slots: { default: () => h(TargetLink, { browser }) },
+      props: { http, inlineAnchor: true },
       global: {
         stubs: {
           RecordDetailDrawer: DrawerLayoutHarness,
@@ -183,7 +187,8 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
       },
     });
 
-    await wrapper.get('button').trigger('click');
+    const browser = wrapper.findComponent(ReferenceRecordDetailBrowser).vm.browser;
+    await browser.open('purchase.supplier', 'supplier-1');
     await flush();
     await flush();
 
@@ -235,6 +240,24 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     expect(actions.exists()).toBe(true);
     actions.vm.$emit('edit');
     await flush();
+    const content = wrapper.findComponent({ name: 'ModulePageRecordContent' });
+    content.vm.$emit('update:field', 'title', '未保存草稿');
+    await flush();
+    const confirm = vi.spyOn(platformComponents, 'confirmAction').mockResolvedValue(false);
+    await wrapper.vm.openRecord('purchase.supplier', 'supplier-2');
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(browser.active.value?.recordId).toBe('supplier-1');
+    expect(content.props('record')).toMatchObject({ title: '未保存草稿' });
+    const editSession = host.props('session') as { handleReferenceRecordChange(value: unknown): void };
+    editSession.handleReferenceRecordChange({
+      type: 'saved',
+      targetModuleAlias: 'crm.customer',
+      recordId: 'customer-1',
+      record: { id: 'customer-1', title: '客户新名称' },
+    });
+    await flush();
+    await flush();
+    expect(content.props('record')).toMatchObject({ title: '未保存草稿' });
     wrapper.findComponent({ name: 'ModuleRecordDetailActions' }).vm.$emit('save');
     await flush();
     await flush();
@@ -252,8 +275,65 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
       recordId: 'supplier-1',
     });
 
+    const changesBeforeReload = wrapper.emitted('record-change')?.length ?? 0;
+    const session = host.props('session') as {
+      detailSectionContext(record: { id: string }): { reload(): void };
+      recordViewContext(record: { id: string }): { close(): void };
+    };
+    session.detailSectionContext({ id: 'supplier-1' }).reload();
+    await flush();
+    await flush();
+    expect(wrapper.emitted('record-change')).toHaveLength(changesBeforeReload + 1);
+    expect(browser.active.value?.recordId).toBe('supplier-1');
+
+    // Both response orders must retain the latest requested snapshot.
+    for (const latestFirst of [false, true]) {
+      let finishOld!: (record: { id: string; version: number; title: string }) => void;
+      let finishNew!: (record: { id: string; version: number; title: string }) => void;
+      delayedView.response = new Promise((resolve) => {
+        finishOld = resolve;
+      });
+      session.detailSectionContext({ id: 'supplier-1' }).reload();
+      await flush();
+      delayedView.response = new Promise((resolve) => {
+        finishNew = resolve;
+      });
+      session.detailSectionContext({ id: 'supplier-1' }).reload();
+      await flush();
+      const before = wrapper.emitted('record-change')?.length ?? 0;
+      const oldResult = { id: 'supplier-1', version: 3, title: '旧快照' };
+      const newResult = { id: 'supplier-1', version: 4, title: '最新快照' };
+      if (latestFirst) finishNew(newResult);
+      else finishOld(oldResult);
+      await flush();
+      if (latestFirst) finishOld(oldResult);
+      else finishNew(newResult);
+      await flush();
+      expect(browser.active.value?.record).toMatchObject(newResult);
+      expect(wrapper.emitted('record-change')).toHaveLength(before + 1);
+    }
+
+    let finishRefresh!: (record: { id: string; version: number; title: string }) => void;
+    delayedView.response = new Promise((resolve) => {
+      finishRefresh = resolve;
+    });
+    const changesBeforeLateRefresh = wrapper.emitted('record-change')?.length ?? 0;
+    session.detailSectionContext({ id: 'supplier-1' }).reload();
+    await flush();
+    wrapper.findComponent({ name: 'ModuleRecordDetailActions' }).vm.$emit('edit');
+    await flush();
+    const lateEditor = wrapper.findComponent({ name: 'ModulePageRecordContent' });
+    lateEditor.vm.$emit('update:field', 'title', '刷新期间新写的草稿');
+    await flush();
+    finishRefresh({ id: 'supplier-1', version: 3, title: '晚到的服务器数据' });
+    await flush();
+    await flush();
+    expect(lateEditor.props('record')).toMatchObject({ title: '刷新期间新写的草稿' });
+    expect(wrapper.emitted('record-change')).toHaveLength(changesBeforeLateRefresh);
+    confirm.mockResolvedValue(true);
+
     const detailDrawer = host.findComponent(RecordModeDrawer);
-    detailDrawer.vm.$emit('close');
+    session.recordViewContext({ id: 'supplier-1' }).close();
     await flush();
     expect(browser.active.value?.recordId).toBe('supplier-1');
     expect(detailDrawer.props('open')).toBe(false);
@@ -263,6 +343,105 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     expect(browser.active.value).toBeUndefined();
     expect(wrapper.findComponent({ name: 'ModulePageHost' }).exists()).toBe(false);
 
+    wrapper.unmount();
+  });
+
+  it('protects the parent record while a contributed correction is busy or rejects leaving', async () => {
+    const Body = defineComponent({
+      name: 'CorrectionBody',
+      props: { context: { type: Object, required: true } },
+      template: '<section />',
+    });
+    configureModulePageEnhancements([
+      {
+        id: 'supplier-correction',
+        target: { moduleAlias: 'purchase.supplier' },
+        detail: {
+          actions: [
+            {
+              key: 'correct',
+              title: '更正',
+              run: ({ openDrawer }) => openDrawer({ title: '更正', component: Body }),
+            },
+          ],
+        },
+      },
+    ]);
+    const requests: string[] = [];
+    const http: HttpClient = {
+      async request(options) {
+        requests.push(options.path);
+        if (options.path.endsWith('view-context'))
+          return {
+            moduleAlias: 'purchase.supplier',
+            capabilities: [],
+            actions: [{ actionCode: 'view', authorized: true }],
+            uiDescriptor: {
+              moduleAlias: 'purchase.supplier',
+              page: { template: 'LIST_DETAIL_CARD', detail: {} },
+            },
+          } as never;
+        if (options.path.includes('/actions/'))
+          return { recordId: 'supplier-1', actions: [{ actionCode: 'view', available: true }] } as never;
+        return { id: 'supplier-1', version: 1, title: '供应商' } as never;
+      },
+    };
+    const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
+      props: { http, inlineAnchor: true },
+      global: {
+        stubs: {
+          RecordDetailDrawer: DrawerLayoutHarness,
+          RecordDetailFields: true,
+          RecordMetaSection: true,
+          ModulePageDetailRelations: true,
+        },
+      },
+    });
+    await wrapper.vm.openRecord('purchase.supplier', 'supplier-1');
+    await flush();
+    await flush();
+    const actions = wrapper.findComponent({ name: 'ModuleRecordDetailActions' });
+    const correction = (actions.props('actions') as Array<{ key: string }>).find(
+      (action) => action.key === 'correct',
+    );
+    actions.vm.$emit('detailAction', correction);
+    await flush();
+    await flush();
+    const context = wrapper
+      .findComponent(Body)
+      .props('context') as import('@/dynamic-page-runtime/modulePageEnhancements').ModulePageDrawerContext;
+    context.setCloseBlocked(true);
+    await flush();
+    const browser = wrapper.findComponent(ReferenceRecordDetailBrowser).vm.browser;
+    expect(browser.active.value?.busy).toBe(true);
+    await wrapper.vm.closeRecord();
+    await wrapper.vm.openRecord('purchase.supplier', 'supplier-2');
+    const parent = wrapper.findComponent(RecordModeDrawer);
+    expect(await parent.props('beforeClose')!('close-button')).toBe(false);
+    expect(browser.active.value?.recordId).toBe('supplier-1');
+    expect(requests).not.toContain('/purchase.supplier/view/supplier-2');
+    const changesBeforeUnlock = wrapper.emitted('record-change')?.length ?? 0;
+    const readsBeforeUnlock = requests.filter((path) => path.includes('/view/')).length;
+    context.refreshList();
+    context.refreshList();
+    await flush();
+    expect(requests.filter((path) => path.includes('/view/'))).toHaveLength(readsBeforeUnlock);
+    expect(wrapper.emitted('record-change') ?? []).toHaveLength(changesBeforeUnlock);
+    context.setCloseBlocked(false);
+    await flush();
+    await flush();
+    expect(requests.filter((path) => path.includes('/view/'))).toHaveLength(readsBeforeUnlock + 1);
+    expect(wrapper.emitted('record-change')).toHaveLength(changesBeforeUnlock + 1);
+    expect(wrapper.emitted('record-change')?.at(-1)?.[0]).toMatchObject({
+      type: 'saved',
+      recordId: 'supplier-1',
+    });
+    context.setBeforeClose(() => false);
+    await wrapper.vm.closeRecord();
+    expect(browser.active.value?.recordId).toBe('supplier-1');
+    context.setBeforeClose(() => true);
+    await wrapper.vm.closeRecord();
+    expect(browser.active.value).toBeUndefined();
     wrapper.unmount();
   });
 
@@ -565,7 +744,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
         await flush();
       }
       expect(browser.active.value?.busy).toBe(false);
-      browser.close();
+      await browser.close();
       expect(browser.active.value).toBeUndefined();
       wrapper.unmount();
     },
@@ -903,7 +1082,12 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
       busy: false,
       dirty: true,
     });
-    browser.close();
+    const confirm = vi.spyOn(platformComponents, 'confirmAction').mockResolvedValue(false);
+    await wrapper.vm.closeRecord();
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(browser.active.value?.recordId).toBe('supplier-1');
+    confirm.mockResolvedValue(true);
+    await wrapper.vm.closeRecord();
     await flush();
     expect(wrapper.emitted('interaction-state-change')?.at(-1)?.[0]).toEqual({
       editing: false,
