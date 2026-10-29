@@ -1,3 +1,5 @@
+import type { BusinessNotificationSession, RealtimeClientOptions } from '@muyun/web-core';
+import type { WebBusinessNotification } from '@muyun/web-contracts';
 import { afterEach, expect, it, vi } from 'vitest';
 
 const realtimeClient = {
@@ -7,14 +9,23 @@ const realtimeClient = {
   state: vi.fn(() => 'idle'),
   subscribe: vi.fn(() => ({ unsubscribe: vi.fn() })),
 };
-const createRealtimeClient = vi.fn(() => realtimeClient);
+const createRealtimeClient = vi.fn<(options: RealtimeClientOptions) => typeof realtimeClient>(
+  () => realtimeClient,
+);
+let notificationHandler: ((notification: WebBusinessNotification) => void) | undefined;
 const unsubscribe = vi.fn();
 
 vi.mock('@muyun/web-core', () => ({
   createDataChangeDispatcher: () => ({ subscribe: vi.fn(), dispatch: vi.fn() }),
   createRealtimeClient,
   connectRealtimeBusinessEvents: () => ({ unsubscribe }),
-  connectRealtimeBusinessNotifications: () => ({ unsubscribe }),
+  connectRealtimeBusinessNotifications: (
+    _client: unknown,
+    handler: (notification: WebBusinessNotification) => void,
+  ) => {
+    notificationHandler = handler;
+    return { unsubscribe };
+  },
   connectRealtimeDataChanges: () => ({ unsubscribe }),
   connectRealtimeUserNotifications: () => ({ unsubscribe }),
   sessionActivityCommand: 'session-activity',
@@ -52,4 +63,37 @@ it('owns one realtime connection, forwards consumer runtime configuration, and r
 it('connects without binding a shared record topic', () => {
   connectAppRealtime({ token: 'consumer-token' });
   expect(realtimeClient.subscribe).not.toHaveBeenCalled();
+});
+
+it('binds notification recovery to connected state, transport loss, and identity disposal', async () => {
+  const session: BusinessNotificationSession = {
+    register: vi.fn(),
+    receive: vi.fn(),
+    dismiss: vi.fn(),
+    snapshot: vi.fn(() => []),
+    recover: vi.fn(async () => {}),
+    cancelRecovery: vi.fn(),
+    dispose: vi.fn(),
+  };
+  const connection = connectAppRealtime({ token: 'identity-a', notificationSession: session });
+  const onStateChange = createRealtimeClient.mock.lastCall![0].onStateChange!;
+  onStateChange('connected');
+  onStateChange('reconnecting');
+  onStateChange('connected');
+  expect(session.recover).toHaveBeenCalledTimes(2);
+  expect(session.cancelRecovery).toHaveBeenCalledOnce();
+  const notification: WebBusinessNotification = {
+    id: 'one',
+    code: 'sample',
+    title: 'Title',
+    content: 'Content',
+    dismissible: true,
+    actions: [],
+  };
+  notificationHandler!(notification);
+  expect(session.receive).toHaveBeenCalledWith(notification);
+  onStateChange('unauthorized');
+  expect(session.dispose).toHaveBeenCalledOnce();
+  await connection.disconnect();
+  expect(session.dispose).toHaveBeenCalledTimes(2);
 });

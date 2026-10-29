@@ -287,7 +287,9 @@ it('dismisses cards from this page session and labels the remaining list as temp
     const panel = wrapper.get('.business-notification-current').element.getBoundingClientRect();
     expect(panel.right).toBeLessThanOrEqual(1281);
     expect(wrapper.findAll('.business-notification-card')).toHaveLength(2);
-    expect(wrapper.get('.business-notification-bell').attributes('title')).toContain('刷新或退出后清空');
+    expect(wrapper.get('.business-notification-bell').attributes('title')).toContain(
+      '刷新后可重新加载待处理提醒',
+    );
     expect(wrapper.get('.notification-test-main').element.getBoundingClientRect().toJSON()).toEqual(main);
     expect(wrapper.get('input').element).toBe(input);
     expect((input as HTMLInputElement).value).toBe('未保存的业务草稿');

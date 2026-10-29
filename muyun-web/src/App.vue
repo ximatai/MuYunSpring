@@ -53,6 +53,8 @@ import {
   createExternalLoginClient,
   invokeBusinessNotificationRecordAction,
   businessNotificationExpired,
+  createBusinessNotificationSession,
+  type BusinessNotificationSession,
   provideModuleContextConfig,
   StaleAssistantInvocationError,
   userPreferences,
@@ -414,6 +416,7 @@ const activeThemeSkin = computed(() => uiThemeSkinById(themeSkinId.value));
 const lockedTabs = ref<MenuTab[]>([]);
 const securityNotification = ref<WebUserNotification>();
 const businessNotifications = ref<WebBusinessNotification[]>([]);
+let businessNotificationSession: BusinessNotificationSession | undefined;
 const securityLogoutCountdown = ref(0);
 const realtimeStatus = ref<WorkbenchRealtimeStatus>('unavailable');
 const platformAdminRouteResolveOptions = {
@@ -715,12 +718,19 @@ function reconnectRealtime() {
   disconnectRealtime();
   if (!usesMockStartup()) {
     const token = effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN);
+    const notificationSession = createBusinessNotificationSession({
+      isCurrent: () => businessNotificationSession === notificationSession && isCurrentAuthToken(token),
+      onChange: (notifications) => {
+        businessNotifications.value = notifications;
+      },
+    });
+    businessNotificationSession = notificationSession;
     realtimeConnection = connectAppRealtime({
       baseUrl: import.meta.env.VITE_MUYUN_API_BASE_URL,
       token,
       onUnauthorized: () => handleRealtimeUnauthorized(token),
       onUserNotification: handleSecurityNotification,
-      onBusinessNotification: receiveBusinessNotification,
+      notificationSession,
       onStateChange: (state) => {
         realtimeStatus.value = workbenchRealtimeStatusOf(state);
       },
@@ -729,6 +739,8 @@ function reconnectRealtime() {
 }
 
 function disconnectRealtime() {
+  businessNotificationSession?.dispose();
+  businessNotificationSession = undefined;
   const current = realtimeConnection;
   realtimeConnection = undefined;
   realtimeStatus.value = 'unavailable';
@@ -769,15 +781,8 @@ function handleSecurityNotification(notification: WebUserNotification) {
   scheduleLocalLogout(notification);
 }
 
-function receiveBusinessNotification(notification: WebBusinessNotification) {
-  const current = businessNotifications.value.filter(
-    (item) => item.id !== notification.id && !businessNotificationExpired(item),
-  );
-  businessNotifications.value = [...current, notification];
-}
-
 function removeBusinessNotification(notificationId: string) {
-  businessNotifications.value = businessNotifications.value.filter((item) => item.id !== notificationId);
+  businessNotificationSession?.dismiss(notificationId);
 }
 
 async function executeBusinessNotificationAction(

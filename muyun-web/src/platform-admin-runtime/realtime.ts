@@ -6,6 +6,7 @@ import {
   connectRealtimeDataChanges,
   connectRealtimeUserNotifications,
   sessionActivityCommand,
+  type BusinessNotificationSession,
   type RealtimeClient,
   type RealtimeConnectionState,
 } from '@muyun/web-core';
@@ -29,6 +30,8 @@ export interface AppRealtimeOptions {
   token?: string;
   onUnauthorized?: () => void;
   onUserNotification?: (notification: WebUserNotification) => void;
+  /** Owned by this connection; disposed on disconnect or lost authentication. */
+  notificationSession?: BusinessNotificationSession;
   onBusinessNotification?: (notification: WebBusinessNotification) => void;
   onStateChange?: (state: RealtimeConnectionState) => void;
 }
@@ -42,6 +45,10 @@ function createAppRealtimeClient(options: AppRealtimeOptions = {}) {
     baseUrl: options.baseUrl ?? import.meta.env.VITE_MUYUN_API_BASE_URL,
     token: options.token ?? effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN),
     onStateChange: (state) => {
+      if (state === 'connected') void options.notificationSession?.recover();
+      if (['reconnecting', 'disconnected', 'failed'].includes(state))
+        options.notificationSession?.cancelRecovery();
+      if (state === 'unauthorized') options.notificationSession?.dispose();
       options.onStateChange?.(state);
       if (state === 'unauthorized') {
         options.onUnauthorized?.();
@@ -62,6 +69,7 @@ export function connectAppRealtime(options: AppRealtimeOptions = {}) {
     options.onUserNotification?.(notification);
   });
   const businessNotificationSubscription = connectRealtimeBusinessNotifications(realtime, (notification) => {
+    options.notificationSession?.receive(notification);
     options.onBusinessNotification?.(notification);
   });
   const businessEventSubscription = connectRealtimeBusinessEvents(realtime, (event) => {
@@ -79,6 +87,7 @@ export function connectAppRealtime(options: AppRealtimeOptions = {}) {
         return;
       }
       disconnected = true;
+      options.notificationSession?.dispose();
       dataChangeSubscription.unsubscribe();
       userNotificationSubscription.unsubscribe();
       businessNotificationSubscription.unsubscribe();

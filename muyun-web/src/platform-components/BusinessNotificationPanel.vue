@@ -87,7 +87,7 @@ const countLabel = computed(() =>
 const sessionHint = computed(() =>
   language.t(
     'platform.notifications.session-note',
-    '仅临时保留在本次页面中，刷新或退出后清空。关闭提醒不代表业务已处理，待办请到业务页面查看。',
+    '提醒仅保留在本次会话，刷新后可重新加载待处理提醒。关闭提醒不代表业务已处理，待办请到业务页面查看。',
   ),
 );
 

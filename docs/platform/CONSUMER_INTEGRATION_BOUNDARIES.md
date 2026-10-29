@@ -13,7 +13,7 @@ Spring Boot 4.1.1、JDK 21；下述源码边界以 0.26.23-SNAPSHOT 为准，新
 | 非 UI 读取会话 | 已补齐公开导出边界 | 增加公开 `record-read` 子路径，验证真实 tarball 在 Node 中消费；不公开全部内部实现 |
 | 旧页面延迟分包失败 | 部署责任与应用壳恢复分别处理 | 明确资源契约；公共壳错误展示与恢复列为后续候选，不自动重载 |
 | 系统单例配置 | 先沿用显式领域实现；暂不新增能力 | 复用系统写入门禁、标准 CRUD 版本和生命周期；领域保留单例规则与生效语义 |
-| 通知恢复 | 公共生命周期候选；后续评估 | 可承接恢复源生命周期与隔离；待处理事实和动作有效性仍由领域判定 |
+| 通知恢复 | 已补齐会话与来源治理 | 恢复源注册、并发合并、快照与实时消息竞争、退出隔离；待处理事实和动作有效性仍由领域判定 |
 | 授权范围关联分页 | 已有引用依赖策略部分覆盖；优先评估静态与通用接入缺口 | 优先复用 `referenceDependency` 子查询执行链；不能以摘要投影替代关联授权 |
 | 提交与缓存可见性 | 契约澄清；继续观察 | 明确本节点、事务和失效边界；无当前最小复现不修改缓存机制 |
 
@@ -93,18 +93,36 @@ Node 测试、Vue effect scope 释放与身份隔离的接法见[前端消费者
 
 ## 通知恢复
 
-`connectAppRealtime` 的连接状态回调和通知回调可用于应用适配；连接会恢复订阅，
-但不查询离线期间的待处理事实。`BusinessNotificationPanel` 接收通知列表并处理展示与动作交互，
-不提供恢复源注册、跨来源快照合并或账号切换后的恢复请求隔离。
-持续可见仅是展示策略，见[实时业务提醒接入](BUSINESS_NOTIFICATION_BACKEND_INTEGRATION.md)。
+`createBusinessNotificationSession` 管理当前身份会话的通知集合，输出给 `BusinessNotificationPanel`。
+每个恢复源声明稳定 `id`、`owns(notification)` 和 `load(signal)`，返回该来源完整、已授权的待处理快照；
+分页结果不能当作完整快照。来源应在连接前注册；连接后新注册的来源需显式调用 `recover(id)`。业务负责状态、权限、到期及动作有效性，不因通知仍显示就获得执行权限。
 
-应用目前可在首次连接和重连后查询领域的授权待处理项，并向同一面板投影；退出与切换身份时
-释放旧连接、清理旧通知、取消旧请求，并用身份代次拒绝无法取消的迟到响应。
-各来源只维护自身通知，不能用一个来源的恢复结果覆盖全部列表；实时增量与恢复快照的竞争也需显式处理。
+`connectAppRealtime({ notificationSession })` 在首次连接和重连成功时恢复；连接中断取消进行中的查询，
+重连不复用断线前的快照请求。鉴权失效或显式断开会释放会话、取消请求并清空列表。
+宿主必须为每个身份／租户会话新建实例，`isCurrent` 绑定该身份的代次，恢复源使用捕获的授权客户端；
+不能让同一个实例跨账号复用。通知面板也应以身份代次作为 Vue `key`，释放旧身份的关闭标记和进行中动作；标准壳已按身份设置该 key。未接入标准实时连接的宿主自行调用 `recover`、`cancelRecovery` 和 `dispose`。
 
-后续只评估恢复源注册、请求合并、来源／身份隔离与释放契约。有效性、到期、接收权限和命令执行成功
-仍以领域服务为准；不预设持久消息中心、离线事件重放或统一业务台账。
-建设前需提供无敏感数据的双来源、重连、退出、切换身份及迟到响应样例。
+```ts
+const notices = createBusinessNotificationSession({
+  isCurrent: () => sessionEpoch === capturedEpoch,
+  onChange: items => { notifications.value = items; },
+});
+const unregister = notices.register({
+  id: 'orders.pending',
+  owns: notice => notice.code.startsWith('orders.pending.'),
+  load: signal => orders.loadAuthorizedPendingNotifications(signal),
+});
+const connection = connectAppRealtime({ token, notificationSession: notices });
+// 来源卸载调用 unregister()；退出调用 connection.disconnect()。
+```
+
+同一来源的并发恢复合并为一次请求，不同来源独立合并；一个来源不能清空其他来源或无恢复源的实时提醒。
+所有权交叉、重复身份或跨来源覆盖会拒绝，非法快照不部分替换列表。查询期间收到的实时值优先，
+用户关闭不会被迟到快照撤回；`dismiss` 仅隐藏本会话，不标记业务完成。失败保留现有列表，
+可通过 `onRecoveryError` 报告，不阻断工作台。移除来源会取消查询并清理其子集；迟到响应无法重新加入。
+
+通知集合不持久化、不自动轮询、不重放离线事件、不执行业务动作。刷新后由领域待处理快照重建提醒；
+平台不会持久化业务凭据、补建通知中心或替业务维护第二份待办台账。
 
 ## 授权范围关联分页
 
