@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h, KeepAlive, ref } from 'vue';
 import { expect, it, vi } from 'vitest';
 import {
+  AppError,
   createLanguageContext,
   provideLanguageContext,
   ModuleContextProvider,
@@ -532,3 +533,88 @@ it('refreshes definition metadata on tab activation and realtime changes while p
     wrapper.unmount();
   }
 });
+
+it.each(['lost-response', 'conflict'])(
+  'preserves the local draft after %s and resumes only after explicit current-version recovery',
+  async (failure) => {
+    let storedVersion = 1;
+    let posts = 0;
+    const request = vi.fn(async (options: HttpRequestOptions) => {
+      if (options.path.endsWith('/view/definition')) return { id: 'definition', title: '采购审批' };
+      if (options.path.endsWith('/context') || options.path.endsWith('/view-context'))
+        return { moduleAlias: 'demo.purchase', capabilities: [], actions: [] };
+      if (options.path.endsWith('/configuration-catalog'))
+        return { tasks: [], queries: [], generations: [], associations: [] };
+      if (options.path.endsWith('/versions/query'))
+        return { records: [{ id: 'draft', version: storedVersion, versionNo: 1, publishStatus: 'draft' }] };
+      if (options.path.endsWith('/design') && options.method === 'POST') {
+        posts++;
+        expect(options.body).toMatchObject({ version: storedVersion });
+        storedVersion++;
+        if (posts === 1)
+          throw failure === 'conflict'
+            ? new AppError('Version conflict', { status: 409 })
+            : new Error('response lost');
+        return { id: 'draft', version: storedVersion, versionNo: 1, publishStatus: 'draft' };
+      }
+      if (options.path.endsWith('/design'))
+        return {
+          nodes: [{ nodeKey: 'approval', nodeType: 'approval', title: '审批' }],
+          links: [],
+          layoutJson: 'server-layout',
+        };
+      throw new Error(`unexpected request: ${options.path}`);
+    });
+    const context = {
+      moduleAlias: 'platform.workflow.definition',
+      http: { request },
+    } as unknown as ModuleContext<unknown>;
+    const wrapper = mount(ModuleContextProvider, {
+      props: { context },
+      slots: {
+        default: () =>
+          h(WorkflowConfigurationView, { moduleAlias: 'demo.purchase', definitionId: 'definition' }),
+      },
+      global: {
+        stubs: {
+          WorkflowDiagram: true,
+          WorkflowParticipantEditor: true,
+          WorkflowBusinessTaskEditor: true,
+          RecordDetailDrawer: true,
+          AdaptiveHeaderActionBar: true,
+        },
+      },
+    });
+    await flushPromises();
+    const diagram = () => wrapper.findAllComponents({ name: 'WorkflowDiagram' }).at(-1)!;
+    const actions = wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' });
+    diagram().vm.$emit('layout-change', 'local-layout');
+    await flushPromises();
+    actions.vm.$emit('action', { key: 'save' });
+    await flushPromises();
+    expect(wrapper.text()).toContain('上次保存未能确认');
+    expect(diagram().props('layoutJson')).toBe('local-layout');
+    expect(diagram().props('editable')).toBe(false);
+    actions.vm.$emit('action', { key: 'save' });
+    actions.vm.$emit('action', { key: 'upgrade' });
+    await flushPromises();
+    expect(posts).toBe(1);
+    const button = (text: string) =>
+      wrapper.findAllComponents({ name: 'UiButton' }).find((item) => item.text() === text)!;
+    await button('读取当前版本').trigger('click');
+    await flushPromises();
+    expect(diagram().props('editable')).toBe(false);
+    expect(wrapper.findAllComponents({ name: 'WorkflowDiagram' })[0].props('layoutJson')).toBe(
+      'server-layout',
+    );
+    await button('保留本地草稿并重新核对').trigger('click');
+    await flushPromises();
+    expect(diagram().props('editable')).toBe(true);
+    expect(diagram().props('layoutJson')).toBe('local-layout');
+    actions.vm.$emit('action', { key: 'save' });
+    await flushPromises();
+    expect(posts).toBe(2);
+    expect(wrapper.text()).not.toContain('上次保存未能确认');
+    wrapper.unmount();
+  },
+);

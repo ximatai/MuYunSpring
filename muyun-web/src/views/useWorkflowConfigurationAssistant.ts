@@ -1,42 +1,28 @@
-import { computed, inject, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
+import { onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
 import {
   createAssistantTurnRequester,
   createModuleContext,
   useAssistantSurfaceHost,
   type HttpClient,
 } from '@muyun/web-core';
-import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
-import { assistantBusinessScopeKey } from '../dynamic-page-runtime/assistantBusinessScope';
 import {
   createWorkflowConfigurationAssistantSurface,
   type WorkflowConfigurationAssistantAdapter,
 } from './workflowConfigurationAssistantSurface';
+import type { useWorkflowConfigurationSession } from './useWorkflowConfigurationSession';
 import { waitForConfigurationEditor } from './configurationEditorNavigation';
 
 /** Page-instance lifecycle and fresh server action facts; never conversation history authority. */
 export function useWorkflowConfigurationAssistant(options: {
+  session: Pick<ReturnType<typeof useWorkflowConfigurationSession>, 'scope' | 'active'>;
   http: HttpClient;
-  moduleAlias(): string;
   definitionId(): string;
   adapter: WorkflowConfigurationAssistantAdapter;
   revision(): string;
   interactionRevision(): string;
 }) {
   const host = useAssistantSurfaceHost();
-  const user = useCurrentUserContext();
-  const businessScope = inject(assistantBusinessScopeKey, undefined);
-  const scope = computed(() =>
-    JSON.stringify([
-      user?.value?.userId,
-      user?.value?.tenantId,
-      user?.value?.organizationId,
-      user?.value?.system,
-      businessScope?.value,
-      options.moduleAlias(),
-      options.definitionId(),
-    ]),
-  );
-  const active = ref(true);
+  const { scope, active } = options.session;
   const accessLoading = ref(false);
   const readable = ref(false);
   const writable = ref(false);
@@ -97,7 +83,7 @@ export function useWorkflowConfigurationAssistant(options: {
     });
   }
   function activate() {
-    if (!active.value) active.value = true;
+    if (!active.value) return;
     if (!pageInstanceKey) pageInstanceKey = host?.activePageInstanceKey();
     if (unregister || accessLoading.value) return;
     register();
@@ -114,12 +100,10 @@ export function useWorkflowConfigurationAssistant(options: {
   onMounted(activate);
   onActivated(activate);
   onDeactivated(() => {
-    active.value = false;
     clear();
   });
   onBeforeUnmount(() => {
-    active.value = false;
     clear();
   });
-  return { scope, active, readable, writable, accessLoading };
+  return { readable, writable, accessLoading };
 }

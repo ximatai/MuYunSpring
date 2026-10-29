@@ -53,6 +53,8 @@ import {
   resolveRecordFormFields,
   resolveRecordFormFieldState,
   loadOptionFieldItems,
+  optionFieldState,
+  settleOptionFieldItems,
   useRecycleBinExplorerMode,
   type RecordFormFieldPickerConfig,
   type RecordPickerRecord,
@@ -3702,6 +3704,7 @@ export function useModulePageSession(
       get referencePickerConfigs() {
         return navigatorManagementPickerConfigs.value;
       },
+      optionState: (fieldName) => optionFieldState(level.context, fieldName),
       contextRevision: () => String(assistantContextRevision.value),
       updateDraftFields: updateNavigatorManagementDraftFields,
       updateDraftReference(fieldName, candidate, source, changes, validate) {
@@ -3806,6 +3809,15 @@ export function useModulePageSession(
       await nextTick();
       await settlePendingRecord(signal);
       await nextTick();
+      const navigator = navigatorManagementLevel.value;
+      if (navigator && navigatorManagementDetail.open.value)
+        await settleOptionFieldItems(
+          navigator.context,
+          [...navigatorManagementFormFields.value.keys()],
+          signal,
+        );
+      else if (editorMode.value !== 'view')
+        await settleOptionFieldItems(context, [...formFields.value.keys()], signal);
       await relationDrafts.settle();
       await nextTick();
       throwIfAssistantSettlementAborted(signal);
@@ -5531,6 +5543,7 @@ export function useModulePageSession(
     formFields,
     formSessionKey,
     relationDrafts,
+    optionState: (fieldName: string) => optionFieldState(context, fieldName),
     assistantContextRevision,
     assistantInteractionRevision,
     listQueryController,

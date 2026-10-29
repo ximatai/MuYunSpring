@@ -560,7 +560,11 @@ export function recordFormAssistantFacts(
         ...(currentValue !== undefined ? { currentValue } : {}),
         ...(fieldBudget.truncated ? { currentValueTruncated: true } : {}),
         ...(reference?.unavailable || referenceNeedsRead ? { currentValueUnavailable: true } : {}),
-        options: field.assistantPolicy === 'DESCRIBE' ? [] : assistantOptions(field),
+        ...(field.optionLoadStatus ? { optionLoadStatus: field.optionLoadStatus } : {}),
+        options: field.assistantPolicy === 'DESCRIBE' ? [] : assistantOptions(field).slice(0, 50),
+        ...(field.assistantPolicy !== 'DESCRIBE' && assistantOptions(field).length > 50
+          ? { optionsTruncated: true }
+          : {}),
       };
     });
   return {
@@ -979,17 +983,28 @@ function formFieldStates(view: RecordFormDraftAccess): RecordFormFieldState[] {
 export function formFieldState(
   view: Pick<
     RecordFormDraftAccess,
-    'formFields' | 'referencePickerConfigs' | 'editingRecord' | 'selectedRecord' | 'editorMode'
+    | 'formFields'
+    | 'referencePickerConfigs'
+    | 'editingRecord'
+    | 'selectedRecord'
+    | 'editorMode'
+    | 'optionState'
   >,
   fieldName: string,
 ) {
   if (!view.formFields.has(fieldName)) return undefined;
-  return resolveRecordFormFieldState(fieldName, {
+  const field = resolveRecordFormFieldState(fieldName, {
     fields: view.formFields,
     pickerConfigs: view.referencePickerConfigs,
     record: view.editingRecord ?? view.selectedRecord,
     mode: view.editorMode,
   });
+  if (field.hasOption && !field.optionItems) {
+    const state = view.optionState?.(fieldName);
+    field.optionItems = state?.items;
+    field.optionLoadStatus = state?.status;
+  }
+  return field;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

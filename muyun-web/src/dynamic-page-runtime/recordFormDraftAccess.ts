@@ -16,6 +16,8 @@ export interface RecordFormDraftAccess {
   readonly selectedRecord?: RecordFormRecord;
   readonly formFields: Map<string, RecordFormFieldDescriptor>;
   readonly referencePickerConfigs: Record<string, RecordFormFieldPickerConfig>;
+  /** Current standard option candidates; unavailable resources expose no selectable values. */
+  optionState?(fieldName: string): ReturnType<typeof import('@muyun/platform-components').optionFieldState>;
   /** Current source-resolved display, separate from mutation data. */
   referenceDisplay?(fieldName: string): string | undefined;
   contextRevision(): string;

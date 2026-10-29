@@ -277,6 +277,7 @@ export interface RecordFormFieldState {
   hasOption: boolean;
   optionSelectionMode?: 'SINGLE' | 'MULTIPLE';
   optionTitleField?: string;
+  optionLoadStatus?: 'idle' | 'loading' | 'ready' | 'error';
   optionItems?: import('@muyun/web-contracts').OptionItemDescriptor[];
   referenceTitleField?: string;
   /** The compiled reference contract remains available to read-only detail and list renderers. */

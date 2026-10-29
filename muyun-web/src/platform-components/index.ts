@@ -256,7 +256,12 @@ export {
   uploadedFileId,
 } from './fileReferenceTransfer';
 export { resolveRecordDetailDisplayValue } from './recordDetailFieldModel';
-export { loadOptionFieldItems } from './optionFieldOptionCache';
+export {
+  loadOptionFieldItems,
+  optionFieldState,
+  settleOptionFieldItems,
+  type OptionFieldCandidateState,
+} from './optionFieldOptionCache';
 export { formatPlatformDateTime, resolveBrowserTimeZone } from './platformDateTime';
 export { formatPlatformFileSize } from './platformFileSize';
 export type { PlatformFileSizeDisplay, PlatformFileSizeOptions } from './platformFileSize';
