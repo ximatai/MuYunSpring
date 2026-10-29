@@ -36,7 +36,7 @@ const browser = props.browser ?? createReferenceRecordDetailBrowser(requireHttp(
 const host = shallowRef<InstanceType<typeof ModulePageHost>>();
 const unregisterLeaveGuard = browser.setBeforeLeave(() => host.value?.confirmLeave() ?? true);
 onBeforeUnmount(unregisterLeaveGuard);
-defineExpose({ openRecord: browser.open, closeRecord: browser.close });
+defineExpose({ browser, openRecord: browser.open, closeRecord: browser.close });
 
 function reportInteraction(
   moduleAlias: string,
@@ -83,7 +83,7 @@ const presentation = computed(() => {
   const renderMode = props.renderMode ?? (props.inlineAnchor ? 'inline' : 'portal');
   return {
     renderMode,
-    scope: props.scope ?? (renderMode === 'inline' ? 'tab' : 'viewport'),
+    scope: props.scope ?? 'tab',
   };
 });
 </script>
@@ -93,6 +93,7 @@ const presentation = computed(() => {
     :http="props.http"
     :browser="browser"
     :inline-anchor="presentation.renderMode === 'inline'"
+    :scope="presentation.scope"
     @record-change="emit('record-change', $event)"
   >
     <slot />

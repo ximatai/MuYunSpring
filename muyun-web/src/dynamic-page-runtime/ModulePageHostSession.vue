@@ -24,7 +24,12 @@ import {
 } from 'vue';
 
 import type { StandardModulePageDescriptor } from '@muyun/web-contracts';
-import { RecordPanelButton, RecordPanelState, type QueryListRecord } from '@muyun/platform-components';
+import {
+  RecordDetailDrawer,
+  RecordPanelButton,
+  RecordPanelState,
+  type QueryListRecord,
+} from '@muyun/platform-components';
 import { usePageDataChange } from '../platform-admin-runtime/pageRealtime';
 import ModulePageHostRuntime from './ModulePageHostRuntime.vue';
 import { assistantBusinessScopeKey } from './assistantBusinessScope';
@@ -350,6 +355,19 @@ defineExpose({ refreshList, confirmLeave, retry: startBusinessSession });
       :business-error="failure"
       @retry="startBusinessSession"
     />
+    <RecordDetailDrawer
+      v-else-if="failure && props.recordOnly"
+      :open="true"
+      title="记录详情"
+      :render-mode="props.recordOnly.renderMode"
+      :scope="props.recordOnly.scope"
+      @close="emit('record-only-close')"
+    >
+      <RecordPanelState :description="failure" />
+      <RecordPanelButton type="link" @click="startBusinessSession">{{
+        language.t('platform.screen.ModulePageHostSession.retry', '重试')
+      }}</RecordPanelButton>
+    </RecordDetailDrawer>
     <section v-else-if="failure" class="module-page-host-session-error" role="alert">
       <RecordPanelState :description="failure" />
       <RecordPanelButton type="link" @click="startBusinessSession">{{
@@ -357,7 +375,7 @@ defineExpose({ refreshList, confirmLeave, retry: startBusinessSession });
       }}</RecordPanelButton>
     </section>
     <RecordPanelState
-      v-else
+      v-else-if="!props.recordOnly"
       loading
       :loading-tip="language.t('platform.screen.ModulePageHostSession.loading-page', '加载页面入口')"
       description=""

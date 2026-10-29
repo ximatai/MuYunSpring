@@ -1019,6 +1019,10 @@ it('refreshes a declared enhancement drawer heading without reactivating the pag
       global: {
         stubs: {
           ...hostStubs,
+          RecordModeDrawer: {
+            props: ['open'],
+            template: '<section data-record-mode-drawer><slot v-if="open" /></section>',
+          },
           RecordDetailDrawer: {
             name: 'RecordDetailDrawer',
             props: ['title', 'open', 'dismissal'],
@@ -1031,9 +1035,11 @@ it('refreshes a declared enhancement drawer heading without reactivating the pag
   try {
     await flushPromises();
     const session = wrapper.findComponent({ name: 'ModulePageHostRuntime' }).props('session');
+    expect(session.detailOpen).toBe(false);
     session.handleListAction({ key: 'entry-open' });
     await flushPromises();
     const drawer = wrapper.findAllComponents({ name: 'RecordDetailDrawer' }).at(-1)!;
+    expect(drawer.element.closest('[data-record-mode-drawer]')).toBeNull();
     expect(drawer.props('title')).toBe('Set up account');
     expect(drawer.props('dismissal')).toBe('dismissible');
     const body = wrapper.findComponent(Body).vm;
@@ -1169,5 +1175,20 @@ it('refreshes extension actions on an already open module page without reloading
   } finally {
     wrapper.unmount();
     configureModulePageEnhancementContributions(owner, []);
+  }
+});
+
+it('does not insert a page loading row while bootstrapping a record-only drawer', async () => {
+  configureModuleContext({ http: { request: () => new Promise(() => {}) } });
+  const wrapper = mount(ModulePageHost, {
+    props: { descriptor: descriptor('crm.customer'), recordOnly: { recordId: 'target-1' } },
+    global: { stubs: hostStubs },
+  });
+  try {
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('加载页面入口');
+    expect(wrapper.findComponent({ name: 'RecordPanelState' }).exists()).toBe(false);
+  } finally {
+    wrapper.unmount();
   }
 });

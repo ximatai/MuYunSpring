@@ -1842,9 +1842,10 @@ export function useModulePageSession(
   const detailDrawerWidth = computed(() =>
     enhancementDetailDrawer.value
       ? (enhancementDetailDrawer.value.width ?? 'standard')
-      : executableDetailRelations.value.some((relation) => relation.visible?.constant !== false)
-        ? 'extraWide'
-        : 'standard',
+      : (pageEnhancement.value?.detail?.width ??
+        (executableDetailRelations.value.some((relation) => relation.visible?.constant !== false)
+          ? 'extraWide'
+          : 'standard')),
   );
   const enhancementCardAssistant = computed(() => pageEnhancement.value?.card?.assistant);
   const cardAssistantContext = computed<ModulePageCardAssistantContext | undefined>(() => {

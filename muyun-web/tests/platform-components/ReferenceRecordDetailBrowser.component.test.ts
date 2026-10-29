@@ -473,7 +473,7 @@ describe('ReferenceRecordDetailBrowser', () => {
     wrapper.unmount();
   });
 
-  it('uses the viewport side-panel contract for a public wrapper without a side-panel host', async () => {
+  it('uses the explicitly requested viewport side-panel contract for a public wrapper without a side-panel host', async () => {
     const http: HttpClient = {
       async request(options) {
         if (options.path.endsWith('/view-context')) {
@@ -483,7 +483,7 @@ describe('ReferenceRecordDetailBrowser', () => {
       },
     };
     const wrapper = mount(ReferenceRecordDetailBrowser, {
-      props: { http },
+      props: { http, scope: 'viewport' },
       slots: { default: ReferenceField },
       global: {
         stubs: {

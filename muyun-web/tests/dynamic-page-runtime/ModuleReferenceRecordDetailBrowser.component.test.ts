@@ -217,10 +217,10 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
           props: { recordOnly?: unknown };
         }
       ).props.recordOnly,
-    ).toMatchObject({ renderMode: 'portal', scope: 'viewport' });
+    ).toMatchObject({ renderMode: 'portal', scope: 'tab' });
     expect(host.findComponent({ name: 'ModuleReferenceRecordDetailBrowser' }).props()).toMatchObject({
       renderMode: 'portal',
-      scope: 'viewport',
+      scope: 'tab',
     });
     await wrapper.setProps({ inlineAnchor: true });
     await flush();
@@ -978,7 +978,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     wrapper.unmount();
   });
 
-  it('carries portal and viewport presentation through two record-only reference layers', async () => {
+  it('carries portal and tab presentation through two record-only reference layers', async () => {
     const http: HttpClient = {
       async request(options) {
         const moduleAlias = options.path.match(/^\/platform\.module\/([^/]+)\/view-context$/)?.[1];
@@ -1054,7 +1054,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     await flush();
     const firstHost = wrapper.findComponent(ModulePageHost);
     const nestedBridge = firstHost.findComponent({ name: 'ModuleReferenceRecordDetailBrowser' });
-    expect(nestedBridge.props()).toMatchObject({ renderMode: 'portal', scope: 'viewport' });
+    expect(nestedBridge.props()).toMatchObject({ renderMode: 'portal', scope: 'tab' });
     const nestedBrowser = nestedBridge.findComponent(ReferenceRecordDetailBrowser);
     (nestedBrowser.vm as unknown as { browser: typeof browser }).browser.open('crm.customer', 'customer-1');
     await flush();
@@ -1063,8 +1063,8 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     const hostLayers = wrapper.findAllComponents(ModulePageHost);
     expect(hostLayers).toHaveLength(2);
     expect(hostLayers.map((host) => host.props('recordOnly'))).toEqual([
-      expect.objectContaining({ renderMode: 'portal', scope: 'viewport' }),
-      expect.objectContaining({ renderMode: 'portal', scope: 'viewport' }),
+      expect.objectContaining({ renderMode: 'portal', scope: 'tab' }),
+      expect.objectContaining({ renderMode: 'portal', scope: 'tab' }),
     ]);
     const customerActions = hostLayers[1].findComponent({ name: 'ModuleRecordDetailActions' });
     customerActions.vm.$emit('edit');
@@ -1210,4 +1210,16 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     });
     wrapper.unmount();
   });
+});
+
+it('keeps the consumer openRecord facade bound to the same browser state', () => {
+  const browser = createReferenceRecordDetailBrowser({ request: async () => ({}) as never });
+  const wrapper = mount(ModuleReferenceRecordDetailBrowser, { props: { browser } });
+  try {
+    expect(typeof wrapper.vm.openRecord).toBe('function');
+    wrapper.vm.openRecord('crm.customer', 'record-1');
+    expect(browser.active.value?.recordId).toBe('record-1');
+  } finally {
+    wrapper.unmount();
+  }
 });

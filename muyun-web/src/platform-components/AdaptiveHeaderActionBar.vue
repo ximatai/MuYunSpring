@@ -49,12 +49,10 @@ const layout = computed(() => {
   return resolveHeaderActionLayout(actions, availableWidth.value, moreWidth.value);
 });
 const directActions = computed(() => {
-  const direct = new Set(layout.value.directKeys);
-  return props.actions.filter((action) => direct.has(action.key));
+  return layout.value.directKeys.map((key) => props.actions.find((action) => action.key === key)!);
 });
 const overflowActions = computed(() => {
-  const overflow = new Set(layout.value.overflowKeys);
-  return props.actions.filter((action) => overflow.has(action.key));
+  return layout.value.overflowKeys.map((key) => props.actions.find((action) => action.key === key)!);
 });
 const overflowItems = computed<UiDropdownItem[]>(() =>
   overflowActions.value.map((action) => ({
@@ -107,7 +105,11 @@ function handleOverflowAction(key: string) {
 onMounted(() => {
   if (typeof ResizeObserver !== 'undefined') {
     resizeObserver = new ResizeObserver(measure);
-    if (root.value) resizeObserver.observe(root.value);
+    if (root.value) {
+      resizeObserver.observe(root.value);
+      const ruler = root.value.querySelector<HTMLElement>('.adaptive-header-action-bar__measure');
+      if (ruler) resizeObserver.observe(ruler);
+    }
     const region = root.value?.closest<HTMLElement>(
       '.management-panel-header-actions, .drawer-operation-bar-actions',
     );
@@ -171,6 +173,7 @@ watch(
         v-for="action in actions"
         :key="action.key"
         :data-header-action-measure="action.key"
+        :loading="action.loading"
         :emphasis="action.level === 'primary' ? 'primary' : 'secondary'"
         :intent="action.danger ? 'danger' : 'normal'"
         :icon-name="action.iconName"

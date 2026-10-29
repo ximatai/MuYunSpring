@@ -410,3 +410,87 @@ describe('BusinessNotificationPanel', () => {
     }
   });
 });
+
+it.each([true, false])(
+  'shelves persistent navigation only after successful handoff (%s)',
+  async (success) => {
+    const action = {
+      kind: 'navigate' as const,
+      key: 'view',
+      label: '查看邀请',
+      moduleAlias: 'mr.dispatch',
+      dismissOnSuccess: false,
+    };
+    const wrapper = mount(BusinessNotificationPanel, {
+      props: {
+        notifications: [notification('meeting', false, { displayPolicy: 'persistent', actions: [action] })],
+        executeAction: async () => success,
+      },
+      global: { stubs: { Teleport: true } },
+    });
+    try {
+      await wrapper.get('.business-notification-actions button').trigger('click');
+      await flushPromises();
+      expect(wrapper.emitted('dismiss')).toBeUndefined();
+      expect(wrapper.find('.business-notification-bell').exists()).toBe(success);
+      expect(wrapper.find('.business-notification-card').exists()).toBe(!success);
+      if (success) {
+        await wrapper.get('.business-notification-bell').trigger('click');
+        await flushPromises();
+        expect(wrapper.find('.business-notification-card').exists()).toBe(true);
+      }
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);
+
+it('retains access to a shelved reminder after the other reminders leave', async () => {
+  const notice = notification('meeting', false, {
+    displayPolicy: 'persistent',
+    actions: [
+      {
+        kind: 'navigate',
+        key: 'view',
+        label: '查看邀请',
+        moduleAlias: 'mr.dispatch',
+        dismissOnSuccess: false,
+      },
+    ],
+  });
+  const wrapper = mount(BusinessNotificationPanel, {
+    props: { notifications: [notification('other'), notice], executeAction: async () => true },
+    global: { stubs: { Teleport: true } },
+  });
+  try {
+    await wrapper.get('.business-notification-actions button').trigger('click');
+    await flushPromises();
+    await wrapper.setProps({ notifications: [notice] });
+    await wrapper.get('.business-notification-bell').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('.business-notification-card h2').text()).toBe('meeting');
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('restores viewed presentation for one identity without hiding another identity reminders', async () => {
+  sessionStorage.setItem('muyun-notification-viewed:tenant:user-a', JSON.stringify(['meeting']));
+  const wrapper = mount(BusinessNotificationPanel, {
+    props: {
+      presentationKey: 'tenant:user-a',
+      notifications: [notification('meeting', false, { displayPolicy: 'persistent', actions: [] })],
+      executeAction: async () => true,
+    },
+    global: { stubs: { Teleport: true } },
+  });
+  try {
+    expect(wrapper.find('.business-notification-card').exists()).toBe(false);
+    expect(wrapper.find('.business-notification-bell').exists()).toBe(true);
+    await wrapper.setProps({ presentationKey: 'tenant:user-b' });
+    expect(wrapper.find('.business-notification-card').exists()).toBe(true);
+  } finally {
+    wrapper.unmount();
+    sessionStorage.removeItem('muyun-notification-viewed:tenant:user-a');
+  }
+});

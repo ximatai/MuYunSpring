@@ -43,3 +43,21 @@ describe('AdaptiveHeaderActionBar', () => {
     expect(wrapper.findComponent({ name: 'UiDropdown' }).props('trigger')).toBe('hover');
   });
 });
+
+it('renders a later declared primary action first without caller placement hints', async () => {
+  const wrapper = mount(AdaptiveHeaderActionBar, {
+    props: {
+      actions: [
+        { key: 'upgrade', title: '升级' },
+        { key: 'call', title: '连线', level: 'primary' },
+      ],
+    },
+  });
+  try {
+    await flushPromises();
+    const buttons = wrapper.findAll('.adaptive-header-action-bar__visible button');
+    expect(buttons.map((button) => button.text().replace(/\s/g, ''))).toEqual(['连线', '升级']);
+  } finally {
+    wrapper.unmount();
+  }
+});

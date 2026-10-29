@@ -211,6 +211,8 @@ export interface ModulePageListRowExpansionContext {
 
 /** Actions appended to the standard record-detail operation area in view mode. */
 export interface ModuleDetailEnhancement {
+  /** Semantic width override for the standard detail drawer. */
+  width?: DrawerWidth;
   actions?: ModulePageRecordActionContribution[];
   sections?: ModulePageDetailSection[];
 }
@@ -791,10 +793,14 @@ function composeDetailEnhancement(
   enhancements: readonly ModulePageEnhancement[],
 ): ModuleDetailEnhancement | undefined {
   const detail = {
+    width: enhancements
+      .map((enhancement) => enhancement.detail?.width)
+      .filter((width) => width !== undefined)
+      .at(-1),
     actions: composeRecordActions(enhancements, (enhancement) => enhancement.detail?.actions),
     sections: enhancements.flatMap((enhancement) => enhancement.detail?.sections ?? []),
   };
-  return detail.actions.length > 0 || detail.sections.length > 0 ? detail : undefined;
+  return detail.width || detail.actions.length > 0 || detail.sections.length > 0 ? detail : undefined;
 }
 
 /**

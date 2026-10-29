@@ -532,3 +532,14 @@ it('rejects conflicting owner replacements atomically and permits later independ
       configureModulePageEnhancementContributions(owner, []);
   }
 });
+
+it('preserves an explicit standard detail width even without custom detail content', () => {
+  configureModulePageEnhancements([
+    { id: 'width-test', target: { moduleAlias: 'demo.width' }, detail: { width: 'standard' } },
+  ]);
+  try {
+    expect(resolveModulePageEnhancement('demo.width')?.detail?.width).toBe('standard');
+  } finally {
+    configureModulePageEnhancements([]);
+  }
+});

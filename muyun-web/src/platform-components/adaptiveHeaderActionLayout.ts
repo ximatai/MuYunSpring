@@ -31,7 +31,9 @@ export function resolveHeaderActionLayout(
   moreWidth: number,
   gap = defaultGap,
 ): HeaderActionLayout {
-  const visible = actions.filter((action) => action.width > 0);
+  const visible = actions
+    .filter((action) => action.width > 0)
+    .sort((left, right) => Number(right.level === 'primary') - Number(left.level === 'primary'));
   const totalWidth = (items: HeaderActionLayoutItem[]) =>
     items.reduce((sum, action) => sum + action.width, 0) + Math.max(0, items.length - 1) * gap;
   if (totalWidth(visible) <= availableWidth) {

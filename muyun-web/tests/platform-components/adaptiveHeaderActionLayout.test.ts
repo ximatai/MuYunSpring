@@ -43,3 +43,23 @@ describe('resolveHeaderActionLayout', () => {
     });
   });
 });
+
+it('places primary actions first while preserving declaration order within each group', () => {
+  const actions = [
+    { key: 'edit', width: 80 },
+    { key: 'call', level: 'primary' as const, width: 80 },
+    { key: 'history', width: 80 },
+    { key: 'save', level: 'primary' as const, width: 80 },
+  ];
+  expect(resolveHeaderActionLayout(actions, 1000, 60).directKeys).toEqual([
+    'call',
+    'save',
+    'edit',
+    'history',
+  ]);
+  expect(resolveHeaderActionLayout(actions, 240, 60)).toEqual({
+    directKeys: ['call', 'save'],
+    overflowKeys: ['edit', 'history'],
+  });
+  expect(actions.map((action) => action.key)).toEqual(['edit', 'call', 'history', 'save']);
+});
