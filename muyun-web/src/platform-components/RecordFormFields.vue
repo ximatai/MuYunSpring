@@ -16,7 +16,7 @@ import {
   UiTextArea,
   UiTreeSelect,
 } from '@muyun/vue-ui-antdv';
-import type { OptionItemDescriptor, OptionValue, OptionValueList } from '@muyun/web-contracts';
+import type { OptionValue, OptionValueList } from '@muyun/web-contracts';
 import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
 import RecordStatusSwitch from './RecordStatusSwitch.vue';
 import RecordStatusTag from './RecordStatusTag.vue';
@@ -57,7 +57,7 @@ import {
   type RecordFormSelectionContext,
 } from './recordFormFieldModel';
 import { hasOptionHierarchy, optionItemsToOptions, optionItemsToTree } from './optionFieldOptions';
-import { loadOptionFieldItems } from './optionFieldOptionCache';
+import { loadOptionFieldItems, optionFieldState } from './optionFieldOptionCache';
 import { resolveRecordDetailDisplayValue } from './recordDetailFieldModel';
 
 defineOptions({ name: 'RecordFormFields' });
@@ -188,9 +188,28 @@ function codeHasValue(field: RecordFormFieldState) {
 const fieldStates = computed<RecordFormFieldState[]>(() =>
   resolvedFieldNames.value.map(fieldState).filter((field) => field.visible),
 );
-const optionItems = ref<Record<string, OptionItemDescriptor[]>>({});
-const loadingOptionFields = ref(new Set<string>());
-const optionFieldErrors = ref<Record<string, string>>({});
+const optionStates = computed(
+  () =>
+    new Map(
+      [...(props.fields?.values() ?? [])]
+        .filter((field) => field.option && !field.option.inlineItems?.length && props.optionContext)
+        .map((field) => [
+          field.fieldRef.fieldName,
+          optionFieldState(props.optionContext!, field.fieldRef.fieldName, props.optionEntityAlias),
+        ]),
+    ),
+);
+const loadingOptionFields = computed(
+  () =>
+    new Set([...optionStates.value].filter(([, state]) => state.status === 'loading').map(([name]) => name)),
+);
+const optionFieldErrors = computed(() =>
+  Object.fromEntries(
+    [...optionStates.value]
+      .filter(([, state]) => state.status === 'error')
+      .map(([name]) => [name, 'platform.form.options-failed']),
+  ),
+);
 const INHERIT_OPTION_VALUE = '__muyun_inherit__';
 const editorFieldErrors = ref<Record<string, string>>({});
 // Malformed editor input stays local while the last valid business draft remains unchanged.
@@ -229,6 +248,7 @@ const formValidity = computed<RecordFormValidity>(() => {
   };
   const pending =
     codeForms.loading.value ||
+    loadingOptionFields.value.size > 0 ||
     fieldStates.value.some(
       (field) =>
         field.fieldControl?.alias === 'cron' &&
@@ -380,7 +400,7 @@ function stringArrayFieldValue(fieldName: string) {
 }
 
 function optionFieldItems(field: RecordFormFieldState) {
-  return field.optionItems ?? optionItems.value[field.fieldName] ?? [];
+  return field.optionItems ?? optionStates.value.get(field.fieldName)?.items ?? [];
 }
 
 function optionFieldOptions(field: RecordFormFieldState) {
@@ -529,47 +549,27 @@ async function loadOptionFields(forceRefresh = false) {
   if (!props.optionContext || !props.fields) {
     return;
   }
-  for (const field of props.fields.values()) {
-    if (!field.option || field.option.inlineItems?.length) {
-      continue;
-    }
-    await loadOptionField(field, forceRefresh);
-  }
+  // Start every resource together so a slow field cannot leave another field's old
+  // candidates selectable after the form's source or descriptor has changed.
+  await Promise.all(
+    [...props.fields.values()]
+      .filter((field) => field.option && !field.option.inlineItems?.length)
+      .map((field) => loadOptionField(field, forceRefresh)),
+  );
 }
 
-const optionLoadRevisions = new Map<string, number>();
 async function loadOptionField(field: RecordFormFieldDescriptor, forceRefresh = false) {
-  if (!props.optionContext || !field.option) {
-    return;
-  }
-  const fieldName = field.fieldRef.fieldName;
-  const context = props.optionContext;
-  const entity = props.optionEntityAlias;
-  const fields = props.fields;
-  const revision = (optionLoadRevisions.get(fieldName) ?? 0) + 1;
-  optionLoadRevisions.set(fieldName, revision);
-  const current = () =>
-    optionLoadRevisions.get(fieldName) === revision &&
-    props.optionContext === context &&
-    props.optionEntityAlias === entity &&
-    props.fields === fields;
-  loadingOptionFields.value = new Set(loadingOptionFields.value).add(fieldName);
+  if (!props.optionContext || !field.option) return;
   try {
-    const items = await loadOptionFieldItems(context, fieldName, entity, context.moduleAlias, forceRefresh);
-    if (!current()) return;
-    optionItems.value = { ...optionItems.value, [fieldName]: items };
-    const errors = { ...optionFieldErrors.value };
-    delete errors[fieldName];
-    optionFieldErrors.value = errors;
+    await loadOptionFieldItems(
+      props.optionContext,
+      field.fieldRef.fieldName,
+      props.optionEntityAlias,
+      props.optionContext.moduleAlias,
+      forceRefresh,
+    );
   } catch {
-    if (!current()) return;
-    optionFieldErrors.value = { ...optionFieldErrors.value, [fieldName]: 'platform.form.options-failed' };
-  } finally {
-    if (current()) {
-      const next = new Set(loadingOptionFields.value);
-      next.delete(fieldName);
-      loadingOptionFields.value = next;
-    }
+    // The shared resource publishes failure for every consumer and permits an explicit retry.
   }
 }
 

@@ -1,3 +1,4 @@
+import { Modal } from 'ant-design-vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { expect, it, vi } from 'vitest';
@@ -262,5 +263,83 @@ it('uses the whole workspace for one definition and keeps design actions inside 
     await expect.poll(() => diagram.props('nodes').length).toBe(13);
   } finally {
     wrapper.unmount();
+    // Transition stubs do not invoke afterLeave for static dialogs outside the wrapper.
+    Modal.destroyAll();
+    await flushPromises();
+    document.querySelectorAll('.ant-modal-root').forEach((element) => element.remove());
+  }
+});
+
+it('keeps save recovery controls reachable in a narrow workspace', async () => {
+  await page.viewport(640, 804);
+  const request = async (call: HttpRequestOptions) => {
+    if (call.path.endsWith('/view/a')) return { id: 'a', alias: 'purchase', title: '采购审批', version: 1 };
+    if (call.path.endsWith('/versions/query'))
+      return { records: [{ id: 'draft', version: 1, versionNo: 1, publishStatus: 'draft' }] };
+    if (call.path.endsWith('/configuration-catalog'))
+      return { tasks: [], queries: [], generations: [], associations: [] };
+    if (call.path.endsWith('/design') && call.method === 'POST') throw new Error('lost response');
+    if (call.path.endsWith('/design'))
+      return {
+        nodes: [
+          { nodeKey: 'start', nodeType: 'start', title: '提交' },
+          { nodeKey: 'approval', nodeType: 'approval', title: '审批' },
+          { nodeKey: 'end', nodeType: 'end', title: '结束' },
+        ],
+        links: [
+          { routeKey: 'in', sourceNodeKey: 'start', targetNodeKey: 'approval' },
+          { routeKey: 'out', sourceNodeKey: 'approval', targetNodeKey: 'end' },
+        ],
+      };
+    return { moduleAlias: 'demo.purchase', capabilities: [], actions: [] };
+  };
+  const context = {
+    moduleAlias: 'platform.workflow.definition',
+    http: { request },
+  } as unknown as ModuleContext<unknown>;
+  const Harness = defineComponent({
+    setup() {
+      providePageLayout('workspace');
+      return () =>
+        h(UiThemeProvider, {}, () =>
+          h(UiSidePanelHost, {}, () =>
+            h(ModuleContextProvider, { context }, () =>
+              h(WorkflowConfigurationView, { moduleAlias: 'demo.purchase', definitionId: 'a' }),
+            ),
+          ),
+        );
+    },
+  });
+  const wrapper = mount(Harness, {
+    attachTo: document.body,
+    global: { stubs: { RecordDetailDrawer: true } },
+  });
+  wrapper.element.setAttribute('style', 'display:block;height:700px');
+  try {
+    await flushPromises();
+    await page.getByRole('button', { name: '提交 开始', exact: true }).click();
+    await page.getByRole('button', { name: '关闭', exact: true }).click();
+    await page.getByRole('button', { name: '添加节点 / 分支', exact: false }).click();
+    await page.getByRole('menuitem', { name: '插入节点', exact: true }).click();
+    await page.getByRole('button', { name: '关闭', exact: true }).click();
+    await page.getByRole('button', { name: '保存草稿', exact: true }).click();
+    await expect.element(page.getByRole('button', { name: '读取当前版本', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '读取当前版本', exact: true }).click();
+    await expect
+      .element(page.getByRole('button', { name: '保留本地草稿并重新核对', exact: true }))
+      .toBeVisible();
+    const bounds = wrapper.element.getBoundingClientRect();
+    const recovery = wrapper.get('.configuration-recovery').element.getBoundingClientRect();
+    expect(recovery.bottom).toBeLessThan(bounds.bottom);
+    expect(wrapper.element.scrollWidth).toBeLessThanOrEqual(bounds.width);
+    await page.getByRole('button', { name: '保留本地草稿并重新核对', exact: true }).click();
+    await expect.poll(() => wrapper.find('.configuration-recovery').exists()).toBe(false);
+    expect(wrapper.findComponent({ name: 'WorkflowDiagram' }).props('editable')).toBe(true);
+  } finally {
+    wrapper.unmount();
+    // Transition stubs do not invoke afterLeave for static dialogs outside the wrapper.
+    Modal.destroyAll();
+    await flushPromises();
+    document.querySelectorAll('.ant-modal-root').forEach((element) => element.remove());
   }
 });

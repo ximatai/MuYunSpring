@@ -16,17 +16,23 @@ export default mergeConfig(
   createViteConfig('test'),
   defineConfig({
     server: {
-      proxy: process.env.MUYUN_TREE_SERVICE_URL
-        ? {
-            '/api': {
-              target: process.env.MUYUN_TREE_SERVICE_URL,
-              changeOrigin: true,
-              configure: (proxy) => proxy.on('proxyReq', (request) => request.removeHeader('origin')),
-            },
-          }
-        : {},
+      proxy:
+        process.env.MUYUN_PLATFORM_SERVICE_URL || process.env.MUYUN_TREE_SERVICE_URL
+          ? {
+              '/api': {
+                target: process.env.MUYUN_PLATFORM_SERVICE_URL || process.env.MUYUN_TREE_SERVICE_URL,
+                changeOrigin: true,
+                configure: (proxy) => proxy.on('proxyReq', (request) => request.removeHeader('origin')),
+              },
+            }
+          : {},
     },
     define: {
+      __PLATFORM_BUSINESS_TOKEN__: JSON.stringify(process.env.MUYUN_PLATFORM_BUSINESS_TOKEN ?? ''),
+      __PLATFORM_SERVICE_ENABLED__: Boolean(
+        process.env.MUYUN_PLATFORM_SERVICE_URL && process.env.MUYUN_PLATFORM_SERVICE_TOKEN,
+      ),
+      __PLATFORM_SERVICE_TOKEN__: JSON.stringify(process.env.MUYUN_PLATFORM_SERVICE_TOKEN ?? ''),
       __TREE_SERVICE_ENABLED__: Boolean(
         process.env.MUYUN_TREE_SERVICE_URL && process.env.MUYUN_TREE_SERVICE_TOKEN,
       ),

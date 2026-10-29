@@ -105,6 +105,7 @@ export function createModulePageAssistantSurface(
     get referencePickerConfigs() {
       return activeForm().referencePickerConfigs;
     },
+    optionState: (fieldName) => activeForm().optionState?.(fieldName) ?? { status: 'idle', items: [] },
     referenceDisplay: (fieldName) => activeForm().referenceDisplay?.(fieldName),
     contextRevision: () => modulePageAssistantContextRevision(view),
     relations: () => (view.assistantNavigatorEditor ? [] : assistantRelationFacts(view)),

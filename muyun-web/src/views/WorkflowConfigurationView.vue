@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  AppError,
   normalizeError,
   userFacingErrorMessage,
   useLanguageContext,
@@ -10,12 +11,13 @@ import {
   hasWorkflowParticipants,
 } from '../platform-components/workflowParticipantPolicy';
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
-import { useWorkflowDesignSession } from '../platform-components/useWorkflowDesignSession';
+import { useWorkflowConfigurationSession } from './useWorkflowConfigurationSession';
 import { useWorkflowConfigurationAssistant } from './useWorkflowConfigurationAssistant';
 import { copyWorkflowFragment, pasteWorkflowFragment } from '../platform-components/workflowDesignClipboard';
 import { usePageDataChange } from '../platform-admin-runtime/pageRealtime';
 
 import type {
+  WorkflowDesign,
   WorkflowConfigurationCatalog,
   WorkflowDefinition,
   WorkflowVersion,
@@ -99,6 +101,12 @@ const configurationActions = computed(() => [
     disabled: !editable.value || !dirty.value,
   },
   {
+    key: 'read-current',
+    title: workflowLanguage.t('platform.workflow-config.read-current', '读取当前版本'),
+    level: 'secondary' as const,
+    disabled: !selected.value || busy.value || (!dirty.value && !recoveryRequired.value),
+  },
+  {
     key: 'validate',
     title: workflowLanguage.t('platform.screen.WorkflowConfigurationView.validate-workflow', '校验流程'),
     level: 'secondary' as const,
@@ -110,13 +118,13 @@ const configurationActions = computed(() => [
       version.value?.publishStatus === 'published'
         ? workflowLanguage.t('platform.screen.WorkflowConfigurationView.enable-published', '启用已发布版本')
         : workflowLanguage.t('platform.screen.WorkflowConfigurationView.publish-workflow', '发布流程'),
-    disabled: !version.value || busy.value,
+    disabled: !version.value || busy.value || recoveryRequired.value,
   },
   {
     key: 'upgrade',
     title: workflowLanguage.t('platform.screen.WorkflowConfigurationView.create-version', '创建新版本'),
     level: 'secondary' as const,
-    disabled: !selected.value || busy.value || dirty.value,
+    disabled: !selected.value || busy.value || dirty.value || recoveryRequired.value,
   },
 ]);
 const insertionActions = computed(() =>
@@ -157,6 +165,7 @@ function insertElement(key: string) {
 }
 function configurationAction(key: string) {
   if (key === 'save') void save();
+  else if (key === 'read-current') void readCurrentSave();
   else if (key === 'validate') void validate();
   else if (key === 'publish') publishReviewOpen.value = true;
   else if (key === 'upgrade') void upgrade();
@@ -196,7 +205,13 @@ const definitionLoadError = ref<() => string>();
 const versions = ref<WorkflowVersion[]>([]);
 const selected = ref<WorkflowDefinition>(),
   version = ref<WorkflowVersion>();
-const session = useWorkflowDesignSession();
+const session = useWorkflowConfigurationSession({
+  moduleAlias: () => props.moduleAlias,
+  definitionId: () => props.definitionId,
+});
+const { recoveryRequired, submissionStatus } = session;
+const recoverySelection = ref('');
+const recovery = ref<{ version: WorkflowVersion; design: WorkflowDesign }>();
 const { design, history } = session;
 const selectedNodeKey = ref(''),
   selectedRouteKey = ref('');
@@ -204,17 +219,19 @@ const busy = ref(false);
 const dirty = history.dirty;
 const selectedNodeKeys = ref<string[]>([]);
 const frozen = computed(() => ['published', 'archived'].includes(version.value?.publishStatus ?? ''));
-const editable = computed(() => version.value?.publishStatus === 'draft' && !busy.value);
+const editable = computed(
+  () => version.value?.publishStatus === 'draft' && !busy.value && !recoveryRequired.value,
+);
 const loadedScope = ref('');
 const interactionRevision = ref(0);
 const assistant: ReturnType<typeof useWorkflowConfigurationAssistant> = useWorkflowConfigurationAssistant({
+  session,
   http: context.http,
-  moduleAlias: () => props.moduleAlias,
   definitionId: () => props.definitionId,
   interactionRevision: () => String(interactionRevision.value),
   revision: () =>
     JSON.stringify([
-      assistant.scope.value,
+      session.scope.value,
       loadedScope.value,
       version.value,
       selected.value,
@@ -223,20 +240,21 @@ const assistant: ReturnType<typeof useWorkflowConfigurationAssistant> = useWorkf
       selectedNodeKeys.value,
       selectedRouteKey.value,
       busy.value,
+      submissionStatus.value,
       loadingDefinition.value,
       businessLoading.value,
       assistant.readable.value,
       assistant.writable.value,
-      assistant.active.value,
+      session.active.value,
     ]),
   adapter: {
     language: workflowLanguage,
     validateCondition: (expression) => client.validateCondition(expression),
     state: () => ({
       ready:
-        assistant.active.value &&
+        session.active.value &&
         assistant.readable.value &&
-        loadedScope.value === assistant.scope.value &&
+        loadedScope.value === session.scope.value &&
         Boolean(selected.value && version.value && businessRuntime.value) &&
         !loadingDefinition.value &&
         !definitionLoadError.value &&
@@ -251,15 +269,16 @@ const assistant: ReturnType<typeof useWorkflowConfigurationAssistant> = useWorkf
       selectedNodeKeys: selectedNodeKeys.value,
       selectedRouteKey: selectedRouteKey.value,
       dirty: dirty.value,
+      submissionStatus: submissionStatus.value,
     }),
     prepare: (batch) => {
-      const expected = assistant.scope.value;
+      const expected = session.scope.value;
       return session.prepare(
         batch,
         fields.value,
         () =>
-          assistant.scope.value === expected &&
-          assistant.active.value &&
+          session.scope.value === expected &&
+          session.active.value &&
           assistant.readable.value &&
           assistant.writable.value &&
           editable.value &&
@@ -321,9 +340,9 @@ function persistenceCheckpoint() {
 }
 function actionCheckpoint() {
   const generation = actionGeneration;
-  const scope = assistant.scope.value;
+  const scope = session.scope.value;
   return () =>
-    !disposed && assistant.active.value && actionGeneration === generation && assistant.scope.value === scope;
+    !disposed && session.active.value && actionGeneration === generation && session.scope.value === scope;
 }
 function editCheckpoint() {
   const current = actionCheckpoint();
@@ -331,11 +350,13 @@ function editCheckpoint() {
   return () => current() && unchanged();
 }
 watch(
-  assistant.scope,
+  session.scope,
   () => {
     actionGeneration++;
     scopeGeneration++;
     persistencePending = false;
+    submissionStatus.value = 'idle';
+    recovery.value = undefined;
     metadataRevision++;
     loadedScope.value = '';
     selected.value = undefined;
@@ -347,7 +368,7 @@ watch(
     propertyOpen.value = publishReviewOpen.value = false;
     busy.value = false;
     client = createWorkflowDefinitionClient(context.http, props.moduleAlias);
-    if (assistant.active.value) void reload();
+    if (session.active.value) void reload();
   },
   { flush: 'sync' },
 );
@@ -437,7 +458,7 @@ async function reload() {
       versions.value = nextVersions;
       version.value = latest;
       history.reset(nextDesign, initialize ? { nodes: [], links: [] } : nextDesign);
-      loadedScope.value = assistant.scope.value;
+      loadedScope.value = session.scope.value;
       selectedNodeKeys.value = [];
       selectedNodeKey.value = '';
       selectedRouteKey.value = '';
@@ -460,7 +481,7 @@ async function loadVersion(next: WorkflowVersion, current = actionCheckpoint()) 
   propertyOpen.value = false;
 }
 async function switchVersion(id: string) {
-  if (dirty.value) return;
+  if (dirty.value || recoveryRequired.value || busy.value) return;
   const next = versions.value.find((item) => item.id === id);
   if (next) {
     interactionRevision.value++;
@@ -468,14 +489,20 @@ async function switchVersion(id: string) {
   }
 }
 async function save() {
-  if (!version.value || !selected.value) return;
+  if (!editable.value || !version.value || !selected.value) return;
   await run(async (current) => {
-    const saved = await client.saveDesign(
-      selected.value!.id,
-      version.value!.id,
-      version.value!.version,
-      design.value,
-    );
+    const saved = await client
+      .saveDesign(selected.value!.id, version.value!.id, version.value!.version, design.value)
+      .catch((cause: unknown) => {
+        if (current() && cause instanceof AppError && cause.status === 409)
+          submissionStatus.value = 'conflict';
+        if (
+          current() &&
+          !(cause instanceof AppError && [400, 401, 403, 404, 409, 422].includes(cause.status ?? 0))
+        )
+          submissionStatus.value = 'unknown';
+        throw cause;
+      });
     if (!current()) return;
     version.value = saved;
     versions.value = versions.value.map((item) => (item.id === version.value!.id ? version.value! : item));
@@ -483,7 +510,38 @@ async function save() {
     showSuccessMessage(workflowLanguage.t('platform.workflow-config.draft-saved', '流程草稿已保存'));
   }, true);
 }
+async function readCurrentSave() {
+  if ((!recoveryRequired.value && !dirty.value) || !selected.value || !version.value) return;
+  const definitionId = selected.value.id;
+  const versionId = version.value.id;
+  if (busy.value) return;
+  recovery.value = undefined;
+  if (submissionStatus.value === 'idle') submissionStatus.value = 'review';
+  await run(async (current) => {
+    const latestVersions = await client.versions(definitionId);
+    if (!current()) return;
+    const latest = latestVersions.find((item) => item.id === versionId);
+    if (!latest)
+      throw new Error(workflowLanguage.t('platform.workflow-config.version-missing', '当前流程版本已不存在'));
+    const latestDesign = await client.design(definitionId, versionId);
+    if (!current()) return;
+    versions.value = latestVersions.sort((a, b) => b.versionNo - a.versionNo);
+    recovery.value = { version: latest, design: latestDesign };
+    recoverySelection.value = `node:${latestDesign.nodes.find((node) => !['start', 'end'].includes(node.nodeType))?.nodeKey ?? latestDesign.nodes[0]?.nodeKey ?? ''}`;
+  });
+}
+function resolveSave(keepDraft: boolean) {
+  if (busy.value || !recovery.value || !recoveryRequired.value) return;
+  if (keepDraft && recovery.value.version.publishStatus !== 'draft') return;
+  const current = recovery.value;
+  version.value = current.version;
+  history.reset(keepDraft ? design.value : current.design, current.design);
+  recovery.value = undefined;
+  submissionStatus.value = 'idle';
+  interactionRevision.value++;
+}
 async function validate() {
+  if (recoveryRequired.value) return;
   const current = actionCheckpoint();
   if (dirty.value) await save();
   if (!current() || dirty.value || !version.value) return;
@@ -494,6 +552,7 @@ async function validate() {
   });
 }
 async function publish() {
+  if (recoveryRequired.value) return;
   const current = actionCheckpoint();
   if (
     design.value.nodes.some(
@@ -543,6 +602,7 @@ async function publish() {
   }, true);
 }
 async function upgrade() {
+  if (recoveryRequired.value || dirty.value) return;
   if (!selected.value) return;
   await run(async (current) => {
     const next = await client.upgrade(selected.value!.id);
@@ -707,7 +767,7 @@ watch(
   { flush: 'sync' },
 );
 function mayApplyAsyncEdit(isCurrent: () => boolean) {
-  if (disposed || !assistant.active.value) return false;
+  if (disposed || !session.active.value) return false;
   if (editable.value && isCurrent()) return true;
   showInfoMessage(
     workflowLanguage.t('platform.workflow-config.stale-edit', '流程已变更，本次操作未应用，请重新操作。'),
@@ -823,7 +883,7 @@ async function pasteShortcut() {
                 ),
               }))
             "
-            :disabled="busy || dirty"
+            :disabled="busy || dirty || recoveryRequired"
             @update:value="switchVersion(String($event))"
           />
           <UiTooltip
@@ -854,6 +914,95 @@ async function pasteShortcut() {
           </UiTooltip>
         </div>
       </template>
+      <div v-if="recoveryRequired" class="configuration-recovery" role="alert">
+        <p>
+          {{
+            submissionStatus === 'review'
+              ? workflowLanguage.t(
+                  'platform.workflow-config.review-current',
+                  '本地草稿已保留，请读取当前版本后核对。',
+                )
+              : workflowLanguage.t(
+                  'platform.workflow-config.save-unknown',
+                  '上次保存未能确认，本地草稿已保留。请读取当前版本后重新核对。',
+                )
+          }}
+        </p>
+        <UiButton :disabled="busy" @click="readCurrentSave">{{
+          workflowLanguage.t('platform.workflow-config.read-current', '读取当前版本')
+        }}</UiButton>
+        <UiButton
+          v-if="submissionStatus === 'review'"
+          :disabled="busy"
+          @click="
+            submissionStatus = 'idle';
+            recovery = undefined;
+          "
+          >{{ workflowLanguage.t('platform.workflow-config.cancel-review', '取消核对，继续编辑') }}</UiButton
+        >
+        <template v-if="recovery">
+          <details>
+            <summary>
+              {{
+                workflowLanguage.t('platform.workflow-config.view-current', '查看服务端当前流程与完整配置')
+              }}
+            </summary>
+            <WorkflowDiagram
+              :nodes="recovery.design.nodes"
+              :routes="recovery.design.links"
+              :layout-json="recovery.design.layoutJson"
+              :editable="false"
+              interactive
+              @select="recoverySelection = `node:${$event}`"
+              @select-route="recoverySelection = `route:${$event}`"
+            />
+            <UiSelect
+              v-model:value="recoverySelection"
+              :options="[
+                ...recovery.design.nodes.map((node) => ({
+                  value: `node:${node.nodeKey}`,
+                  label: node.title ?? node.nodeKey,
+                })),
+                ...recovery.design.links.map((route) => ({
+                  value: `route:${route.routeKey}`,
+                  label: route.title ?? route.routeKey,
+                })),
+              ]"
+            />
+            <WorkflowDesignProperties
+              :design="recovery.design"
+              :node-key="recoverySelection.startsWith('node:') ? recoverySelection.slice(5) : ''"
+              :route-key="recoverySelection.startsWith('route:') ? recoverySelection.slice(6) : ''"
+              :editable="false"
+              :condition-tools="conditionTools"
+              :http="context.http"
+              :module-alias="moduleAlias"
+              :fields="fields"
+              :catalog="catalog"
+              :actions="actionOptions"
+              @select-route="recoverySelection = `route:${$event}`"
+            />
+          </details>
+          <p>
+            {{
+              workflowLanguage.t(
+                'platform.workflow-config.current-read',
+                '已读取当前版本；这不代表原保存请求的回执。采用当前版本将替换本地草稿，保留本地草稿则需重新核对后保存。',
+              )
+            }}
+          </p>
+          <UiButton :disabled="busy" @click="resolveSave(false)">{{
+            workflowLanguage.t('platform.workflow-config.use-current', '采用当前版本')
+          }}</UiButton>
+          <UiButton
+            :disabled="busy || recovery.version.publishStatus !== 'draft'"
+            @click="resolveSave(true)"
+            >{{
+              workflowLanguage.t('platform.workflow-config.keep-draft', '保留本地草稿并重新核对')
+            }}</UiButton
+          >
+        </template>
+      </div>
       <UiSpin v-if="loadingDefinition" />
       <UiError v-if="definitionLoadError" :message="definitionLoadError()" />
       <UiButton v-if="definitionLoadError" @click="reload">{{
@@ -1151,6 +1300,12 @@ async function pasteShortcut() {
   box-sizing: border-box;
   overflow: hidden;
   container-type: inline-size;
+}
+.configuration-recovery {
+  flex: 0 0 auto;
+  max-height: 45%;
+  overflow: auto;
+  padding: 8px;
 }
 .configuration-status {
   display: flex;

@@ -33,6 +33,7 @@ export interface WorkflowConfigurationAssistantState {
   selectedNodeKeys: string[];
   selectedRouteKey: string;
   dirty: boolean;
+  submissionStatus?: 'idle' | 'unknown' | 'conflict' | 'review';
 }
 export type WorkflowDraftChange = Pick<
   ReturnType<typeof prepareWorkflowDesignOperations>,
@@ -164,6 +165,9 @@ export function createWorkflowConfigurationAssistantSurface(
           officialPublicationValidation: false,
         },
         unsaved: state.dirty,
+        ...(state.submissionStatus && state.submissionStatus !== 'idle'
+          ? { submissionStatus: state.submissionStatus, recoveryRequired: true }
+          : {}),
         saved: false,
         published: false,
       };
@@ -490,6 +494,9 @@ export function describeWorkflowDraft(
     version,
     editable: canWrite(state),
     unsaved: state.dirty,
+    ...(state.submissionStatus && state.submissionStatus !== 'idle'
+      ? { submissionStatus: state.submissionStatus, recoveryRequired: true }
+      : {}),
     nodes,
     routes,
     fields,

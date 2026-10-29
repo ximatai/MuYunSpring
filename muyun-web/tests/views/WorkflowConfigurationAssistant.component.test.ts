@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { computed, defineComponent, h, KeepAlive, provide, ref } from 'vue';
 import { expect, it, vi } from 'vitest';
 import {
+  AppError,
   createAssistantSurfaceRegistry,
   createLanguageContext,
   provideLanguageContext,
@@ -181,7 +182,7 @@ async function fixture(options: Options = {}) {
       const body = input.body as { version: number; design: WorkflowDesign };
       expect(body.version).toBe(storedVersion);
       await options.waitSave;
-      if (options.saveFails) throw new Error('Save rejected');
+      if (options.saveFails) throw new AppError('Save rejected', { status: 400 });
       stored = JSON.parse(JSON.stringify(body.design));
       return {
         id: input.path.includes('/older-draft/') ? 'older-draft' : 'draft',

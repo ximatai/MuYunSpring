@@ -275,3 +275,56 @@ it('formats observed candidate names in the owning language for assistant live f
   ]);
   expect(current()).toBe('Selected (verify name when needed)');
 });
+
+it('shares remote dictionary candidates with the standard form and rejects disabled or withdrawn values', async () => {
+  const { loadOptionFieldItems, optionFieldState } =
+    await import('@/platform-components/optionFieldOptionCache');
+  const context = {
+    moduleAlias: 'demo.record',
+    http: {
+      request: vi.fn().mockResolvedValue([
+        { code: 'A', title: '可选', enabled: true },
+        { code: 'B', title: '停用', enabled: false },
+      ]),
+    },
+  } as unknown as import('@muyun/web-core').ModuleContext<unknown>;
+  const { view } = fixture();
+  view.formFields.set('state', {
+    fieldRef: { fieldName: 'state' },
+    label: '状态',
+    option: { binding: { sourceType: 'dictionary', source: 'demo.state' }, selectionMode: 'SINGLE' },
+  } as never);
+  view.optionState = (name) => optionFieldState(context, name);
+  const capability = createRecordFormAssistantCapabilities(view)().find(
+    (item) => item.descriptor.code === 'form.patch-draft',
+  )!;
+  const apply = (value: string) =>
+    capability.execute(capability.parseInput({ changes: [{ fieldName: 'state', value }] }), {
+      signal: new AbortController().signal,
+      isCurrent: () => true,
+      commitInternalState: (effect) => effect(),
+      applyEffect: (effect) => effect(),
+    });
+  await expect(apply('A')).rejects.toThrow();
+  await loadOptionFieldItems(context, 'state');
+  expect(recordFormAssistantFacts(view).fields.find((field) => field.fieldName === 'state')).toMatchObject({
+    options: [{ value: 'A', label: '可选' }],
+  });
+  await apply('A');
+  expect(view.updateDraftFields).toHaveBeenCalledWith([{ fieldName: 'state', value: 'A' }], 'assistant');
+  await expect(apply('B')).rejects.toThrow();
+  const refresh = loadOptionFieldItems(context, 'state', undefined, context.moduleAlias, true);
+  await expect(apply('A')).rejects.toThrow();
+  await refresh;
+  view.optionState = () => ({
+    status: 'ready',
+    items: Array.from({ length: 55 }, (_, index) => ({
+      code: String(index),
+      title: String(index),
+      enabled: true,
+    })),
+  });
+  const fact = recordFormAssistantFacts(view).fields.find((field) => field.fieldName === 'state');
+  expect(fact?.options).toHaveLength(50);
+  expect(fact).toMatchObject({ optionsTruncated: true });
+});

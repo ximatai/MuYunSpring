@@ -2081,3 +2081,53 @@ it.each(['image/png', 'application/pdf'])(
     }
   },
 );
+
+it('publishes remote option loading, failure and recovery to every standard form using the same context', async () => {
+  const { loadOptionFieldItems, optionFieldState } =
+    await import('@/platform-components/optionFieldOptionCache');
+  const pending: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = [];
+  const request = vi.fn(() => new Promise((resolve, reject) => pending.push({ resolve, reject })));
+  const context = moduleContext('demo.record', request);
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'state',
+      {
+        fieldRef: { fieldName: 'state' },
+        label: '状态',
+        option: { binding: { sourceType: 'dictionary', source: 'demo.state' }, selectionMode: 'SINGLE' },
+      } as RecordFormFieldDescriptor,
+    ],
+  ]);
+  const props = { fields, record: {}, mode: 'create' as const, optionContext: context };
+  const first = mount(RecordFormFields, { props });
+  const second = mount(RecordFormFields, { props });
+  try {
+    await flushPromises();
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(first.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ pending: true, valid: false });
+    pending[0].resolve([{ code: 'A', title: '启用', enabled: true }]);
+    await flushPromises();
+    expect(optionFieldState(context, 'state').items[0]?.code).toBe('A');
+    expect(first.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+    const refresh = loadOptionFieldItems(context, 'state', undefined, context.moduleAlias, true);
+    const rejected = expect(refresh).rejects.toThrow('offline');
+    await flushPromises();
+    expect(optionFieldState(context, 'state').items).toEqual([]);
+    expect(second.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ pending: true, valid: false });
+    pending[1].reject(new Error('offline'));
+    await rejected;
+    await flushPromises();
+    expect(first.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: false });
+    expect(second.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: false });
+    const retry = loadOptionFieldItems(context, 'state');
+    await flushPromises();
+    pending[2].resolve([{ code: 'B', title: '恢复', enabled: true }]);
+    await retry;
+    await flushPromises();
+    expect(first.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+    expect(second.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+  } finally {
+    first.unmount();
+    second.unmount();
+  }
+});
