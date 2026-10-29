@@ -2,6 +2,8 @@
 import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import {
   createModuleContext,
+  createUuid,
+  AppError,
   createNavigatorReferenceCrudClient,
   recordPresentationLabel,
   useLanguageContext,
@@ -47,12 +49,17 @@ import {
   confirmAction,
 } from '@muyun/vue-ui-antdv';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
+import { codeRuleSaveRecovery, type CodeRuleSaveReference } from './codeRuleSaveRecovery';
+import { useCodeConfigurationSession } from './useCodeConfigurationSession';
+import { useCodeConfigurationAssistant } from './useCodeConfigurationAssistant';
+import CodeRuleRecoveryPanel from './CodeRuleRecoveryPanel.vue';
 import CodeRuleFormatEditor from './CodeRuleFormatEditor.vue';
 import ModuleRuntimeActivationStatus from './ModuleRuntimeActivationStatus.vue';
 import { moduleRuntimeActivationRefreshKey } from './moduleRuntimeActivation';
 import { moduleGovernanceWorkspaceView } from './moduleGovernanceWorkspaceView';
 import {
   readCodeConfigurationAvailability,
+  prepareCodeRule,
   type CodeConfigurationAvailability,
   codeRuleSupportsRenumbering,
   codeTrialContext,
@@ -140,7 +147,7 @@ const organizationContext = computed(() =>
     : undefined,
 );
 const canSave = computed(() => hasRuleTenant.value && context.can('saveTree') === true);
-const canBind = computed(() => context.can('configureBinding') === true);
+const canBind = computed(() => context.can('configureBinding') === true && !recoveryRequired.value);
 const targets = ref<CodeTarget[]>([]);
 const selectedModule = ref(props.moduleAlias ?? '');
 const moduleKeyword = ref('');
@@ -164,8 +171,21 @@ const moduleTargets = computed(() =>
 const targetKey = ref('');
 const fieldName = ref('');
 const rules = ref<CodeRule[]>([]);
-const draft = ref<CodeRule>();
-const original = ref('');
+const session = useCodeConfigurationSession(language);
+const { draft, original, recoveryRequired } = session;
+const pendingSave = ref<CodeRuleSaveReference>();
+const recoveryRule = ref<CodeRule>();
+const recoveryResolved = ref(false);
+const saveScope = () =>
+  JSON.stringify([
+    currentUser?.value?.userId,
+    currentUser?.value?.tenantId,
+    currentUser?.value?.organizationId,
+    currentUser?.value?.system,
+    selectedTenant.value,
+    props.moduleAlias,
+  ]);
+const recoveryStore = () => codeRuleSaveRecovery(saveScope(), window.sessionStorage);
 const usageDraft = ref<CodeRule>();
 const usageOriginal = ref('');
 const loading = ref(false);
@@ -179,6 +199,23 @@ const trialError = ref('');
 const trialErrorElement = ref<HTMLElement>();
 const editorFeedback = ref<HTMLElement>();
 const feedback = ref('');
+watch(
+  saveScope,
+  (_scope, previous) => {
+    if (previous !== undefined) saving.value = false;
+    try {
+      pendingSave.value = recoveryStore().restore();
+      recoveryRequired.value = !!pendingSave.value;
+    } catch (cause) {
+      pendingSave.value = undefined;
+      recoveryRequired.value = true;
+      error.value = messageOf(cause);
+    }
+    recoveryRule.value = undefined;
+    recoveryResolved.value = false;
+  },
+  { immediate: true, flush: 'sync' },
+);
 const preview = ref<CodePreview>();
 const previewElement = ref<HTMLOutputElement>();
 const trialValues = ref<Record<string, string>>({});
@@ -280,7 +317,7 @@ useWorkspaceViewUnsavedState(
   () => dirty.value,
   () => busy.value,
 );
-const editable = computed(() => canSave.value && !busy.value);
+const editable = computed(() => canSave.value && !busy.value && !session.recoveryRequired.value);
 const directTrialSources = computed(() => (target.value ? codeTrialSources(target.value, draft.value) : []));
 const extraTrialOptions = computed(
   () =>
@@ -347,6 +384,64 @@ watch(
   { flush: 'sync' },
 );
 onBeforeUnmount(cancelTrial);
+const assistantScope = () =>
+  JSON.stringify([currentUser?.value, selectedTenant.value, targetKey.value, fieldName.value]);
+useCodeConfigurationAssistant({
+  http: context.http,
+  scopedHttp: () => scopedHttp.value,
+  scope: assistantScope,
+  active: () => session.active.value,
+  revision: () =>
+    JSON.stringify([
+      assistantScope(),
+      editorOpen.value,
+      draft.value,
+      usageDraft.value,
+      bindingRole.value,
+      bindingTrigger.value,
+      trialValues.value,
+      trialSequence.value,
+      busy.value,
+      editable.value,
+      session.recoveryRequired.value,
+    ]),
+  adapter: {
+    state: () => ({
+      ready:
+        session.active.value &&
+        editorOpen.value &&
+        !!draft.value &&
+        !!target.value &&
+        context.can('viewTree') === true,
+      editable: editable.value && !bindingDirty.value && !usageDraft.value,
+      busy: busy.value,
+      dirty: dirty.value,
+      recoveryRequired: session.recoveryRequired.value,
+      draft: draft.value,
+      target: target.value,
+    }),
+    prepare: (patch, current) =>
+      session.prepare(
+        patch,
+        target.value!,
+        () => current() && editable.value && editorOpen.value && !bindingDirty.value && !usageDraft.value,
+      ),
+    trial: async (signal, current) => {
+      if (!trialReady.value || !draft.value || !target.value)
+        throw new OperationUsageError('当前规则不可试算');
+      const result = await client.value.preview(
+        draft.value,
+        codeTrialContext(trialSources.value, trialValues.value, language),
+        trialSequence.value.trim() === ''
+          ? (draft.value.sequencePolicy?.startValue ?? 1)
+          : Number(trialSequence.value),
+        signal,
+      );
+      if (!current()) throw new OperationUsageError('编码草稿或试算输入已变化，请重新试算');
+      return result;
+    },
+  },
+});
 const enumOptions = (entries: Record<string, string>) =>
   Object.entries(entries).map(([value, label]) => ({ value, label: t(`enum.${value}`, label) }));
 let requestSequence = 0;
@@ -355,7 +450,7 @@ function setDraft(rule?: CodeRule) {
   usageOriginal.value = '';
   trialSequence.value = '';
   if (!rule) editorOpen.value = false;
-  draft.value = rule == null ? undefined : (JSON.parse(JSON.stringify(rule)) as CodeRule);
+  session.reset(rule);
   if (!field.value?.role) {
     bindingRole.value = rule?.fieldRole ?? 'NORMAL';
     bindingTrigger.value = rule?.fieldTrigger ?? 'SAVE';
@@ -377,6 +472,10 @@ function resetBinding() {
   bindingTrigger.value = field.value?.trigger ?? 'SAVE';
 }
 function maySwitch() {
+  if (recoveryRequired.value) {
+    error.value = t('recovery-needed', '请先核实原编号保存结果。');
+    return false;
+  }
   if (dirty.value) {
     error.value = t('unsaved', '请先保存或取消当前修改。');
     return false;
@@ -401,8 +500,8 @@ async function selectModule(alias: string) {
   const initial = moduleTargets.value.find((item) => item.fields.length) ?? moduleTargets.value[0];
   await selectTarget(initial ? targetId(initial) : '');
 }
-async function selectTarget(key: string) {
-  if (!maySwitch()) return;
+async function selectTarget(key: string, restoring = false) {
+  if (!restoring && !maySwitch()) return;
   const sequence = ++requestSequence;
   targetKey.value = key;
   trialValues.value = {};
@@ -419,9 +518,16 @@ async function selectTarget(key: string) {
     if (sequence !== requestSequence) return;
     rules.value = loaded;
     fieldName.value =
-      selected.fields.find((item) => item.role != null)?.fieldName ?? selected.fields[0]?.fieldName ?? '';
+      pendingSave.value?.fieldName ??
+      selected.fields.find((item) => item.role != null)?.fieldName ??
+      selected.fields[0]?.fieldName ??
+      '';
     resetBinding();
-    setDraft(fieldRules.value[0]);
+    setDraft(
+      pendingSave.value?.ruleId
+        ? fieldRules.value.find((rule) => rule.id === pendingSave.value?.ruleId)
+        : fieldRules.value[0],
+    );
   } catch (cause) {
     if (sequence === requestSequence) error.value = messageOf(cause);
   } finally {
@@ -440,6 +546,8 @@ async function load() {
   unavailableReason.value = undefined;
   error.value = '';
   try {
+    pendingSave.value = recoveryStore().restore();
+    recoveryRequired.value = !!pendingSave.value;
     const loaded = await client.value.targets(props.moduleAlias);
     if (sequence !== requestSequence) return;
     targets.value = loaded;
@@ -454,9 +562,12 @@ async function load() {
       if (sequence !== requestSequence) return;
     }
     loading.value = false;
+    if (pendingSave.value) selectedModule.value = pendingSave.value.moduleAlias;
     if (!moduleRecords.value.some((item) => item.id === selectedModule.value)) selectedModule.value = '';
-    const initial = moduleTargets.value.find((item) => item.fields.length) ?? moduleTargets.value[0];
-    await selectTarget(initial ? targetId(initial) : '');
+    const initial = pendingSave.value
+      ? moduleTargets.value.find((item) => item.entityAlias === pendingSave.value!.entityAlias)
+      : (moduleTargets.value.find((item) => item.fields.length) ?? moduleTargets.value[0]);
+    await selectTarget(initial ? targetId(initial) : '', !!pendingSave.value);
   } catch (cause) {
     if (sequence === requestSequence) {
       error.value = messageOf(cause);
@@ -481,7 +592,12 @@ watch(
   { immediate: true },
 );
 watch(
-  () => [currentUser?.value?.userId, currentUser?.value?.tenantId, currentUser?.value?.system],
+  () => [
+    currentUser?.value?.userId,
+    currentUser?.value?.tenantId,
+    currentUser?.value?.organizationId,
+    currentUser?.value?.system,
+  ],
   () => {
     selectedTenant.value = currentUser?.value?.tenantId ?? '';
     selectedModule.value = props.moduleAlias ?? '';
@@ -511,7 +627,7 @@ function tenantsLoaded(records: QueryListRecord[], initial: boolean, total?: num
     void selectTenant(String(records[0]!.id));
 }
 async function mayCloseEditor() {
-  if (busy.value) return false;
+  if (busy.value || recoveryRequired.value) return false;
   return (
     !dirty.value ||
     (await confirmAction(
@@ -526,6 +642,7 @@ async function mayCloseEditor() {
   );
 }
 function closeEditor() {
+  if (recoveryRequired.value || busy.value) return;
   cancel();
   editorOpen.value = false;
 }
@@ -550,17 +667,20 @@ function createRule() {
   }
 }
 function cancel() {
+  if (recoveryRequired.value || busy.value) return;
   resetBinding();
   setDraft(draft.value?.id ? rules.value.find((rule) => rule.id === draft.value?.id) : undefined);
   error.value = '';
 }
 function cancelBinding() {
+  if (recoveryRequired.value || busy.value) return;
   resetBinding();
   error.value = '';
   feedback.value = '';
 }
 async function bind() {
-  if (!target.value || !field.value || saving.value) return;
+  if (!target.value || !field.value || saving.value || recoveryRequired.value) return;
+  const operationScope = saveScope();
   saving.value = true;
   error.value = '';
   feedback.value = '';
@@ -571,37 +691,122 @@ async function bind() {
       bindingRole.value,
       bindingTrigger.value,
     );
+    if (saveScope() !== operationScope) return;
     targets.value = targets.value.map((item) => (targetId(item) === targetId(updated) ? updated : item));
     resetBinding();
     if (refreshActivation) await refreshActivation(updated.moduleAlias);
     else await localActivation.value?.refresh();
+    if (saveScope() !== operationScope) return;
     feedback.value = t('binding-saved', '字段配置已保存，请查看运行态生效状态。');
   } catch (cause) {
+    if (saveScope() !== operationScope) return;
     error.value = messageOf(cause);
     if (!(cause instanceof OperationUsageError))
       presentPlatformError(cause, { language, source: 'business-code', phase: 'action' });
   } finally {
-    saving.value = false;
+    if (saveScope() === operationScope) saving.value = false;
   }
 }
 async function persistRule(rule: CodeRule) {
   const wasUnconfigured = target.value?.source === 'DYNAMIC' && !field.value?.role;
-  const saved = await client.value.save(rule);
+  if (recoveryRequired.value) throw new OperationUsageError('请先核实原编号保存结果');
+  // Validate before persisting the query reference or starting a request.
+  const candidate = prepareCodeRule(rule, language);
+  const reference: CodeRuleSaveReference = {
+    requestId: createUuid(),
+    moduleAlias: rule.moduleAlias,
+    entityAlias: rule.entityAlias,
+    fieldName: rule.fieldName,
+    ...(rule.id ? { ruleId: rule.id } : {}),
+  };
+  const store = recoveryStore();
+  const expectedScope = saveScope();
+  const currentClient = client.value;
+  store.save(reference);
+  pendingSave.value = reference;
+  let saved: CodeRule;
+  try {
+    saved = await currentClient.save(candidate, reference.requestId);
+    store.clear(reference.requestId);
+  } catch (cause) {
+    if (cause instanceof AppError && [400, 401, 403, 404, 422].includes(cause.status ?? 0)) {
+      try {
+        store.clear(reference.requestId);
+      } catch (storageFailure) {
+        if (saveScope() === expectedScope) recoveryRequired.value = true;
+        throw storageFailure;
+      }
+      if (saveScope() === expectedScope) pendingSave.value = undefined;
+    } else if (saveScope() === expectedScope) recoveryRequired.value = true;
+    throw cause;
+  }
+  if (saveScope() !== expectedScope) throw new OperationUsageError('编号执行范围已变化，请重新读取');
+  pendingSave.value = undefined;
   rules.value = [...rules.value.filter((item) => item.id !== saved.id), saved];
   if (wasUnconfigured && saved.enabled) {
     try {
-      targets.value = await client.value.targets(props.moduleAlias);
+      const updatedTargets = await currentClient.targets(props.moduleAlias);
+      if (saveScope() !== expectedScope) throw new OperationUsageError('编号执行范围已变化，请重新读取');
+      targets.value = updatedTargets;
       resetBinding();
       if (refreshActivation) await refreshActivation(saved.moduleAlias);
       else await localActivation.value?.refresh();
     } catch {
+      if (saveScope() !== expectedScope) throw new OperationUsageError('编号执行范围已变化，请重新读取');
       error.value = t('saved-refresh-failed', '规则已保存，但状态刷新失败，请刷新页面确认。');
     }
   }
+  if (saveScope() !== expectedScope) throw new OperationUsageError('编号执行范围已变化，请重新读取');
   return saved;
 }
+async function checkPendingSave(abandon = false) {
+  if (!pendingSave.value || busy.value) return;
+  const reference = pendingSave.value;
+  const scope = saveScope();
+  const currentClient = client.value;
+  saving.value = true;
+  recoveryResolved.value = false;
+  recoveryRule.value = undefined;
+  try {
+    const result = await (abandon ? currentClient.abandon(reference) : currentClient.receipt(reference));
+    if (scope !== saveScope()) return;
+    const resolved = result.committed || result.cancelled;
+    const id = result.ruleId ?? reference.ruleId;
+    const current = id && resolved ? await currentClient.view(id) : undefined;
+    if (id && resolved && !current) throw new OperationUsageError('当前编号规则不可读取，请重新核实');
+    if (scope !== saveScope()) return;
+    recoveryRule.value = current || undefined;
+    recoveryResolved.value = resolved;
+    feedback.value = result.committed
+      ? '已确认原请求提交成功，请核对当前规则。'
+      : result.cancelled
+        ? '原请求已终止，迟到请求不会写入。'
+        : '尚未查到回执，结果仍不确定；可稍后查询或显式终止原请求。';
+  } catch (cause) {
+    if (scope === saveScope()) error.value = messageOf(cause);
+  } finally {
+    if (scope === saveScope()) saving.value = false;
+  }
+}
+function adoptRecoveredRule() {
+  if (!pendingSave.value || !recoveryResolved.value || busy.value) return;
+  try {
+    recoveryStore().clear(pendingSave.value.requestId);
+  } catch (cause) {
+    error.value = messageOf(cause);
+    return;
+  }
+  const current = recoveryRule.value;
+  pendingSave.value = undefined;
+  recoveryRequired.value = false;
+  recoveryResolved.value = false;
+  if (current) rules.value = [...rules.value.filter((rule) => rule.id !== current.id), current];
+  setDraft(current);
+  editorOpen.value = !!current;
+}
 async function save() {
-  if (!draft.value || saving.value) return;
+  if (!draft.value || saving.value || recoveryRequired.value) return;
+  const operationScope = saveScope();
   saving.value = true;
   error.value = '';
   feedback.value = '';
@@ -612,11 +817,12 @@ async function save() {
       ? t('active', '规则已启用，后续业务按适用范围匹配规则。')
       : t('saved-disabled', '规则已保存，可在规则列表中启用。');
   } catch (cause) {
+    if (saveScope() !== operationScope) return;
     error.value = messageOf(cause);
     if (!(cause instanceof OperationUsageError))
       presentPlatformError(cause, { language, source: 'business-code', phase: 'action' });
   } finally {
-    saving.value = false;
+    if (saveScope() === operationScope) saving.value = false;
     await nextTick();
     editorFeedback.value?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
   }
@@ -624,6 +830,7 @@ async function save() {
 async function toggleRule(rule: CodeRule, enabled: boolean) {
   if (usageDraft.value || !maySwitch() || !canSave.value || (enabled && !field.value?.role && !canBind.value))
     return;
+  const operationScope = saveScope();
   saving.value = true;
   error.value = '';
   try {
@@ -639,9 +846,10 @@ async function toggleRule(rule: CodeRule, enabled: boolean) {
       ? t('active', '规则已启用，后续业务按适用范围匹配规则。')
       : t('rule-stopped', '规则已停用，已有编码保持不变。');
   } catch (cause) {
+    if (saveScope() !== operationScope) return;
     error.value = messageOf(cause);
   } finally {
-    saving.value = false;
+    if (saveScope() === operationScope) saving.value = false;
   }
 }
 function editUsage(rule: CodeRule) {
@@ -659,6 +867,7 @@ function cancelUsage() {
 }
 async function saveUsage() {
   if (!usageDraft.value || !canSave.value || busy.value) return;
+  const operationScope = saveScope();
   saving.value = true;
   error.value = '';
   feedback.value = '';
@@ -667,9 +876,10 @@ async function saveUsage() {
     setDraft(saved);
     feedback.value = t('usage-saved', '适用配置已保存。');
   } catch (cause) {
+    if (saveScope() !== operationScope) return;
     error.value = messageOf(cause);
   } finally {
-    saving.value = false;
+    if (saveScope() === operationScope) saving.value = false;
   }
 }
 function modeChanged(mode: CodeMode) {
@@ -728,6 +938,18 @@ async function trial(revealResult = false) {
 
 <template>
   <section class="code-config">
+    <CodeRuleRecoveryPanel
+      v-if="recoveryRequired && !editorOpen"
+      :rule="recoveryRule"
+      :target="target"
+      :busy="busy"
+      :resolved="recoveryResolved"
+      :feedback="feedback"
+      :error="error"
+      @check="checkPendingSave()"
+      @abandon="checkPendingSave(true)"
+      @adopt="adoptRecoveredRule"
+    />
     <div v-if="error && !editorOpen" class="code-config__error" role="alert">
       <UiError :title="t('request-failed', '操作未完成')" :message="error" />
       <UiButton v-if="loadFailed" :disabled="busy" @click="load">{{ t('retry', '重试加载') }}</UiButton>
@@ -1033,8 +1255,22 @@ async function trial(revealResult = false) {
       :title="draft?.id ? t('rules', '编号规则') : t('create-rule-title', '新增编号规则')"
       :subtitle="[target?.title, field?.title].filter(Boolean).join(' · ')"
     >
+      <CodeRuleRecoveryPanel
+        v-if="recoveryRequired"
+        :rule="recoveryRule"
+        :target="target"
+        :busy="busy"
+        :resolved="recoveryResolved"
+        :feedback="feedback"
+        :error="error"
+        @check="checkPendingSave()"
+        @abandon="checkPendingSave(true)"
+        @adopt="adoptRecoveredRule"
+      />
       <template v-if="draft" #header-actions>
-        <UiButton :disabled="busy" @click="closeEditor">{{ t('cancel', '取消修改') }}</UiButton>
+        <UiButton :disabled="busy || recoveryRequired" @click="closeEditor">{{
+          t('cancel', '取消修改')
+        }}</UiButton>
         <UiButton type="primary" :disabled="!editable || bindingDirty" :loading="saving" @click="save">{{
           t('save-rule', '保存规则')
         }}</UiButton>

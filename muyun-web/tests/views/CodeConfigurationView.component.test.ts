@@ -1,3 +1,4 @@
+import { AppError } from '@muyun/web-core';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { ref, defineComponent, h } from 'vue';
@@ -62,6 +63,7 @@ const button = (wrapper: ReturnType<typeof wrapperOf>, title: string) =>
     .findAll('button')
     .find((item) => (item.attributes('aria-label') ?? item.text()).replace(/\s+/g, '') === title)!;
 beforeEach(() => {
+  sessionStorage.clear();
   user.tenantId = 'tenant-a';
   user.system = false;
   request.mockReset();
@@ -71,7 +73,7 @@ beforeEach(() => {
   request.mockImplementation(async ({ path, body }) => {
     if (path.includes('/targets')) return [staticTarget];
     if (path.includes('/rules?')) return [];
-    if (path.endsWith('/saveTree')) return { ...body, id: 'saved-rule', version: 1 };
+    if (/\/save-requests\/[^/?]+$/.test(path)) return { ...body, id: 'saved-rule', version: 1 };
     if (path.endsWith('/preview')) return { value: 'NO-0001', segments: [] };
     return undefined;
   });
@@ -327,10 +329,10 @@ describe('CodeConfigurationView', () => {
     await button(wrapper, '刷新试算').trigger('click');
     await flushPromises();
     expect(wrapper.find('output strong').text()).toBe('NO-0001');
-    expect(request.mock.calls.some(([call]) => call.path.endsWith('/saveTree'))).toBe(false);
+    expect(request.mock.calls.some(([call]) => /\/save-requests\/[^/?]+$/.test(call.path))).toBe(false);
     await button(wrapper, '保存规则').trigger('click');
     await flushPromises();
-    const saved = request.mock.calls.find(([call]) => call.path.endsWith('/saveTree'))![0].body;
+    const saved = request.mock.calls.find(([call]) => /\/save-requests\/[^/?]+$/.test(call.path))![0].body;
     expect(saved).toMatchObject({
       moduleAlias: 'sales.invoice',
       entityAlias: 'invoice',
@@ -400,7 +402,7 @@ describe('CodeConfigurationView', () => {
           },
         ];
       if (path.includes('/rules?')) return [];
-      if (path.endsWith('/saveTree')) {
+      if (/\/save-requests\/[^/?]+$/.test(path)) {
         active = body.enabled;
         return { ...body, id: 'draft-rule', version: active ? 2 : 1 };
       }
@@ -422,7 +424,9 @@ describe('CodeConfigurationView', () => {
       await button(wrapper, '新增规则').trigger('click');
       await button(wrapper, '保存规则').trigger('click');
       await flushPromises();
-      expect(request.mock.calls.find(([call]) => call.path.endsWith('/saveTree'))![0].body).toMatchObject({
+      expect(
+        request.mock.calls.find(([call]) => /\/save-requests\/[^/?]+$/.test(call.path))![0].body,
+      ).toMatchObject({
         enabled: false,
         fieldRole: 'NORMAL',
         fieldTrigger: 'EXPLICIT',
@@ -517,7 +521,7 @@ describe('CodeConfigurationView', () => {
       await flushPromises();
       await button(wrapper, '取消修改').trigger('click');
       expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).exists()).toBe(false);
-      expect(request.mock.calls.some(([call]) => call.path.endsWith('/saveTree'))).toBe(false);
+      expect(request.mock.calls.some(([call]) => /\/save-requests\/[^/?]+$/.test(call.path))).toBe(false);
       await wrapper.get('.code-config__rule-name').trigger('click');
       expect(wrapper.findAllComponents(UiInput).some((input) => input.props('value') === rule.title)).toBe(
         true,
@@ -542,7 +546,7 @@ describe('CodeConfigurationView', () => {
       if (path.includes('/rules?')) return [rule];
       if (path.endsWith('/navigator/reference/translate'))
         return { records: [{ id: 'org-a', title: '采购中心' }], total: 1, pageNum: 0, pageSize: 1 };
-      if (path.endsWith('/saveTree')) return { ...body, version: 4 };
+      if (/\/save-requests\/[^/?]+$/.test(path)) return { ...body, version: 4 };
       return undefined;
     });
     user.system = true;
@@ -554,7 +558,7 @@ describe('CodeConfigurationView', () => {
       const usage = wrapper.get('.code-config__rules-table tbody tr');
       usage.findComponent({ name: 'UiSwitch' }).vm.$emit('change', false);
       await flushPromises();
-      expect(request.mock.calls.some(([call]) => call.path.endsWith('/saveTree'))).toBe(false);
+      expect(request.mock.calls.some(([call]) => /\/save-requests\/[^/?]+$/.test(call.path))).toBe(false);
       usage.findComponent(UiSelect).vm.$emit('update:value', 'ORG');
       await flushPromises();
       usage.findComponent({ name: 'RecordPicker' }).vm.$emit('update:value', 'org-a');
@@ -566,7 +570,9 @@ describe('CodeConfigurationView', () => {
       expect(wrapper.find('.code-config__rules-table .ui-date-picker input').exists()).toBe(true);
       await button(wrapper, '保存').trigger('click');
       await flushPromises();
-      expect(request.mock.calls.find(([call]) => call.path.endsWith('/saveTree'))![0].body).toMatchObject({
+      expect(
+        request.mock.calls.find(([call]) => /\/save-requests\/[^/?]+$/.test(call.path))![0].body,
+      ).toMatchObject({
         id: 'existing',
         version: 3,
         orgScopeType: 'ORG',
@@ -592,7 +598,8 @@ describe('CodeConfigurationView', () => {
     request.mockImplementation(async ({ path }) => {
       if (path.includes('/targets')) return [staticTarget];
       if (path.includes('/rules?')) return [rule];
-      if (path.endsWith('/saveTree')) throw new Error('applicability conflict');
+      if (/\/save-requests\/[^/?]+$/.test(path))
+        throw new AppError('applicability conflict', { status: 400 });
       return undefined;
     });
     const wrapper = wrapperOf();
@@ -629,7 +636,7 @@ describe('CodeConfigurationView', () => {
     title.vm.$emit('update:value', '待解决的冲突');
     await flushPromises();
     request.mockImplementation(async ({ path }) => {
-      if (path.endsWith('/saveTree')) throw new Error('rejected');
+      if (/\/save-requests\/[^/?]+$/.test(path)) throw new Error('rejected');
       if (path.endsWith('/preview')) return { value: 'NO-0001', segments: [] };
       return [];
     });
@@ -668,7 +675,9 @@ describe('CodeConfigurationView', () => {
       expect(wrapper.get('.code-config__policy summary').text()).not.toContain('来源变化时换号');
       await button(wrapper, '保存规则').trigger('click');
       await flushPromises();
-      expect(request.mock.calls.find(([call]) => call.path.endsWith('/saveTree'))![0].body).toMatchObject({
+      expect(
+        request.mock.calls.find(([call]) => /\/save-requests\/[^/?]+$/.test(call.path))![0].body,
+      ).toMatchObject({
         linkedUpdate: false,
       });
     } finally {
@@ -692,7 +701,7 @@ describe('CodeConfigurationView', () => {
     request.mockImplementation(async ({ path, body }) => {
       if (path.includes('/targets')) return [staticTarget];
       if (path.includes('/rules?')) return [rule];
-      if (path.endsWith('/saveTree')) return body;
+      if (/\/save-requests\/[^/?]+$/.test(path)) return body;
       return undefined;
     });
     const wrapper = wrapperOf();
@@ -725,7 +734,9 @@ describe('CodeConfigurationView', () => {
       expect(wrapper.getComponent({ name: 'RecordExplorerPanel' }).props('refreshDisabled')).toBe(true);
       await button(wrapper, '保存规则').trigger('click');
       await flushPromises();
-      expect(request.mock.calls.find(([call]) => call.path.endsWith('/saveTree'))![0].body).toMatchObject({
+      expect(
+        request.mock.calls.find(([call]) => /\/save-requests\/[^/?]+$/.test(call.path))![0].body,
+      ).toMatchObject({
         id: 'existing',
         allowRecycle: true,
         linkedUpdate: true,
@@ -738,7 +749,9 @@ describe('CodeConfigurationView', () => {
           overflowPolicy: 'RESET',
         },
       });
-      expect(request.mock.calls.find(([call]) => call.path.endsWith('/saveTree'))![0].body).toMatchObject({
+      expect(
+        request.mock.calls.find(([call]) => /\/save-requests\/[^/?]+$/.test(call.path))![0].body,
+      ).toMatchObject({
         segments: [expect.anything(), expect.objectContaining({ length: 6 })],
       });
     } finally {
@@ -841,7 +854,9 @@ it('preserves automatic drafts across mode changes and strips them only from man
     await mode().vm.$emit('update:value', 'MANUAL');
     await button(wrapper, '保存规则').trigger('click');
     await flushPromises();
-    expect(request.mock.calls.find(([call]) => call.path.endsWith('/saveTree'))![0].body).toMatchObject({
+    expect(
+      request.mock.calls.find(([call]) => /\/save-requests\/[^/?]+$/.test(call.path))![0].body,
+    ).toMatchObject({
       mode: 'MANUAL',
       segments: [],
       sequencePolicy: null,
@@ -1051,3 +1066,80 @@ it('does not automatically preview a manual draft or when preview permission is 
     vi.useRealTimers();
   }
 });
+
+it.each(['committed', 'cancelled', 'view-failed'])(
+  'restores a new-rule query after remount and resolves %s without resending',
+  async (outcome) => {
+    let writes = 0;
+    let cancelled = false;
+    const saved = {
+      ...newCodeRule(staticTarget, staticTarget.fields[0]!),
+      id: 'saved-rule',
+      version: 1,
+      title: '服务端规则',
+    };
+    request.mockImplementation(async ({ path, method, body }) => {
+      if (path.includes('/targets')) return [staticTarget];
+      if (path.includes('/rules?')) return outcome !== 'cancelled' && writes ? [saved] : [];
+      if (path.includes('/save-requests/') && method === 'POST' && !path.endsWith('/abandon')) {
+        writes++;
+        expect(body.title).toBeTruthy();
+        throw new Error('lost response');
+      }
+      if (path.endsWith('/abandon')) {
+        cancelled = true;
+        return { committed: false, cancelled: true, ruleId: null };
+      }
+      if (path.includes('/save-requests/'))
+        return {
+          committed: outcome !== 'cancelled',
+          cancelled,
+          ruleId: outcome !== 'cancelled' ? saved.id : null,
+        };
+      if (path.includes('/viewTree/')) {
+        if (outcome === 'view-failed') throw new Error('read denied');
+        return saved;
+      }
+      if (path.endsWith('/preview')) return { value: 'NO-0001', segments: [] };
+      return undefined;
+    });
+    let wrapper = wrapperOf();
+    try {
+      await flushPromises();
+      await button(wrapper, '新增规则').trigger('click');
+      await flushPromises();
+      await button(wrapper, '保存规则').trigger('click');
+      await flushPromises();
+      expect(writes).toBe(1);
+      expect(wrapper.find('.code-config__recovery').exists()).toBe(true);
+      expect(button(wrapper, '取消修改').attributes('disabled')).toBeDefined();
+      await button(wrapper, '取消修改').trigger('click');
+      expect(wrapper.find('.code-config__recovery').exists()).toBe(true);
+      wrapper.unmount();
+      wrapper = wrapperOf();
+      await flushPromises();
+      expect(wrapper.text()).toContain('原编号保存结果待核实');
+      expect(writes).toBe(1);
+      await button(wrapper, '核实原保存结果').trigger('click');
+      await flushPromises();
+      if (outcome === 'view-failed') {
+        expect(button(wrapper, '采用当前规则并放弃本地候选').attributes('disabled')).toBeDefined();
+        expect(sessionStorage.length).toBe(1);
+        return;
+      }
+      if (outcome === 'cancelled') {
+        expect(button(wrapper, '采用当前规则并放弃本地候选').attributes('disabled')).toBeDefined();
+        await button(wrapper, '终止原请求并核对').trigger('click');
+        await flushPromises();
+      }
+      expect(button(wrapper, '采用当前规则并放弃本地候选').attributes('disabled')).toBeUndefined();
+      await button(wrapper, '采用当前规则并放弃本地候选').trigger('click');
+      await flushPromises();
+      expect(wrapper.find('.code-config__recovery').exists()).toBe(false);
+      expect(sessionStorage.length).toBe(0);
+      expect(writes).toBe(1);
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);

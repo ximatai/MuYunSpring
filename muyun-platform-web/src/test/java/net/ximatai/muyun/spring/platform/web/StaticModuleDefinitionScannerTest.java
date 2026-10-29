@@ -660,6 +660,9 @@ class StaticModuleDefinitionScannerTest {
     @Test
     void shouldScanCodeRuleAndQueryViewLifecycleModules() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(net.ximatai.muyun.spring.platform.web.code.CodeRuleSaveWebController.class,
+                    () -> new net.ximatai.muyun.spring.platform.web.code.CodeRuleSaveWebController(
+                            mock(net.ximatai.muyun.spring.platform.code.CodeRuleSaveService.class)));
             context.registerBean(CodeRuleWebController.class,
                     () -> withService(
                             new CodeRuleWebController(mock(CodePreviewService.class)),

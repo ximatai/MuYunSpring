@@ -2421,15 +2421,31 @@ class MuYunSpringApplicationContextIT {
             // Activation writes the shared declaration first, then validates the format. A failure rolls both back.
             rule.setEnabled(true);
             rule.getSegments().getFirst().setFixedValue("X".repeat(1000));
-            var invalidActivation = restTemplate.exchange("/platform.code_rule/saveTree", HttpMethod.POST, new HttpEntity<>(rule, headers), JsonNode.class);
+            String invalidRequest = java.util.UUID.randomUUID().toString();
+            var invalidActivation = restTemplate.exchange("/platform.code_rule/save-requests/" + invalidRequest, HttpMethod.POST, new HttpEntity<>(rule, headers), JsonNode.class);
             assertThat(invalidActivation.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            String receiptQuery = "?moduleAlias=" + module + "&entityAlias=target&fieldName=documentNo";
+            var rejectedReceipt = restTemplate.exchange("/platform.code_rule/save-requests/" + invalidRequest + receiptQuery,
+                    HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+            assertThat(rejectedReceipt.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(rejectedReceipt.getBody().path("committed").asBoolean()).isFalse();
             var afterFailure = restTemplate.exchange("/platform.code_rule/targets?moduleAlias=" + module, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
             assertThat(java.util.stream.StreamSupport.stream(afterFailure.getBody().get(0).path("fields").spliterator(), false)
                     .filter(item -> item.path("fieldName").asText().equals("documentNo")).findFirst().orElseThrow().path("role").isNull()).isTrue();
             rule.getSegments().getFirst().setFixedValue("CFG-");
-            var saved = restTemplate.exchange("/platform.code_rule/saveTree", HttpMethod.POST, new HttpEntity<>(rule, headers), JsonNode.class);
+            String activationRequest = java.util.UUID.randomUUID().toString();
+            var saved = restTemplate.exchange("/platform.code_rule/save-requests/" + activationRequest, HttpMethod.POST, new HttpEntity<>(rule, headers), JsonNode.class);
             assertThat(saved.getStatusCode()).withFailMessage("save code tree: %s", saved.getBody()).isEqualTo(HttpStatus.OK);
             assertThat(saved.getBody().path("fieldRole").asText()).isEqualTo("PRIMARY");
+            var committedReceipt = restTemplate.exchange("/platform.code_rule/save-requests/" + activationRequest + receiptQuery,
+                    HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+            assertThat(committedReceipt.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(committedReceipt.getBody().path("committed").asBoolean()).isTrue();
+            assertThat(committedReceipt.getBody().path("ruleId").asText()).isEqualTo(saved.getBody().path("id").asText());
+            var replay = restTemplate.exchange("/platform.code_rule/save-requests/" + activationRequest, HttpMethod.POST,
+                    new HttpEntity<>(rule, headers), JsonNode.class);
+            assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(replay.getBody().path("version").asInt()).isEqualTo(saved.getBody().path("version").asInt());
             var querySchema = restTemplate.exchange("/platform.code_rule/query/schema", HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
             assertThat(querySchema.getStatusCode()).withFailMessage("code standard page: %s", querySchema.getBody()).isEqualTo(HttpStatus.OK);
             try (var actor = CurrentUserContext.use(CurrentUser.systemUser("code-contract", "Code contract"));

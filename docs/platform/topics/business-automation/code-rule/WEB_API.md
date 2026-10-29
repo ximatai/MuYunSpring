@@ -90,3 +90,11 @@
 - 标准表单在编号策略刷新期间报告异步未就绪，主表单与保存操作区展示等待状态；读取失败在表单正文展示原因和重试入口，保留业务草稿。重试成功后重新评估提交资格。候选和旧请求结果不能覆盖当前草稿或更新后的策略；策略读取失败与提交后保存拒绝分别反馈。
 
 静态无页面示例：`POST /education.receipt/insert` 接受 `subject`；`POST /education.receipt/{id}/confirm` 接受 `expectedVersion`，由专用 `confirm` 记录动作授权。该接口固定操作自己的确认号，不开放通用任意模块赋码。
+
+### 人工配置保存请求
+
+- `POST /platform.code_rule/save-requests/{requestId}`：提交标准 `CodeRule` 规则树，复用 `saveTree` 权限与领域保存链路；请求标识为 16–80 位字母、数字或连字符。同用户、业务租户、目标及内容重试返回当前获准读取的规则，不重复写入。
+- `GET /platform.code_rule/save-requests/{requestId}?moduleAlias=...&entityAlias=...&fieldName=...`：以 `configurationQuery` 权限核实当前可配置目标与原请求回执；返回 `committed/cancelled/ruleId/savedVersion`。查不到回执不能证明原请求失败；已提交回执仍要求当前规则可读。
+- `POST /platform.code_rule/save-requests/{requestId}/abandon`：请求体为 `moduleAlias/entityAlias/fieldName`，复用 `saveTree` 权限。确认已提交，或阻止尚未执行的迟到请求；返回同一回执结构，不撤销配置。
+
+以上入口均要求明确的业务租户，保存沿现有首次启用绑定权限与规则版本约束执行。回执不含完整配置、草稿或授权。
