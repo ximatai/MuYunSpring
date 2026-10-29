@@ -130,9 +130,21 @@ export function useCodeConfigurationSession(language: LanguageContext) {
       )
         throw new AssistantCapabilityUsageError('流水周期或溢出策略无效');
     }
-    Object.assign(candidate, patch);
-    const normalized = prepareCodeRule(candidate, language);
     const sources = new Set(target.sources.map((source) => source.fieldName));
+    const restrictedFormat = candidate.segments.some(
+      (segment) =>
+        (segment.sourceRef && !sources.has(segment.sourceRef)) ||
+        [...(segment.formulaExpr?.matchAll(/\{([^{}]+)\}/g) ?? [])].some((match) => !sources.has(match[1]!)),
+    );
+    if (restrictedFormat && ('segments' in patch || ('mode' in patch && patch.mode !== candidate.mode)))
+      throw new AssistantCapabilityUsageError('当前格式含目录之外来源，请人工维护格式和编号方式');
+    Object.assign(candidate, patch);
+    const prepared = prepareCodeRule(candidate, language);
+    // A human may have switched to manual mode without saving yet. Keep their
+    // hidden format candidate intact when the assistant only edits other properties.
+    const normalized = restrictedFormat
+      ? { ...prepared, segments: candidate.segments, sequencePolicy: candidate.sequencePolicy }
+      : prepared;
     for (const segment of 'segments' in patch ? normalized.segments : []) {
       if (segment.sourceRef && !sources.has(segment.sourceRef))
         throw new AssistantCapabilityUsageError('只能引用当前可见来源字段');

@@ -108,17 +108,28 @@ it('shares human edits and atomic assistant changes while rejecting identity ove
     page.wrapper.unmount();
   }
 });
-it('redacts unavailable source expressions while preserving them during unrelated edits', async () => {
-  const page = harness();
-  try {
-    page.session.draft.value!.segments = [{ ...newCodeSegment('FORMULA'), formulaExpr: '{password}' }];
-    expect(JSON.stringify(await page.invoke('code-rule.describe-draft'))).not.toContain('password');
-    await page.invoke('code-rule.revise-draft', { title: '只改名称' });
-    expect(page.session.draft.value!.segments[0]!.formulaExpr).toBe('{password}');
-  } finally {
-    page.wrapper.unmount();
-  }
-});
+it.each(['FORMULA', 'FIELD_VALUE'] as const)(
+  'preserves restricted %s segments during unrelated edits and rejects format replacement',
+  async (segmentType) => {
+    const page = harness();
+    try {
+      const restricted = {
+        ...newCodeSegment(segmentType),
+        ...(segmentType === 'FORMULA' ? { formulaExpr: '{password}' } : { sourceRef: 'password' }),
+      };
+      page.session.draft.value!.segments = [restricted];
+      expect(JSON.stringify(await page.invoke('code-rule.describe-draft'))).not.toContain('password');
+      await page.invoke('code-rule.revise-draft', { title: '只改名称' });
+      expect(page.session.draft.value!.segments[0]).toEqual(restricted);
+      const before = JSON.stringify(page.session.draft.value);
+      await expect(page.invoke('code-rule.revise-draft', { mode: 'MANUAL' })).rejects.toThrow();
+      await expect(page.invoke('code-rule.revise-draft', { segments: [newCodeSegment()] })).rejects.toThrow();
+      expect(JSON.stringify(page.session.draft.value)).toBe(before);
+    } finally {
+      page.wrapper.unmount();
+    }
+  },
+);
 it('rejects late preview results after the shared draft changes', async () => {
   const page = harness();
   try {
@@ -129,6 +140,24 @@ it('rejects late preview results after the shared draft changes', async () => {
     page.session.draft.value!.title = 'newer';
     page.finishTrial('NO-0001');
     await rejected;
+  } finally {
+    page.wrapper.unmount();
+  }
+});
+
+it('allows visible format changes and preserves a human manual-mode candidate during unrelated edits', async () => {
+  const page = harness();
+  try {
+    await page.invoke('code-rule.revise-draft', {
+      segments: [{ ...newCodeSegment('FIELD_VALUE'), sourceRef: 'department' }],
+    });
+    expect(page.session.draft.value!.segments[0]!.sourceRef).toBe('department');
+    await page.invoke('code-rule.revise-draft', { mode: 'MANUAL' });
+    expect(page.session.draft.value!.segments).toEqual([]);
+    const hidden = { ...newCodeSegment('FIELD_VALUE'), sourceRef: 'password' };
+    page.session.draft.value!.segments = [hidden];
+    await page.invoke('code-rule.revise-draft', { title: '人工候选保留' });
+    expect(page.session.draft.value!.segments).toEqual([hidden]);
   } finally {
     page.wrapper.unmount();
   }
