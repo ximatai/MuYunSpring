@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.common.schema;
 import net.ximatai.muyun.database.core.annotation.AnnotationProcessor;
 import net.ximatai.muyun.database.core.builder.TableWrapper;
 import net.ximatai.muyun.spring.common.model.constraint.StaticTenantUniqueConstraints;
+import net.ximatai.muyun.spring.common.model.constraint.ConditionalIndexDefinition;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 
 import java.lang.reflect.Field;
@@ -24,6 +25,8 @@ public class StaticEntityTableMapper {
         TableWrapper table = AnnotationProcessor.fromEntityClass(modelClass);
         PlatformUniqueIndexes.normalizeTenantUniqueIndexes(table);
         addDeclaredTenantUniqueConstraints(table, modelClass);
+        ConditionalIndexDefinition.from(modelClass).stream().filter(index -> !index.unique())
+                .forEach(index -> PlatformConditionalIndexes.add(table, index, field -> conditionalColumnName(modelClass, field)));
         tableValidator.requireStandardEntityTable(table, modelClass.getName());
         return table;
     }
@@ -36,12 +39,30 @@ public class StaticEntityTableMapper {
     }
 
     private void addDeclaredTenantUniqueConstraints(TableWrapper table, Class<?> modelClass) {
-        StaticTenantUniqueConstraints.resolve(modelClass).forEach(constraint -> PlatformUniqueIndexes.addTenantUniqueIndex(
-                table,
-                constraint.fieldNames().stream()
-                        .map(field -> columnName(modelClass, field))
-                        .toList()
-        ));
+        StaticTenantUniqueConstraints.resolve(modelClass).forEach(constraint -> {
+            if (constraint.conditions().isEmpty()) {
+                PlatformUniqueIndexes.addTenantUniqueIndex(table, constraint.fieldNames().stream()
+                        .map(field -> columnName(modelClass, field)).toList());
+            } else {
+                PlatformConditionalIndexes.add(table, new ConditionalIndexDefinition(constraint.indexName(),
+                        constraint.fieldNames(), true, constraint.conditions(), constraint.message()),
+                        field -> conditionalColumnName(modelClass, field));
+            }
+        });
+    }
+
+    private String conditionalColumnName(Class<?> modelClass, String fieldName) {
+        for (Class<?> type = modelClass; type != null && type != Object.class; type = type.getSuperclass()) {
+            try {
+                Field field = type.getDeclaredField(fieldName);
+                if (field.isAnnotationPresent(net.ximatai.muyun.spring.common.security.EncryptedField.class)
+                        || field.isAnnotationPresent(net.ximatai.muyun.spring.common.security.SignedField.class)) {
+                    throw new IllegalArgumentException("conditional index cannot use a protected storage field: " + fieldName);
+                }
+                break;
+            } catch (NoSuchFieldException ignored) { }
+        }
+        return columnName(modelClass, fieldName);
     }
 
     private String columnName(Class<?> modelClass, String fieldName) {

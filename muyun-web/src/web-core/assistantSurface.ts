@@ -11,6 +11,7 @@ import {
   type AssistantOperationConfirmation,
 } from './assistantConfirmation';
 import type {
+  OperationResult,
   AssistantCapabilityCall,
   AssistantResultPresentation,
   AssistantCapabilityDescriptor,
@@ -30,7 +31,7 @@ export interface AssistantCapability<TInput = unknown, TOutput = unknown> {
   /** Descriptive boundary for reads that replace selection/candidate state; never authority. */
   changesReadState?: boolean;
   present?(output: TOutput): AssistantResultPresentation;
-  propose?(output: TOutput): AssistantOperationProposal;
+  propose?(output: TOutput): AssistantOperationProposal<OperationResult>;
   parseInput(input: unknown): TInput;
   execute(input: TInput, context: AssistantCapabilityExecutionContext): Promise<TOutput>;
 }
@@ -729,6 +730,17 @@ export function createAssistantSurfaceRegistry(
                   },
                   Date.now,
                   language,
+                  () => {
+                    const current = snapshot()?.token;
+                    // A successful write may rebuild its surface. That invalidates a new
+                    // submission, but not its receipt in the same identity/business scope.
+                    return (
+                      current !== undefined &&
+                      current.identityScopeKey === token.identityScopeKey &&
+                      current.pageInstanceKey === token.pageInstanceKey &&
+                      current.executionScopeKey === token.executionScopeKey
+                    );
+                  },
                 ),
               }
             : {}),

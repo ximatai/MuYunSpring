@@ -2,7 +2,7 @@
 
 [MuYunFileServer](https://github.com/ximatai/MuYunFileserver) 是 MuYunSpring 唯一关联的文件服务，不按可替换存储 provider 或 SPI 建模。它维护文件二进制、哈希、类型、大小、上传者、租户、临时状态和物理清理；MuYunSpring 维护业务授权、文件引用、业务生命周期和审计。
 
-MuYunSpring 的 Starter 以 `muyun.file-transfer.muyun-fileserver` 配置启用官方无状态适配器；`base-url`、`issuer` 和 `secret` 是必填项，系统态写入还必须显式配置 `system-scope-id`。适配器从可信当前用户上下文签发短时 token，并固定传递 `purpose`、`tenant_id` 和 `sub` 等协同声明，业务请求不能自行指定租户或主体。地址与签名密钥由部署侧共同授权，业务配置与请求不能替换目标；官方适配器的文件标识只接受 1—64 位字母、数字、下划线或连字符，不接受路径、查询或片段；后端元数据、转正、删除及内容下载均拒绝 HTTP 重定向，失败异常不保留可能携带票据或响应正文的底层 cause。FileServer 的 public API、token 校验和存储部署细节以其仓库为准，本仓库不重复维护另一份传输接口文档。
+MuYunSpring 的 Starter 以 `muyun.file-transfer.muyun-fileserver` 配置启用官方无状态适配器；`base-url`、`issuer` 和 `secret` 是必填项，系统范围访问还必须显式配置 `system-scope-id`。适配器结合可信当前用户身份与租户上下文签发短时 token，并固定传递 `purpose`、`tenant_id` 和 `sub` 等协同声明，业务请求不能自行指定租户或主体。地址与签名密钥由部署侧共同授权，业务配置与请求不能替换目标；官方适配器的文件标识只接受 1—64 位字母、数字、下划线或连字符，不接受路径、查询或片段；后端元数据、转正、删除及内容下载均拒绝 HTTP 重定向，失败异常不保留可能携带票据或响应正文的底层 cause。FileServer 的 public API、token 校验和存储部署细节以其仓库为准，本仓库不重复维护另一份传输接口文档。
 
 ## 存储中立引用与小文件资产
 
@@ -105,3 +105,27 @@ private Long sourceFileSize;
 所有权记录保存最初的模块、记录和字段位置，解除引用后也保留，防止文件被重新分配后受到旧引用删除的影响；它不是当前引用计数，也不是待删除任务。内联资产的可共享当前引用仍由 `platform_managed_file_asset_reference` 维护。两个模型不互相替代。
 
 该独占约束覆盖当前 Spring 数据库管理的文件字段与附件，不是跨独立业务数据库的全局锁。文件服务凭据属于可信后端边界，直接调用 FileServer 的其他应用不受本地所有权表约束。项目尚未上线，不提供旧数据迁移或兼容分支。
+
+## 受信后端接收任务
+
+`FileReceptionClient` 统一承接 MuYunFileServer 接收任务的创建、查询、对象枚举、本地文件流式写入、清单确认与取消。
+这是供已授权业务服务或后台作业调用的门面，不是浏览器上传入口，也不新增平台接收任务表。
+开启已有 FileServer 配置后，再显式配置 `muyun.file-transfer.muyun-fileserver.reception.enabled=true` 和
+`reception.service-token`；接收服务凭据与 public API 的签名密钥分开配置，不向客户端交付。
+`reception.request-timeout` 默认 60 秒，覆盖完整响应正文；`reception.max-response-bytes` 默认 2 MiB。
+地址沿用部署侧 `base-url`，禁止重定向，错误不保留上游正文、凭据或底层 cause。
+
+接收门面与公开文件票据每次调用都从 `CurrentUserContext` 读取主体，并优先使用可信 `TenantContext` 的业务租户作为存储范围；系统用户选择业务租户后，文件随该租户隔离，主体身份保持不变。
+普通用户的上下文租户必须与身份租户一致，租户过滤绕过不授予文件跨租户权限。没有租户上下文的非 Web 调用沿用身份租户；系统范围访问必须同时具备系统身份和显式配置的 `system-scope-id`。
+租户上下文本身不替代已认证身份，也不接受业务请求传入任意租户。后台业务先完成授权并进入受信执行身份和作用域，再调用该门面。
+返回的 bucket、prefix 仅供受信后端将接收位置传给采集方，不授予对象存储访问权。
+
+业务应在调用前持久化稳定幂等键和接收任务身份，并负责清单与业务操作的对应关系。
+平台不自动重试、换键、取消过期任务或把错误解释成“未执行”：超时、404、409 和服务端失败均不能证明写入未发生。
+`FileReceptionException.kind()` 区分传输、HTTP 与协议错误，`upstreamHttpStatus()` 仅提供实际收到的 HTTP 状态；
+如异常进入 HTTP 交付，统一按上游失败返回 502，不把上游 401 当成当前用户登录失效。
+只有有效的 CANCELLED／EXPIRED 快照且 assets 为空，`retiredWithoutAssets()` 才成立；是否建立新业务尝试由领域决定。
+READY 确认响应必须与提交清单的对象键完整一致，错误身份、缺失状态或不完整响应均拒绝。
+
+接收任务产物为永久文件，不可伪装成普通表单的临时上传登记。业务持久化、归档、录制、转码、校验策略和失败补偿仍归领域；
+元数据和下载复用 `FileTransferClient`，不会为接收任务复制公开文件传输链路。

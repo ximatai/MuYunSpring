@@ -2923,3 +2923,59 @@ it('keeps raw conversation save and later model turns available when optional so
     encoder.mockRestore();
   }
 });
+
+it('queries an accepted business command and never offers replay after a durable failure', async () => {
+  const requestTurn = vi
+    .fn<AssistantTurnRequester>()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'prepare', code: 'command.prepare', input: {} }] })
+    .mockResolvedValue({ text: '请确认。', toolCalls: [] });
+  const execute = vi.fn(async () => ({
+    status: 'processing' as const,
+    presentation: { title: '任务已受理', lines: [] },
+  }));
+  const lookup = vi.fn(async () => ({
+    status: 'failed' as const,
+    presentation: { title: '任务执行失败', lines: ['保留业务记录'] },
+  }));
+  const registry = createRegistryWithCapabilities(requestTurn, [
+    {
+      effect: 'read',
+      descriptor: { code: 'command.prepare', description: 'prepare', inputSchema: {} },
+      parseInput: (input) => input,
+      execute: async () => ({}),
+      propose: () => ({
+        presentation: { title: '确认任务', lines: [] },
+        expiresAt: Date.now() + 60000,
+        isCurrent: () => true,
+        execute,
+        lookup,
+        continuation: { message: '继续下一项', isCurrent: () => true },
+      }),
+    },
+  ]);
+  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+  await wrapper.get('textarea').setValue('执行任务');
+  await wrapper.get('.assistant-panel__actions button').trigger('click');
+  await flushPromises();
+  const previousTurns = requestTurn.mock.calls.length;
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '确认保存')!
+    .trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('任务已受理');
+  expect(wrapper.findAll('button').some((button) => button.text() === '确认保存')).toBe(false);
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '查询操作结果')!
+    .trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('任务执行失败');
+  expect(
+    wrapper.findAll('button').some((button) => ['重试本次确认', '查询操作结果'].includes(button.text())),
+  ).toBe(false);
+  expect(execute).toHaveBeenCalledOnce();
+  expect(lookup).toHaveBeenCalledOnce();
+  expect(requestTurn).toHaveBeenCalledTimes(previousTurns);
+  wrapper.unmount();
+});

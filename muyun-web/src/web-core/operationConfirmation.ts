@@ -1,24 +1,32 @@
 import { platformLanguageContext, type LanguageContext } from './language';
 import { resolveOperationErrorMessage, type OperationErrorMessage } from './operationErrors';
-import type { OperationPresentation, OperationReceiptReference } from '@muyun/web-contracts';
+import type { OperationPresentation, OperationReceiptReference, OperationResult } from '@muyun/web-contracts';
+
+/** Read-only recovery of a domain-owned durable command identity. No payload or write callback is restored. */
+export interface OperationRecovery<TResult extends OperationResult = OperationResult> {
+  presentation: OperationPresentation;
+  /** Reauthorize and map authoritative domain facts; missing or inaccessible does not mean failed. */
+  lookup(): Promise<TResult | undefined>;
+}
 
 /** Captured platform command. The caller owns the candidate and execution scope. */
-export interface OperationProposal {
+export interface OperationProposal<
+  TResult extends OperationResult = OperationPresentation,
+> extends OperationRecovery<TResult> {
   receiptReference?: OperationReceiptReference;
-  presentation: OperationPresentation;
   confirmLabel?: string;
   expiresAt: number;
   isCurrent(): boolean;
   /** Submits the captured payload using the same durable request identity on every attempt. */
-  execute(): Promise<OperationPresentation>;
-  /** A missing receipt is not permission to automatically resubmit. */
-  lookup(): Promise<OperationPresentation | undefined>;
+  execute(): Promise<TResult>;
 }
 
 export type OperationConfirmationState =
   | 'pending'
   | 'executing'
   | 'checking'
+  | 'processing'
+  | 'failed'
   | 'succeeded'
   | 'unknown'
   | 'cancelled'
@@ -53,31 +61,54 @@ export interface OperationConfirmation {
 
 /** Explicit confirmation, duplicate-click protection and read-only recovery of uncertain writes. */
 export function createOperationConfirmation(
-  proposal: OperationProposal,
+  proposal: OperationProposal<OperationResult>,
   scopeIsCurrent: () => boolean,
   now: () => number = Date.now,
   language: LanguageContext = platformLanguageContext,
+  receiptScopeIsCurrent: () => boolean = scopeIsCurrent,
 ): OperationConfirmation {
-  let state: OperationConfirmationState = 'pending';
+  return createConfirmation(proposal, scopeIsCurrent, now, language, proposal, receiptScopeIsCurrent);
+}
+
+/** Restores only the read path; confirm/cancel cannot execute or discard an already submitted command. */
+export function restoreOperationConfirmation(
+  recovery: OperationRecovery,
+  scopeIsCurrent: () => boolean,
+  language: LanguageContext = platformLanguageContext,
+): OperationConfirmation {
+  return createConfirmation(recovery, scopeIsCurrent, Date.now, language);
+}
+
+function createConfirmation(
+  operation: OperationRecovery,
+  scopeIsCurrent: () => boolean,
+  now: () => number,
+  language: LanguageContext,
+  proposal?: OperationProposal<OperationResult>,
+  receiptScopeIsCurrent: () => boolean = scopeIsCurrent,
+): OperationConfirmation {
+  let state: OperationConfirmationState = proposal ? 'pending' : 'unknown';
   let result: OperationPresentation | undefined;
   let rejectedFailure: OperationRejectedError | undefined;
-  const confirmLabel = proposal.confirmLabel;
+  const confirmLabel = proposal?.confirmLabel;
   let pending: Promise<void> | undefined;
-  const presentation = structuredClone(proposal.presentation);
+  const presentation = structuredClone(operation.presentation);
 
   function valid() {
-    return scopeIsCurrent() && proposal.isCurrent() && now() < proposal.expiresAt;
+    return scopeIsCurrent() && proposal?.isCurrent() === true && now() < proposal.expiresAt;
   }
 
   function run(kind: 'execute' | 'lookup') {
     if (pending) return pending;
     if (kind === 'execute') {
+      if (!proposal) return Promise.resolve();
       if (state !== 'pending' && state !== 'rejected') return Promise.resolve();
       if (!valid()) {
         state = 'expired';
         return Promise.resolve();
       }
-    } else if (state !== 'unknown' || !scopeIsCurrent()) return Promise.resolve();
+    } else if (!['unknown', 'processing'].includes(state) || !receiptScopeIsCurrent())
+      return Promise.resolve();
     state = kind === 'execute' ? 'executing' : 'checking';
     result = undefined;
     rejectedFailure = undefined;
@@ -88,17 +119,29 @@ export function createOperationConfirmation(
           state = 'expired';
           return;
         }
-        if (kind === 'lookup' && !scopeIsCurrent()) {
+        if (kind === 'lookup' && !receiptScopeIsCurrent()) {
           state = 'unknown';
           return;
         }
-        const receipt = await (kind === 'execute' ? proposal.execute() : proposal.lookup());
+        const receipt = await (kind === 'execute' ? proposal!.execute() : operation.lookup());
+        // A response from the previous identity/scope must never enter the current UI.
+        if (!receiptScopeIsCurrent()) {
+          state = 'unknown';
+          return;
+        }
         if (receipt) {
-          result = structuredClone(receipt);
-          state = 'succeeded';
+          if ('status' in receipt) {
+            if (!['processing', 'succeeded', 'failed'].includes(receipt.status))
+              throw new Error('Invalid operation receipt status');
+            result = structuredClone(receipt.presentation);
+            state = receipt.status;
+          } else {
+            result = structuredClone(receipt);
+            state = 'succeeded';
+          }
         } else state = 'unknown';
       } catch (error) {
-        if (kind === 'execute' && error instanceof OperationRejectedError) {
+        if (receiptScopeIsCurrent() && kind === 'execute' && error instanceof OperationRejectedError) {
           rejectedFailure = new OperationRejectedError(error.textMessage ?? error.message);
           result = {
             title: language.t('platform.operation.not-submitted', '操作未提交'),
@@ -118,7 +161,7 @@ export function createOperationConfirmation(
 
   return {
     get confirmLabel() {
-      return confirmLabel ?? language.t('platform.operation.confirm-save', '确认保存');
+      return !proposal ? '' : (confirmLabel ?? language.t('platform.operation.confirm-save', '确认保存'));
     },
     get presentation() {
       return structuredClone(presentation);
@@ -128,17 +171,17 @@ export function createOperationConfirmation(
       return state;
     },
     get result() {
-      return (
-        result && {
-          ...structuredClone(result),
-          ...(rejectedFailure
-            ? {
-                title: language.t('platform.operation.not-submitted', '操作未提交'),
-                lines: [resolveOperationErrorMessage(rejectedFailure, language)],
-              }
-            : {}),
-        }
-      );
+      return receiptScopeIsCurrent() && result
+        ? {
+            ...structuredClone(result),
+            ...(rejectedFailure
+              ? {
+                  title: language.t('platform.operation.not-submitted', '操作未提交'),
+                  lines: [resolveOperationErrorMessage(rejectedFailure, language)],
+                }
+              : {}),
+          }
+        : undefined;
     },
     confirm: () => run('execute'),
     check: () => run('lookup'),

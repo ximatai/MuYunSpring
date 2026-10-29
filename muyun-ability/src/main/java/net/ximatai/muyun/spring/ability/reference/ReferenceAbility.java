@@ -159,7 +159,7 @@ public interface ReferenceAbility<T extends EntityContract & TitledCapable> exte
         }
         boolean readable = ReferenceFieldResolver.isReadable(type, normalized);
         boolean unique = readable && StaticTenantUniqueConstraints.resolve(type).stream()
-                .anyMatch(constraint -> constraint.fieldNames().equals(List.of(normalized)));
+                .anyMatch(constraint -> constraint.conditions().isEmpty() && constraint.fieldNames().equals(List.of(normalized)));
         return new ReferenceCandidateKey(normalized, readable, unique);
     }
 
@@ -170,6 +170,7 @@ public interface ReferenceAbility<T extends EntityContract & TitledCapable> exte
         Class<?> type = modelClass();
         if (type != null) {
             StaticTenantUniqueConstraints.resolve(type).stream()
+                    .filter(constraint -> constraint.conditions().isEmpty())
                     .map(constraint -> constraint.fieldNames())
                     .filter(constraintFields -> constraintFields.size() == 1)
                     .map(List::getFirst)

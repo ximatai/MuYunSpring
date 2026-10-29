@@ -51,7 +51,9 @@ public class StaticEntityDefinitionCompiler {
                 StaticTenantUniqueConstraints.resolve(modelClass),
                 sortPartitionFields(modelClass),
                 fileReferences(modelClass)
-        ).withBusinessCodes(businessCodes(modelClass));
+        ).withBusinessCodes(businessCodes(modelClass)).withConditionalIndexes(
+                net.ximatai.muyun.spring.common.model.constraint.ConditionalIndexDefinition.from(modelClass)
+                        .toArray(net.ximatai.muyun.spring.common.model.constraint.ConditionalIndexDefinition[]::new));
     }
 
     private Map<String, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> businessCodes(Class<?> model) {

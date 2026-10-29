@@ -160,7 +160,9 @@ describe('BusinessNotificationPanel', () => {
     await wrapper.get('.business-notification-bell').trigger('click');
     expect(wrapper.findAll('.business-notification-current')).toHaveLength(1);
     expect(wrapper.find('.business-notification-session-note').exists()).toBe(false);
-    expect(wrapper.get('.business-notification-bell').attributes('title')).toContain('刷新或退出后清空');
+    expect(wrapper.get('.business-notification-bell').attributes('title')).toContain(
+      '刷新后可重新加载待处理提醒',
+    );
     expect(wrapper.find('.business-notification-stack').exists()).toBe(false);
   });
 

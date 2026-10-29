@@ -418,7 +418,7 @@ public final class RecordExchangeWebSupport {
                 EntityDefinition definition) {
             List<FieldDefinition> fields = definition == null ? List.of() : definition.fields();
             Set<String> matchingKeys = definition == null ? Set.of() : definition.resolvedTenantUniqueConstraints().stream()
-                    .filter(constraint -> constraint.fieldNames().size() == 1)
+                    .filter(constraint -> constraint.conditions().isEmpty() && constraint.fieldNames().size() == 1)
                     .map(constraint -> constraint.fieldNames().getFirst()).collect(java.util.stream.Collectors.toSet());
             var exposed = BusinessContentReadExposure.fields(plan, relation);
             var result = new ArrayList<RecordExchangeDefinition.Field>();

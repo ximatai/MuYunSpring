@@ -746,6 +746,8 @@ it('consumes session-only reminders from the public package without treating clo
   await wrapper.get('.business-notification-bell').trigger('click');
   expect(wrapper.findAll('.business-notification-current .business-notification-card')).toHaveLength(2);
   expect(wrapper.find('.business-notification-current-header').exists()).toBe(false);
-  expect(wrapper.get('.business-notification-bell').attributes('title')).toContain('刷新或退出后清空');
+  expect(wrapper.get('.business-notification-bell').attributes('title')).toContain(
+    '刷新后可重新加载待处理提醒',
+  );
   expect(wrapper.find('.business-notification-stack').exists()).toBe(false);
 });

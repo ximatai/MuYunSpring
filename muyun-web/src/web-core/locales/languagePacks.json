@@ -3,7 +3,7 @@
     "nativeName": "简体中文",
     "direction": "ltr",
     "messages": {
-      "platform.notifications.session-note": "仅临时保留在本次页面中，刷新或退出后清空。关闭提醒不代表业务已处理，待办请到业务页面查看。",
+      "platform.notifications.session-note": "提醒仅保留在本次会话，刷新后可重新加载待处理提醒。关闭提醒不代表业务已处理，待办请到业务页面查看。",
       "platform.notifications.session-count": "本次提醒（{count} 条）",
       "platform.language.label": "界面语言",
       "platform.language.changed": "界面语言已切换",
@@ -3763,7 +3763,9 @@
       "platform.cron.weekday-THU": "周四",
       "platform.cron.weekday-FRI": "周五",
       "platform.cron.weekday-SAT": "周六",
-      "platform.cron.weekday-SUN": "周日"
+      "platform.cron.weekday-SUN": "周日",
+      "platform.operation.processing": "已受理，处理中",
+      "platform.operation.failed": "已确认失败"
     }
   },
   "en": {
@@ -3771,7 +3773,7 @@
     "direction": "ltr",
     "fallbackTag": "zh-CN",
     "messages": {
-      "platform.notifications.session-note": "Temporary reminders for this page session only. Refreshing or signing out clears them. Closing a reminder does not complete the business task; check pending work on its business page.",
+      "platform.notifications.session-note": "Reminders belong to this session. Pending reminders may reload after a refresh. Closing a reminder does not complete the business task; check pending work on its business page.",
       "platform.notifications.session-count": "Session reminders ({count})",
       "platform.language.label": "Interface language",
       "platform.language.changed": "Interface language changed",
@@ -7531,7 +7533,9 @@
       "platform.cron.weekday-THU": "Thursday",
       "platform.cron.weekday-FRI": "Friday",
       "platform.cron.weekday-SAT": "Saturday",
-      "platform.cron.weekday-SUN": "Sunday"
+      "platform.cron.weekday-SUN": "Sunday",
+      "platform.operation.processing": "Accepted, processing",
+      "platform.operation.failed": "Confirmed failed"
     }
   },
   "fr": {
@@ -7540,7 +7544,7 @@
     "enabled": false,
     "fallbackTag": "en",
     "messages": {
-      "platform.notifications.session-note": "Notifications temporaires de cette page, effacées à l’actualisation ou à la déconnexion. Fermer une notification ne termine pas la tâche ; consultez la page métier correspondante.",
+      "platform.notifications.session-note": "Les notifications appartiennent à cette session. Les rappels en attente peuvent être rechargés après actualisation. Fermer une notification ne termine pas la tâche ; consultez la page métier correspondante.",
       "platform.notifications.session-count": "Notifications de cette session ({count})",
       "platform.language.label": "Langue de l’interface",
       "platform.language.changed": "Langue de l’interface modifiée",
@@ -7640,7 +7644,9 @@
       "platform.screen.WorkflowRecordPanel.business-records": "Enregistrements métier",
       "platform.form.required-marker": "Obligatoire",
       "platform.read-view.refresh": "Actualiser",
-      "platform.read-view.empty": "Aucun enregistrement correspondant"
+      "platform.read-view.empty": "Aucun enregistrement correspondant",
+      "platform.operation.processing": "Acceptée, en cours",
+      "platform.operation.failed": "Échec confirmé"
     }
   }
 }

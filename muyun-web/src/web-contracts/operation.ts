@@ -6,6 +6,15 @@ export interface OperationPresentation {
   details?: { title: string; lines: string[] };
 }
 
+/** Authoritative command observation. Acceptance is not completion; failure never authorizes replay. */
+export interface OperationReceipt {
+  status: 'processing' | 'succeeded' | 'failed';
+  presentation: OperationPresentation;
+}
+
+/** Existing immediate-success adapters may continue returning a presentation. */
+export type OperationResult = OperationPresentation | OperationReceipt;
+
 /** A bounded read-only pointer, never an executable command or authority. */
 export type OperationReceiptReference =
   | {

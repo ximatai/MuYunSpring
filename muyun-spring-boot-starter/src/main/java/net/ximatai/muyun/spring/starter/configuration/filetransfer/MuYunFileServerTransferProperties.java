@@ -24,6 +24,26 @@ public class MuYunFileServerTransferProperties {
     private Duration previewTokenTtl = Duration.ofMinutes(5);
     private Duration downloadTokenTtl = Duration.ofMinutes(5);
 
+    private Reception reception = new Reception();
+    public Reception getReception() { return reception; }
+    public void setReception(Reception reception) { this.reception = reception; }
+
+    /** Privileged reception access is separately opt-in; never exposed as a browser ticket. */
+    public static class Reception {
+        private boolean enabled;
+        private String serviceToken;
+        private Duration requestTimeout = Duration.ofSeconds(60);
+        private int maxResponseBytes = 2 * 1024 * 1024;
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getServiceToken() { return serviceToken; }
+        public void setServiceToken(String serviceToken) { this.serviceToken = serviceToken; }
+        public Duration getRequestTimeout() { return requestTimeout; }
+        public void setRequestTimeout(Duration requestTimeout) { this.requestTimeout = requestTimeout; }
+        public int getMaxResponseBytes() { return maxResponseBytes; }
+        public void setMaxResponseBytes(int maxResponseBytes) { this.maxResponseBytes = maxResponseBytes; }
+    }
+
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
     public URI getBaseUrl() { return baseUrl; }
