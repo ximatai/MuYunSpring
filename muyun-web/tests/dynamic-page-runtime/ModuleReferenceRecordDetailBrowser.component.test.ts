@@ -1,5 +1,6 @@
+import { sidePanelHostKey } from '@/vue-ui-antdv/components/sidePanelHost';
 import { flushPromises, mount } from '@vue/test-utils';
-import { defineComponent, h } from 'vue';
+import { defineComponent, h, ref } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as platformComponents from '@muyun/platform-components';
 import ModuleReferenceRecordDetailBrowser from '@/dynamic-page-runtime/ModuleReferenceRecordDetailBrowser.vue';
@@ -67,7 +68,10 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
             },
           ),
       },
-      global: { stubs: { RecordDetailDrawer: DrawerLayoutHarness } },
+      global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
+        stubs: { RecordDetailDrawer: DrawerLayoutHarness },
+      },
     });
 
     await wrapper.get('button').trigger('click');
@@ -173,6 +177,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
       props: { http, inlineAnchor: true },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: DrawerLayoutHarness,
           RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
@@ -217,10 +222,10 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
           props: { recordOnly?: unknown };
         }
       ).props.recordOnly,
-    ).toMatchObject({ renderMode: 'portal', scope: 'viewport' });
+    ).toMatchObject({ renderMode: 'portal', scope: 'tab' });
     expect(host.findComponent({ name: 'ModuleReferenceRecordDetailBrowser' }).props()).toMatchObject({
       renderMode: 'portal',
-      scope: 'viewport',
+      scope: 'tab',
     });
     await wrapper.setProps({ inlineAnchor: true });
     await flush();
@@ -389,6 +394,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
       props: { http, inlineAnchor: true },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: DrawerLayoutHarness,
           RecordDetailFields: true,
@@ -511,6 +517,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
       props: { browser, inlineAnchor: true },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: DrawerLayoutHarness,
           RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
@@ -602,6 +609,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
       props: { browser, inlineAnchor: true },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: DrawerLayoutHarness,
           RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
@@ -700,6 +708,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
       const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
         props: { browser, inlineAnchor: true },
         global: {
+          provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
           stubs: {
             RecordDetailDrawer: DrawerLayoutHarness,
             RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
@@ -857,7 +866,10 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
       const browser = createReferenceRecordDetailBrowser(http);
       const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
         props: { browser, inlineAnchor: true },
-        global: { stubs: { RecordDetailDrawer: DrawerLayoutHarness } },
+        global: {
+          provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
+          stubs: { RecordDetailDrawer: DrawerLayoutHarness },
+        },
       });
       browser.open('purchase.supplier', 'supplier-1');
       await flush();
@@ -934,6 +946,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
       props: { browser, inlineAnchor: true },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: DrawerLayoutHarness,
           RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
@@ -978,7 +991,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     wrapper.unmount();
   });
 
-  it('carries portal and viewport presentation through two record-only reference layers', async () => {
+  it('carries portal and tab presentation through two record-only reference layers', async () => {
     const http: HttpClient = {
       async request(options) {
         const moduleAlias = options.path.match(/^\/platform\.module\/([^/]+)\/view-context$/)?.[1];
@@ -1036,6 +1049,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
       props: { browser, inlineAnchor: false },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordDetailDrawer: DrawerLayoutHarness,
           RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
@@ -1054,7 +1068,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     await flush();
     const firstHost = wrapper.findComponent(ModulePageHost);
     const nestedBridge = firstHost.findComponent({ name: 'ModuleReferenceRecordDetailBrowser' });
-    expect(nestedBridge.props()).toMatchObject({ renderMode: 'portal', scope: 'viewport' });
+    expect(nestedBridge.props()).toMatchObject({ renderMode: 'portal', scope: 'tab' });
     const nestedBrowser = nestedBridge.findComponent(ReferenceRecordDetailBrowser);
     (nestedBrowser.vm as unknown as { browser: typeof browser }).browser.open('crm.customer', 'customer-1');
     await flush();
@@ -1063,8 +1077,8 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     const hostLayers = wrapper.findAllComponents(ModulePageHost);
     expect(hostLayers).toHaveLength(2);
     expect(hostLayers.map((host) => host.props('recordOnly'))).toEqual([
-      expect.objectContaining({ renderMode: 'portal', scope: 'viewport' }),
-      expect.objectContaining({ renderMode: 'portal', scope: 'viewport' }),
+      expect.objectContaining({ renderMode: 'portal', scope: 'tab' }),
+      expect.objectContaining({ renderMode: 'portal', scope: 'tab' }),
     ]);
     const customerActions = hostLayers[1].findComponent({ name: 'ModuleRecordDetailActions' });
     customerActions.vm.$emit('edit');
@@ -1162,6 +1176,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
         },
       },
       global: {
+        provide: { [sidePanelHostKey as symbol]: ref(document.createElement('section')) },
         stubs: {
           RecordQueryListPanel: { name: 'RecordQueryListPanel', template: '<section />' },
           RecordDetailDrawer: { template: '<aside><slot /></aside>' },
@@ -1210,4 +1225,16 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     });
     wrapper.unmount();
   });
+});
+
+it('keeps the consumer openRecord facade bound to the same browser state', () => {
+  const browser = createReferenceRecordDetailBrowser({ request: async () => ({}) as never });
+  const wrapper = mount(ModuleReferenceRecordDetailBrowser, { props: { browser, inlineAnchor: true } });
+  try {
+    expect(typeof wrapper.vm.openRecord).toBe('function');
+    wrapper.vm.openRecord('crm.customer', 'record-1');
+    expect(browser.active.value?.recordId).toBe('record-1');
+  } finally {
+    wrapper.unmount();
+  }
 });

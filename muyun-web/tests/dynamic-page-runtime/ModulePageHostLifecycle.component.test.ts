@@ -1019,6 +1019,10 @@ it('refreshes a declared enhancement drawer heading without reactivating the pag
       global: {
         stubs: {
           ...hostStubs,
+          RecordModeDrawer: {
+            props: ['open'],
+            template: '<section data-record-mode-drawer><slot v-if="open" /></section>',
+          },
           RecordDetailDrawer: {
             name: 'RecordDetailDrawer',
             props: ['title', 'open', 'dismissal'],
@@ -1031,9 +1035,11 @@ it('refreshes a declared enhancement drawer heading without reactivating the pag
   try {
     await flushPromises();
     const session = wrapper.findComponent({ name: 'ModulePageHostRuntime' }).props('session');
+    expect(session.detailOpen).toBe(false);
     session.handleListAction({ key: 'entry-open' });
     await flushPromises();
     const drawer = wrapper.findAllComponents({ name: 'RecordDetailDrawer' }).at(-1)!;
+    expect(drawer.element.closest('[data-record-mode-drawer]')).toBeNull();
     expect(drawer.props('title')).toBe('Set up account');
     expect(drawer.props('dismissal')).toBe('dismissible');
     const body = wrapper.findComponent(Body).vm;
@@ -1171,3 +1177,97 @@ it('refreshes extension actions on an already open module page without reloading
     configureModulePageEnhancementContributions(owner, []);
   }
 });
+
+it('does not insert a page loading row while bootstrapping a record-only drawer', async () => {
+  configureModuleContext({ http: { request: () => new Promise(() => {}) } });
+  const wrapper = mount(ModulePageHost, {
+    props: { descriptor: descriptor('crm.customer'), recordOnly: { recordId: 'target-1' } },
+    global: { stubs: hostStubs },
+  });
+  try {
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('加载页面入口');
+    expect(wrapper.findComponent({ name: 'RecordPanelState' }).exists()).toBe(false);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it.each([false, true])(
+  'preserves an open enhancement draft and guard across layout changes (narrow=%s)',
+  async (initialNarrow) => {
+    const { configureModulePageEnhancementContributions } =
+      await import('@/dynamic-page-runtime/modulePageEnhancements');
+    const Body = defineComponent({
+      props: ['context'],
+      setup() {
+        return { draft: ref('unsaved draft') };
+      },
+      template: '<input v-model="draft" />',
+    });
+    const owner = 'stable-enhancement-surface';
+    configureModulePageEnhancementContributions(owner, [
+      {
+        id: owner,
+        target: { moduleAlias: 'demo.stable_surface' },
+        list: {
+          actions: [
+            {
+              key: 'open',
+              title: '打开',
+              run: ({ openDrawer }) => openDrawer({ title: '扩展', component: Body }),
+            },
+          ],
+        },
+      },
+    ]);
+    configureModuleContext({
+      http: {
+        request: async (options) =>
+          options.path.endsWith('/context') ? runtime('demo.stable_surface') : { records: [], total: 0 },
+      } as HttpClient,
+    });
+    const wrapper = mount(ModulePageHost, {
+      props: { descriptor: descriptor('demo.stable_surface') },
+      global: {
+        stubs: {
+          ...hostStubs,
+          RecordModeDrawer: { props: ['open'], template: '<section><slot v-if="open" /></section>' },
+          RecordDetailDrawer: { props: ['open'], template: '<aside><slot /></aside>' },
+        },
+      },
+    });
+    try {
+      await flushPromises();
+      const session = wrapper.findComponent({ name: 'ModulePageHostRuntime' }).props('session');
+      session.detailOpen = true;
+      session.narrowDetailSurface = initialNarrow;
+      session.handleListAction({ key: 'open' });
+      await flushPromises();
+      const body = wrapper.findComponent(Body);
+      const instance = body.vm.$.uid;
+      await body.get('input').setValue('keep this draft');
+      const guard = vi.fn(() => false);
+      body.props('context').setBeforeClose(guard);
+      session.narrowDetailSurface = !initialNarrow;
+      await flushPromises();
+      expect(session.detailSurfaceUsesDrawer).toBe(initialNarrow);
+      expect(wrapper.findComponent(Body).vm.$.uid).toBe(instance);
+      expect(wrapper.findComponent(Body).get('input').element.value).toBe('keep this draft');
+      session.closeEnhancementDrawer();
+      await flushPromises();
+      expect(guard).toHaveBeenCalledOnce();
+      expect(session.enhancementDrawerOpen).toBe(true);
+      body.props('context').setBeforeClose(() => true);
+      session.closeEnhancementDrawer();
+      await flushPromises();
+      expect(session.detailSurfaceUsesDrawer).toBe(initialNarrow);
+      session.disposeEnhancementDrawer();
+      await flushPromises();
+      expect(session.detailSurfaceUsesDrawer).toBe(!initialNarrow);
+    } finally {
+      wrapper.unmount();
+      configureModulePageEnhancementContributions(owner, []);
+    }
+  },
+);

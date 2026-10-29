@@ -9,6 +9,8 @@ import { useNotificationDeckMotion } from './useNotificationDeckMotion';
 defineOptions({ name: 'BusinessNotificationPanel' });
 const props = defineProps<{
   notifications: WebBusinessNotification[];
+  /** Identity-scoped presentation memory; stores viewed IDs only in this browser tab. */
+  presentationKey?: string;
   /** Opt a card into the optional right-hand attachment area. */
   hasAccessory?: (notification: WebBusinessNotification) => boolean;
   executeAction: (
@@ -24,7 +26,42 @@ const expanded = ref(false);
 const restoredTopId = ref<string>();
 const dismissed = ref(new Set<string>());
 const handled = ref(new Set<string>());
+const shelved = ref(new Set<string>());
 const executing = shallowRef(new Map<string, { key: string; token: symbol }>());
+let identityGeneration = 0;
+watch(
+  () => props.presentationKey,
+  (key) => {
+    identityGeneration++;
+    executing.value = new Map();
+    dismissed.value = new Set();
+    handled.value = new Set();
+    expanded.value = false;
+    let ids: unknown = [];
+    try {
+      if (key && typeof sessionStorage !== 'undefined')
+        ids = JSON.parse(sessionStorage.getItem('muyun-notification-viewed:' + key) ?? '[]');
+    } catch {
+      /* Presentation storage is optional. */
+    }
+    shelved.value = new Set(
+      Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string').slice(-200) : [],
+    );
+  },
+  { immediate: true, flush: 'sync' },
+);
+function rememberViewed() {
+  try {
+    if (props.presentationKey && typeof sessionStorage !== 'undefined')
+      sessionStorage.setItem(
+        'muyun-notification-viewed:' + props.presentationKey,
+        JSON.stringify([...shelved.value].slice(-200)),
+      );
+  } catch {
+    /* Business state does not depend on presentation storage. */
+  }
+}
+
 const now = ref(Date.now());
 const panelId = useId();
 const panelElement = ref<HTMLElement>();
@@ -60,6 +97,7 @@ const hasPersistent = computed(() => active.value.some((notice) => notice.displa
 const floating = computed(() =>
   display.value.filter(
     (notice) =>
+      !shelved.value.has(notice.id) &&
       (!overlayOpen.value || !hasPersistent.value || notice.displayPolicy === 'persistent') &&
       (display.value.length === 1 ||
         !recordHandled(notice.id) ||
@@ -149,6 +187,7 @@ async function run(notice: WebBusinessNotification, action: WebBusinessNotificat
     (originalAction.kind === 'record' && recordHandled(original.id))
   )
     return;
+  const generation = identityGeneration;
   const signature = JSON.stringify(originalAction);
   const token = Symbol(original.id);
   executing.value = new Map(executing.value).set(original.id, { key: originalAction.key, token });
@@ -157,6 +196,7 @@ async function run(notice: WebBusinessNotification, action: WebBusinessNotificat
     const current = latest.value.get(original.id);
     if (
       disposed ||
+      generation !== identityGeneration ||
       executing.value.get(original.id)?.token !== token ||
       result === false ||
       dismissed.value.has(original.id) ||
@@ -168,6 +208,10 @@ async function run(notice: WebBusinessNotification, action: WebBusinessNotificat
     if (originalAction.dismissOnSuccess) {
       dismissed.value = new Set([...dismissed.value, original.id]);
       emit('dismiss', original.id);
+    } else if (original.displayPolicy === 'persistent' && originalAction.kind === 'navigate') {
+      shelved.value = new Set([...shelved.value, original.id]);
+      rememberViewed();
+      void deckMotion.arrange(false);
     } else if (original.displayPolicy === 'persistent' && originalAction.kind === 'record') {
       handled.value = new Set([...handled.value, original.id]);
     }
@@ -261,7 +305,7 @@ async function closePanel() {
         </div>
       </section>
       <button
-        v-if="active.length > 1"
+        v-if="active.length > 1 || active.some((notice) => shelved.has(notice.id))"
         ref="bell"
         type="button"
         class="business-notification-bell"

@@ -97,6 +97,12 @@ npm link <muyun-spring-repository>/build/consumer-npm/staging/web-app
 
 需要自行编排页签的宿主可使用公开的 `WorkbenchAccountCenter` 包裹低层 `Workbench`，一次连接插槽的 `items` → `managedAccountMenuItems`、`select` → `userCommand`、`refresh` → `accountMenuOpen`，并处理 `logout` 与 `update:skinId`。账号功能与弹窗仍由平台维护，无需为每个新增功能重复接线。未提供 accountContext 的既有 `AppWorkbenchShell` 保留命令转发；低层 `Workbench.accountMenuItems` 仍兼容已有附加入口，推荐新接入采用标准账号宿主。
 
+记录详情浏览器 `ModuleReferenceRecordDetailBrowser` 默认使用 `scope="tab"`。portal 抽屉必须位于提供 `UiSidePanelHost` 的 Vue 组件树中；标准 `Workbench` 默认插槽提供活动页签的宿主，通知和工作台动作共用的浏览器应挂在该插槽内，不能作为 Workbench 外的同级组件。Teleport 到内容区不能替代组件树的宿主关系。没有活动页签时，该插槽不会挂载，业务应先建立承载页签再调用组件门面。确需窗口级交互时显式声明 `scope="viewport"`，缺宿主不会自动扩大展示范围；`inline` 模式使用自身锚点，不要求 portal 宿主。
+
+`await browserRef.openRecord(moduleAlias, recordId)` 与已绑定展示组件的共享 `browser.open()` 返回 `ReferenceRecordOpenResult`：`status: 'loaded'` 仅表示目标数据加载完成，不代表 DOM 可见或动画结束；`status: 'rejected'` 的 `reason` 区分 `missing-host`、`invalid-target`、`access-denied`、`busy`、`leave-blocked`、`superseded`、`not-found` 和 `load-failed`。缺宿主在数据请求前拒绝，异步离开确认及加载完成后再次核验。组件通过 `open-failed` 事件报告宿主诊断，适用于引用字段等不直接等待结果的入口；业务可将该事件接入提示或日志，不应把 Promise 正常完成当成打开成功。已绑定浏览器在展示组件卸载后也拒绝继续加载，重新挂载后可重试。独立调用 `createReferenceRecordDetailBrowser()` 且从未绑定展示组件时仅管理数据，不保证展示。
+
+扩展动作抽屉通过标准 `openDrawer()` 接入，嵌套推移和关闭保护由平台维护。扩展抽屉存活及关闭动画期间固定详情布局，释放后再应用最新断点，避免业务草稿因布局切换重建。
+
 自定义宿主在销毁页签或主动退出前调用 `confirmDiscardWorkspaceViewState(pageKeys, operation, language)`，仅返回 `true` 时继续操作。`operation` 支持 `close`（默认）、`refresh`、`logout`，分别呈现关闭、刷新和退出提示；`hasWorkspaceViewDiscardProtection(pageKeys)` 只同步查询当前保护状态，不能代替异步确认。
 
 守卫只检查已经注册的状态，不会扫描组件或自动发现未保存内容：

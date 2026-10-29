@@ -30,11 +30,11 @@ it('restores drawer primary actions after a narrow view changes to editing or gr
     ];
     await wrapper.vm.$nextTick();
     wrapper.element.style.width = '700px';
-    await expect.poll(() => direct()).toEqual(['Cancel', 'Save']);
+    await expect.poll(() => direct()).toEqual(['Save', 'Cancel']);
     wrapper.element.style.width = '90px';
     await expect.poll(() => direct().includes('Cancel')).toBe(false);
     wrapper.element.style.width = '700px';
-    await expect.poll(() => direct()).toEqual(['Cancel', 'Save']);
+    await expect.poll(() => direct()).toEqual(['Save', 'Cancel']);
     const region = wrapper.get('.drawer-operation-bar-actions').element;
     expect(region.getBoundingClientRect().width).toBeGreaterThan(600);
     expect(region.scrollWidth).toBeLessThanOrEqual(region.clientWidth + 1);

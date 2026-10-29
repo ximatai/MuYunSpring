@@ -184,3 +184,23 @@ it('teardown invalidates an approved late navigation and mutations do not clear 
   await opening;
   expect(browser.active.value).toBeUndefined();
 });
+
+it('returns distinct data, guard and lifecycle outcomes without depending on a Workbench', async () => {
+  const browser = createReferenceRecordDetailBrowser({
+    request: async ({ path }) =>
+      path.endsWith('/view-context')
+        ? ({ moduleAlias: 'demo.target', actions: [], capabilities: [] } as never)
+        : ({ id: 'one', title: 'One' } as never),
+  });
+  expect(await browser.open('', 'one')).toEqual({ status: 'rejected', reason: 'invalid-target' });
+  expect(await browser.open('demo.target', 'one')).toEqual({ status: 'loaded' });
+  browser.setBusy('demo.target', 'one', true);
+  expect(await browser.open('demo.target', 'two')).toEqual({ status: 'rejected', reason: 'busy' });
+  browser.setBusy('demo.target', 'one', false);
+  const releaseLeave = browser.setBeforeLeave(() => false);
+  expect(await browser.open('demo.target', 'two')).toEqual({ status: 'rejected', reason: 'leave-blocked' });
+  releaseLeave();
+  const releasePresentation = browser.setBeforeOpen(() => undefined);
+  releasePresentation();
+  expect(await browser.open('demo.target', 'two')).toEqual({ status: 'rejected', reason: 'missing-host' });
+});

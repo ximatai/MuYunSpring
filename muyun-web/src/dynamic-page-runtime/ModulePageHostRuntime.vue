@@ -124,6 +124,7 @@ export default defineComponent({
       },
       canBrowse: (...args) => props.session.referenceRecordDetailBrowser.canBrowse(...args),
       open: (...args) => props.session.referenceRecordDetailBrowser.open(...args),
+      setBeforeOpen: (...args) => props.session.referenceRecordDetailBrowser.setBeforeOpen(...args),
       setBeforeLeave: (...args) => props.session.referenceRecordDetailBrowser.setBeforeLeave(...args),
       confirmLeave: () => props.session.referenceRecordDetailBrowser.confirmLeave(),
       setBusy: (...args) => props.session.referenceRecordDetailBrowser.setBusy(...args),
@@ -141,6 +142,16 @@ export default defineComponent({
     }
 
     return {
+      enhancementDrawerNested: computed(() => {
+        const session = props.session;
+        return Boolean(
+          session.detailOpen &&
+          (session.props.recordOnly ||
+            (!session.persistentTreeDetail &&
+              !session.flatManagementPage &&
+              (!session.listDetailCardPage || session.detailSurfaceUsesDrawer))),
+        );
+      }),
       businessVisible,
       dataExchange,
       fileActions,
@@ -1538,6 +1549,34 @@ export default defineComponent({
             @relations-validity-change="updateRelationDraftValidity"
           />
         </template>
+        <!-- Preserve Drawer ancestry so nested actions push their owning detail surface. -->
+        <RecordDetailDrawer
+          v-if="enhancementDrawer && enhancementDrawerNested"
+          :open="enhancementDrawerOpen"
+          :title="
+            enhancementDrawer.definition.titleKey
+              ? language.t(enhancementDrawer.definition.titleKey, enhancementDrawer.definition.title)
+              : enhancementDrawer.definition.title
+          "
+          :subtitle="enhancementDrawer.subtitle"
+          render-mode="portal"
+          :scope="props.recordOnly?.scope ?? 'tab'"
+          :width="enhancementDrawer.definition.width"
+          :dismissal="enhancementDrawer.definition.dismissal ?? 'explicit'"
+          @close="closeEnhancementDrawer"
+          @after-close="disposeEnhancementDrawer"
+        >
+          <template v-if="enhancementDrawer.titleActions.length" #title-actions>
+            <DrawerTitleActions :actions="enhancementDrawer.titleActions" />
+          </template>
+          <template v-if="enhancementDrawer.operation?.summary" #operation-summary>
+            {{ enhancementDrawer.operation.summary }}
+          </template>
+          <template v-if="enhancementDrawer.operation" #operation>
+            <DrawerTitleActions :actions="enhancementDrawer.operation.actions" />
+          </template>
+          <component :is="enhancementDrawer.definition.component" :context="enhancementDrawer.context" />
+        </RecordDetailDrawer>
       </RecordModeDrawer>
       <ModuleReferenceRecordDetailBrowser
         :browser="referenceRecordDetailBrowser"
@@ -1556,7 +1595,7 @@ export default defineComponent({
       @changed="permissionsChanged"
     />
     <RecordDetailDrawer
-      v-if="enhancementDrawer"
+      v-if="enhancementDrawer && !enhancementDrawerNested"
       :open="enhancementDrawerOpen"
       :title="
         enhancementDrawer.definition.titleKey

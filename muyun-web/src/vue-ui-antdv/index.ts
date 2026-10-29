@@ -115,3 +115,5 @@ export { registerUiLanguageLocales } from './languageLocales';
 
 export { default as UiDatePicker } from './components/UiDatePicker.vue';
 export type { UiDatePickerMode, UiDatePickerPrecision } from './datePickerValue';
+
+export { useUiSidePanelAvailability } from './components/sidePanelHost';

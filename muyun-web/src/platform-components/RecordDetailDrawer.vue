@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { useLanguageContext } from '@muyun/web-core';
-import { computed, inject, watch } from 'vue';
+import { computed, watch } from 'vue';
 import {
   UiActionButton,
   UiSidePanel,
+  useUiSidePanelAvailability,
   mayCloseUiDrawer,
   type UiDrawerCloseGuard,
   type UiDrawerDismissal,
@@ -11,7 +12,6 @@ import {
   type UiDrawerWidth,
   type UiSidePanelScope,
 } from '@muyun/vue-ui-antdv';
-import { sidePanelHostKey } from '../vue-ui-antdv/components/sidePanelHost';
 import RecordDetailLayout from './RecordDetailLayout.vue';
 import type { DrawerPromotion } from './drawerPromotion';
 import { provideRecordSurfaceActivity } from './recordSurfaceActivity';
@@ -70,8 +70,10 @@ const emit = defineEmits<{
   afterClose: [];
 }>();
 
-const sidePanelHost = inject(sidePanelHostKey, undefined);
-const hasDrawerContainer = computed(() => props.scope === 'viewport' || Boolean(sidePanelHost?.value));
+const hasDrawerContainer = useUiSidePanelAvailability(
+  () => props.renderMode,
+  () => props.scope,
+);
 const dismissalOptions = computed<UiDrawerDismissalOptions>(() => ({
   dismissal: props.dismissal,
   closeOnOutside: props.closeOnOutside,
