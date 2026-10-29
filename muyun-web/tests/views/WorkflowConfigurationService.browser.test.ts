@@ -43,9 +43,14 @@ it.skipIf(!__PLATFORM_SERVICE_ENABLED__)(
     });
     let loseResponse = true;
     let saves = 0;
+    let originalSave:
+      | { version: number; design: import('@muyun/web-contracts').WorkflowDesign; requestId: string }
+      | undefined;
     let rejectedSaveStatus: number | undefined;
     const http: HttpClient = {
       async request<T>(options: HttpRequestOptions) {
+        if (options.method === 'POST' && options.path.endsWith('/design'))
+          originalSave = JSON.parse(JSON.stringify(options.body)) as typeof originalSave;
         const result = await transport.request<T>(options).catch((cause: unknown) => {
           if (options.method === 'POST' && options.path.endsWith('/design') && cause instanceof AppError)
             rejectedSaveStatus = cause.status;
@@ -82,7 +87,7 @@ it.skipIf(!__PLATFORM_SERVICE_ENABLED__)(
           );
       },
     });
-    const wrapper = mount(Harness, {
+    let wrapper = mount(Harness, {
       attachTo: document.body,
       global: { stubs: { RecordDetailDrawer: true } },
     });
@@ -122,16 +127,43 @@ it.skipIf(!__PLATFORM_SERVICE_ENABLED__)(
       expect(persisted.nodes.find((node) => node.nodeKey === 'approval')?.title).toBe('人工调整审批');
       expect(graph().props('editable')).toBe(false);
       expect(saves).toBe(1);
+      const replay = await client.saveDesign(
+        definition.id,
+        saved.id,
+        originalSave!.version,
+        originalSave!.design,
+        originalSave!.requestId,
+      );
+      expect(replay.version).toBe(saved.version);
+      expect((await client.saveReceipt(definition.id, saved.id, originalSave!.requestId)).committed).toBe(
+        true,
+      );
+      const abandonedId = crypto.randomUUID();
+      expect((await client.abandonSave(definition.id, saved.id, abandonedId)).cancelled).toBe(true);
+      await expect(
+        client.saveDesign(definition.id, saved.id, saved.version, persisted, abandonedId),
+      ).rejects.toMatchObject({ status: 400 });
+      expect((await client.versions(definition.id))[0].version).toBe(saved.version);
+      wrapper.unmount();
+      wrapper = mount(Harness, {
+        attachTo: document.body,
+        global: { stubs: { RecordDetailDrawer: true } },
+      });
+      (wrapper.element as HTMLElement).style.cssText = 'display:block;height:800px';
+      await expect.poll(() => wrapper.text()).toContain('检测到上次保存的查询引用');
+      await expect.poll(() => graph().props('editable')).toBe(false);
       const recoveryButton = (title: string) =>
         wrapper
           .findAllComponents({ name: 'UiButton' })
           .find((button) => button.element.closest('.configuration-recovery') && button.text() === title)!;
+      await expect.poll(() => recoveryButton('读取当前版本').props('disabled')).toBe(false);
       await recoveryButton('读取当前版本').trigger('click');
       await expect
         .poll(() => wrapper.findAllComponents({ name: 'WorkflowDesignProperties' }).length)
         .toBeGreaterThan(0);
-      await expect.poll(() => !!recoveryButton('保留本地草稿并重新核对')).toBe(true);
-      await recoveryButton('保留本地草稿并重新核对').trigger('click');
+      await expect.poll(() => wrapper.text()).toContain('已确认原保存请求提交成功');
+      expect(recoveryButton('保留本地草稿并重新核对').props('disabled')).toBe(true);
+      await recoveryButton('采用当前版本').trigger('click');
       await flushPromises();
       expect(saves).toBe(1);
       expect(graph().props('editable')).toBe(true);

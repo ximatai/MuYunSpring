@@ -246,3 +246,11 @@
 动态模块的标准动作执行入口使用 `platform.workflow` 执行器。通用 `submitWorkflow` 请求可提供 `definitionId`，兼容既有 `definitionAlias`，两者互斥。由已发布流程贡献的动作优先使用登记的绑定 ID，不接受请求体替换；历史仅有别名的绑定继续兼容。流程 ID 不能绕过模块、租户、组织、匹配条件及发布状态检查，动作权限仍由标准执行入口校验。静态服务通过 `WorkflowModuleSubmitService.submitWorkflowById` 接入，既有 `submitWorkflow` 别名入口保留。
 
 流程定义支持 `POST /platform.module/{moduleAlias}/workflow-definitions/{definitionId}/enable`，请求携带当前记录 `version`，动作权限为 `enableWorkflowDefinition`。仅恢复已有当前发布版本的停用流程；草稿、归档及缺失发布版本均拒绝，不会发布工作草稿。
+
+### 流程设计保存回执
+
+`POST /platform.module/{moduleAlias}/workflow-definitions/{definitionId}/versions/{versionId}/design` 可在原 `version`、`design` 之外携带 `requestId`（16–80 位字母、数字或连字符）。同用户、同租户下，同标识与内容复用已提交结果，不再写入；重复提交返回当前获准读取的版本，不重放历史业务值。原请求提交版本以回执为准。
+
+`GET /platform.module/{moduleAlias}/workflow-definitions/{definitionId}/versions/{versionId}/design-save-receipts/{requestId}` 复用 `viewWorkflowDesign` 与定义记录数据权限，返回 `committed`、`cancelled` 和提交时的 `savedVersion`。`committed=false` 仅表示未查到回执，不能证明请求失败或未执行。回执不含设计内容，不跨用户、租户、定义或版本查询。
+
+`POST /platform.module/{moduleAlias}/workflow-definitions/{definitionId}/versions/{versionId}/design-save-receipts/{requestId}/abandon` 复用 `editWorkflowDesign` 与记录数据权限，在定义与请求锁下确认已提交结果，或写入阻止迟到请求执行的标记（`cancelled=true`）。重复终止幂等；终止不会撤销已经提交的保存。

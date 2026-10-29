@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   AppError,
+  createUuid,
   normalizeError,
   userFacingErrorMessage,
   useLanguageContext,
@@ -11,6 +12,7 @@ import {
   hasWorkflowParticipants,
 } from '../platform-components/workflowParticipantPolicy';
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
+import { workflowSaveRecovery, type WorkflowSaveReference } from './workflowSaveRecovery';
 import { useWorkflowConfigurationSession } from './useWorkflowConfigurationSession';
 import { useWorkflowConfigurationAssistant } from './useWorkflowConfigurationAssistant';
 import { copyWorkflowFragment, pasteWorkflowFragment } from '../platform-components/workflowDesignClipboard';
@@ -210,6 +212,20 @@ const session = useWorkflowConfigurationSession({
   definitionId: () => props.definitionId,
 });
 const { recoveryRequired, submissionStatus } = session;
+const pendingSave = ref<WorkflowSaveReference>();
+const receiptCommitted = ref(false);
+const receiptCancelled = ref(false);
+const restoredSave = ref(false);
+const canResolveSave = computed(
+  () =>
+    !pendingSave.value ||
+    receiptCommitted.value ||
+    receiptCancelled.value ||
+    (recovery.value?.version.version ?? -1) > pendingSave.value.expectedVersion,
+);
+function saveRecovery() {
+  return workflowSaveRecovery(session.scope.value, window.sessionStorage);
+}
 const recoverySelection = ref('');
 const recovery = ref<{ version: WorkflowVersion; design: WorkflowDesign }>();
 const { design, history } = session;
@@ -356,6 +372,10 @@ watch(
     scopeGeneration++;
     persistencePending = false;
     submissionStatus.value = 'idle';
+    pendingSave.value = undefined;
+    receiptCommitted.value = false;
+    receiptCancelled.value = false;
+    restoredSave.value = false;
     recovery.value = undefined;
     metadataRevision++;
     loadedScope.value = '';
@@ -438,6 +458,11 @@ async function reload() {
   const definitionId = props.definitionId;
   await run(async (current) => {
     try {
+      pendingSave.value = saveRecovery().restore();
+      if (pendingSave.value) {
+        submissionStatus.value = 'unknown';
+        restoredSave.value = true;
+      }
       const definition = await currentClient.view(definitionId);
       if (!current()) return;
       const nextCatalog = await currentClient.catalog(definition.id);
@@ -446,7 +471,10 @@ async function reload() {
         (a, b) => b.versionNo - a.versionNo,
       );
       if (!current()) return;
-      const latest = nextVersions[0] ?? (await currentClient.upgrade(definition.id));
+      const latest = pendingSave.value
+        ? nextVersions.find((item) => item.id === pendingSave.value!.versionId)
+        : (nextVersions[0] ?? (await currentClient.upgrade(definition.id)));
+      if (!latest) throw new Error('原保存的流程版本已不存在，请联系管理员核实');
       if (!current()) return;
       if (!nextVersions.length) nextVersions.push(latest);
       let nextDesign = await currentClient.design(definition.id, latest.id);
@@ -491,9 +519,34 @@ async function switchVersion(id: string) {
 async function save() {
   if (!editable.value || !version.value || !selected.value) return;
   await run(async (current) => {
+    const reference: WorkflowSaveReference = {
+      requestId: createUuid(),
+      versionId: version.value!.id,
+      expectedVersion: version.value!.version,
+    };
+    const recoveryStore = saveRecovery();
+    recoveryStore.save(reference);
+    pendingSave.value = reference;
+    receiptCommitted.value = false;
+    receiptCancelled.value = false;
     const saved = await client
-      .saveDesign(selected.value!.id, version.value!.id, version.value!.version, design.value)
+      .saveDesign(
+        selected.value!.id,
+        version.value!.id,
+        version.value!.version,
+        design.value,
+        reference.requestId,
+      )
       .catch((cause: unknown) => {
+        if (cause instanceof AppError && [400, 401, 403, 404, 409, 422].includes(cause.status ?? 0)) {
+          try {
+            recoveryStore.clear(reference.requestId);
+          } catch (storageFailure) {
+            if (current()) submissionStatus.value = 'unknown';
+            throw storageFailure;
+          }
+          if (current()) pendingSave.value = undefined;
+        }
         if (current() && cause instanceof AppError && cause.status === 409)
           submissionStatus.value = 'conflict';
         if (
@@ -503,12 +556,31 @@ async function save() {
           submissionStatus.value = 'unknown';
         throw cause;
       });
+    try {
+      recoveryStore.clear(reference.requestId);
+    } catch (cause) {
+      if (current()) submissionStatus.value = 'unknown';
+      throw cause;
+    }
     if (!current()) return;
+    pendingSave.value = undefined;
     version.value = saved;
     versions.value = versions.value.map((item) => (item.id === version.value!.id ? version.value! : item));
     history.markSaved();
     showSuccessMessage(workflowLanguage.t('platform.workflow-config.draft-saved', '流程草稿已保存'));
   }, true);
+}
+async function abandonPendingSave() {
+  if (busy.value || !pendingSave.value || !selected.value || !version.value) return;
+  const reference = pendingSave.value;
+  const definitionId = selected.value.id;
+  await run(async (current) => {
+    const receipt = await client.abandonSave(definitionId, reference.versionId, reference.requestId);
+    if (!current()) return;
+    receiptCommitted.value = receipt.committed === true;
+    receiptCancelled.value = receipt.cancelled === true;
+  }, true);
+  if (session.active.value && pendingSave.value === reference) await readCurrentSave();
 }
 async function readCurrentSave() {
   if ((!recoveryRequired.value && !dirty.value) || !selected.value || !version.value) return;
@@ -518,6 +590,12 @@ async function readCurrentSave() {
   recovery.value = undefined;
   if (submissionStatus.value === 'idle') submissionStatus.value = 'review';
   await run(async (current) => {
+    if (pendingSave.value) {
+      const receipt = await client.saveReceipt(definitionId, versionId, pendingSave.value.requestId);
+      if (!current()) return;
+      receiptCommitted.value = receipt.committed === true;
+      receiptCancelled.value = receipt.cancelled === true;
+    }
     const latestVersions = await client.versions(definitionId);
     if (!current()) return;
     const latest = latestVersions.find((item) => item.id === versionId);
@@ -531,9 +609,19 @@ async function readCurrentSave() {
   });
 }
 function resolveSave(keepDraft: boolean) {
-  if (busy.value || !recovery.value || !recoveryRequired.value) return;
-  if (keepDraft && recovery.value.version.publishStatus !== 'draft') return;
+  if (busy.value || !recovery.value || !recoveryRequired.value || !canResolveSave.value) return;
+  if (keepDraft && (restoredSave.value || recovery.value.version.publishStatus !== 'draft')) return;
   const current = recovery.value;
+  try {
+    if (pendingSave.value) saveRecovery().clear(pendingSave.value.requestId);
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'workflow-design', phase: 'action' });
+    return;
+  }
+  pendingSave.value = undefined;
+  receiptCommitted.value = false;
+  receiptCancelled.value = false;
+  restoredSave.value = false;
   version.value = current.version;
   history.reset(keepDraft ? design.value : current.design, current.design);
   recovery.value = undefined;
@@ -807,7 +895,7 @@ function pasteText(text: string, target: string) {
     design.value,
     target,
     text,
-    `copy_${crypto.randomUUID().replaceAll('-', '')}`,
+    `copy_${createUuid().replaceAll('-', '')}`,
   );
   design.value = pasted.design;
   if (pasted.reconfigureSelectorKeys.length) {
@@ -917,15 +1005,20 @@ async function pasteShortcut() {
       <div v-if="recoveryRequired" class="configuration-recovery" role="alert">
         <p>
           {{
-            submissionStatus === 'review'
+            restoredSave
               ? workflowLanguage.t(
-                  'platform.workflow-config.review-current',
-                  '本地草稿已保留，请读取当前版本后核对。',
+                  'platform.workflow-config.save-restored',
+                  '检测到上次保存的查询引用。刷新前的本地草稿未恢复，请核实原请求与当前版本。',
                 )
-              : workflowLanguage.t(
-                  'platform.workflow-config.save-unknown',
-                  '上次保存未能确认，本地草稿已保留。请读取当前版本后重新核对。',
-                )
+              : submissionStatus === 'review'
+                ? workflowLanguage.t(
+                    'platform.workflow-config.review-current',
+                    '本地草稿已保留，请读取当前版本后核对。',
+                  )
+                : workflowLanguage.t(
+                    'platform.workflow-config.save-unknown',
+                    '上次保存未能确认，本地草稿已保留。请读取当前版本后重新核对。',
+                  )
           }}
         </p>
         <UiButton :disabled="busy" @click="readCurrentSave">{{
@@ -940,6 +1033,50 @@ async function pasteShortcut() {
           "
           >{{ workflowLanguage.t('platform.workflow-config.cancel-review', '取消核对，继续编辑') }}</UiButton
         >
+        <p v-if="pendingSave && recovery">
+          {{
+            receiptCommitted
+              ? workflowLanguage.t(
+                  'platform.workflow-config.receipt-committed',
+                  '已确认原保存请求提交成功；以下为服务端当前版本，可能包含后续修改。',
+                )
+              : receiptCancelled
+                ? workflowLanguage.t(
+                    'platform.workflow-config.receipt-cancelled',
+                    '原请求已终止，迟到的请求不会写入。请核对当前版本后继续。',
+                  )
+                : canResolveSave
+                  ? workflowLanguage.t(
+                      'platform.workflow-config.receipt-superseded',
+                      '未查到原请求回执，但版本已推进，原请求不能再覆盖当前版本。请核对后继续。',
+                    )
+                  : workflowLanguage.t(
+                      'platform.workflow-config.receipt-pending',
+                      '尚未查到原请求回执，结果仍不确定。请稍后重新核实，暂不能继续写入。',
+                    )
+          }}
+        </p>
+        <template v-if="pendingSave && !receiptCommitted && !receiptCancelled && !canResolveSave">
+          <p>
+            {{
+              workflowLanguage.t(
+                'platform.workflow-config.abandon-help',
+                '持续无法确认时，可终止原请求。服务器会确认已提交，或阻止尚未执行的请求；已提交内容不会撤销。',
+              )
+            }}
+          </p>
+          <UiButton :disabled="busy" @click="abandonPendingSave">{{
+            workflowLanguage.t('platform.workflow-config.abandon-save', '终止原请求并核对当前版本')
+          }}</UiButton>
+        </template>
+        <p v-if="receiptCancelled && !recovery">
+          {{
+            workflowLanguage.t(
+              'platform.workflow-config.receipt-cancelled',
+              '原请求已终止，迟到的请求不会写入。请核对当前版本后继续。',
+            )
+          }}
+        </p>
         <template v-if="recovery">
           <details>
             <summary>
@@ -991,11 +1128,11 @@ async function pasteShortcut() {
               )
             }}
           </p>
-          <UiButton :disabled="busy" @click="resolveSave(false)">{{
+          <UiButton :disabled="busy || !canResolveSave" @click="resolveSave(false)">{{
             workflowLanguage.t('platform.workflow-config.use-current', '采用当前版本')
           }}</UiButton>
           <UiButton
-            :disabled="busy || recovery.version.publishStatus !== 'draft'"
+            :disabled="busy || !canResolveSave || restoredSave || recovery.version.publishStatus !== 'draft'"
             @click="resolveSave(true)"
             >{{
               workflowLanguage.t('platform.workflow-config.keep-draft', '保留本地草稿并重新核对')

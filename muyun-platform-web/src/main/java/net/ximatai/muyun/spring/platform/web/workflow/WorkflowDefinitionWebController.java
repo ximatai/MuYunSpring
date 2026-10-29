@@ -213,7 +213,27 @@ public class WorkflowDefinitionWebController
     public WorkflowVersion saveDesign(HttpServletRequest request, @PathVariable String definitionId,
             @PathVariable String versionId, @RequestBody WorkflowDesignSaveWebRequest payload) {
         return webScope(() -> { requireScopedRecord(request, definitionId);
-            return designs.save(definitionId, versionId, payload.version(), payload.design()); });
+            return designs.save(definitionId, versionId, payload.version(), payload.design(), payload.requestId()); });
+    }
+
+    @org.springframework.web.bind.annotation.GetMapping("/{definitionId}/versions/{versionId}/design-save-receipts/{requestId}")
+    @CustomActionEndpoint(value = "viewWorkflowDesign", title = "查看流程设计", level = PlatformActionLevel.RECORD,
+            dataAuth = true, recordIdPathVariable = "definitionId")
+    public net.ximatai.muyun.spring.platform.workflow.WorkflowDesignSaveReceiptService.Result saveReceipt(
+            HttpServletRequest request, @PathVariable String definitionId, @PathVariable String versionId,
+            @PathVariable String requestId) {
+        return webScope(() -> { requireScopedRecord(request, definitionId);
+            return designs.saveReceipt(definitionId, versionId, requestId); });
+    }
+
+    @PostMapping("/{definitionId}/versions/{versionId}/design-save-receipts/{requestId}/abandon")
+    @CustomActionEndpoint(value = "editWorkflowDesign", title = "保存流程设计", level = PlatformActionLevel.RECORD,
+            dataAuth = true, recordIdPathVariable = "definitionId")
+    public net.ximatai.muyun.spring.platform.workflow.WorkflowDesignSaveReceiptService.Result abandonSave(
+            HttpServletRequest request, @PathVariable String definitionId, @PathVariable String versionId,
+            @PathVariable String requestId) {
+        return webScope(() -> { requireScopedRecord(request, definitionId);
+            return designs.abandonSave(definitionId, versionId, requestId); });
     }
 
     @PostMapping("/{definitionId}/versions/{versionId}/validate")
@@ -274,4 +294,9 @@ public class WorkflowDefinitionWebController
     }
 }
 
-record WorkflowDesignSaveWebRequest(Integer version, net.ximatai.muyun.spring.platform.workflow.WorkflowDesignDocument design) {}
+record WorkflowDesignSaveWebRequest(Integer version, net.ximatai.muyun.spring.platform.workflow.WorkflowDesignDocument design,
+                                    String requestId) {
+    WorkflowDesignSaveWebRequest(Integer version, net.ximatai.muyun.spring.platform.workflow.WorkflowDesignDocument design) {
+        this(version, design, null);
+    }
+}

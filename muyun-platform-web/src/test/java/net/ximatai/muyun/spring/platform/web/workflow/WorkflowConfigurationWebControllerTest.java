@@ -86,6 +86,34 @@ class WorkflowConfigurationWebControllerTest {
     }
 
     @Test
+    void receiptQueriesAndAbandonPreserveDefinitionScopeAndSeparateReadWriteActions() throws Exception {
+        var definitions = mock(WorkflowDefinitionService.class);
+        var designs = mock(net.ximatai.muyun.spring.platform.workflow.WorkflowDesignService.class);
+        var controller = new WorkflowDefinitionWebController(mock(PlatformModuleService.class), mock(WorkflowPublishFacade.class), designs);
+        ReflectionTestUtils.setField(controller, "service", definitions);
+        when(definitions.select("def-1")).thenReturn(definition("def-1", "sales.contract", WorkflowDefinitionStatus.DRAFT));
+        var request = new MockHttpServletRequest();
+        request.setAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE, Map.of("moduleAlias", "sales.contract"));
+        String requestId = "request-1234567890";
+        controller.saveReceipt(request, "def-1", "ver-1", requestId);
+        verify(designs).saveReceipt("def-1", "ver-1", requestId);
+        controller.abandonSave(request, "def-1", "ver-1", requestId);
+        verify(designs).abandonSave("def-1", "ver-1", requestId);
+        for (String method : java.util.List.of("saveReceipt", "abandonSave")) {
+            var endpoint = WorkflowDefinitionWebController.class.getMethod(method,
+                    jakarta.servlet.http.HttpServletRequest.class, String.class, String.class, String.class)
+                    .getAnnotation(net.ximatai.muyun.spring.common.platform.CustomActionEndpoint.class);
+            assertThat(endpoint.value()).isEqualTo(method.equals("saveReceipt") ? "viewWorkflowDesign" : "editWorkflowDesign");
+            assertThat(endpoint.dataAuth()).isTrue();
+            assertThat(endpoint.recordIdPathVariable()).isEqualTo("definitionId");
+        }
+        request.setAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE, Map.of("moduleAlias", "other.module"));
+        assertThatThrownBy(() -> controller.saveReceipt(request, "def-1", "ver-1", requestId)).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> controller.abandonSave(request, "def-1", "ver-1", requestId)).isInstanceOf(RuntimeException.class);
+        org.mockito.Mockito.verifyNoMoreInteractions(designs);
+    }
+
+    @Test
     void shouldRejectWorkflowDefinitionInsertWhenPathModuleDoesNotExist() {
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
@@ -191,7 +219,8 @@ class WorkflowConfigurationWebControllerTest {
                 new net.ximatai.muyun.spring.platform.workflow.WorkflowDesignCompiler(
                         new net.ximatai.muyun.spring.platform.workflow.WorkflowConditionService((module, record) -> {
                             throw new AssertionError("syntax validation must not read business records");
-                        })), mock(net.ximatai.muyun.spring.platform.workflow.WorkflowBusinessTaskResolver.class));
+                        })), mock(net.ximatai.muyun.spring.platform.workflow.WorkflowBusinessTaskResolver.class),
+                mock(net.ximatai.muyun.spring.platform.workflow.WorkflowDesignSaveReceiptService.class));
         var controller = new WorkflowDefinitionWebController(modules, mock(WorkflowPublishFacade.class), designs);
         when(modules.resolveVisibleModule("sales.contract")).thenReturn(module("sales.contract"));
         var request = requestVars("sales.contract", "unused");

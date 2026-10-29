@@ -198,8 +198,26 @@ export function createWorkflowDefinitionClient(http: HttpClient, moduleAlias: st
     saveSelection: (id: string, payload: WorkflowDefinitionSelection) =>
       post<WorkflowDefinition>(`${definition(id)}/selection`, payload),
     design: (id: string, versionId: string) => get<WorkflowDesign>(`${version(id, versionId)}/design`),
-    saveDesign: (id: string, versionId: string, expectedVersion: number, design: WorkflowDesign) =>
-      post<WorkflowVersion>(`${version(id, versionId)}/design`, { version: expectedVersion, design }),
+    saveDesign: (
+      id: string,
+      versionId: string,
+      expectedVersion: number,
+      design: WorkflowDesign,
+      requestId?: string,
+    ) =>
+      post<WorkflowVersion>(`${version(id, versionId)}/design`, {
+        version: expectedVersion,
+        design,
+        ...(requestId ? { requestId } : {}),
+      }),
+    saveReceipt: (id: string, versionId: string, requestId: string) =>
+      get<{ committed: boolean; cancelled: boolean; savedVersion: number | null }>(
+        `${version(id, versionId)}/design-save-receipts/${encodeURIComponent(requestId)}`,
+      ),
+    abandonSave: (id: string, versionId: string, requestId: string) =>
+      post<{ committed: boolean; cancelled: boolean; savedVersion: number | null }>(
+        `${version(id, versionId)}/design-save-receipts/${encodeURIComponent(requestId)}/abandon`,
+      ),
     validate: (id: string, versionId: string) => post<unknown>(`${version(id, versionId)}/validate`),
     publish: (id: string, versionId: string, definitionVersion: number, expectedVersion: number) =>
       post<WorkflowVersion>(`${version(id, versionId)}/publish`, {
