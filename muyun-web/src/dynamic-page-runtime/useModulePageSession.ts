@@ -118,7 +118,7 @@ import {
 import { recordMutationPayload } from './recordMutationPayload';
 import { createSourceReferencePickerConfigAssembler } from './sourceReferencePickerConfig';
 import {
-  createReadonlyCardRecordSnapshot,
+  createReadonlyRecordSnapshot,
   resolveModulePageEnhancement,
   type ModulePageActionContribution,
   type ModulePageActionContext,
@@ -140,6 +140,7 @@ import {
   type ModulePageWorkspaceView,
 } from './modulePageEnhancements';
 import { useModulePageNavigation } from './modulePageNavigation';
+import { resolveModulePageActionControls } from './modulePageActionControls';
 import { modulePageListRefreshRegistry } from './modulePageListRefresh';
 import {
   normalizeDetailSurfacePreference,
@@ -1192,7 +1193,7 @@ export function useModulePageSession(
     ],
     flushRecordOnlyRefresh,
   );
-  useModuleRecordDataChanges({
+  const recordDataChanges = useModuleRecordDataChanges({
     moduleAlias: context.moduleAlias,
     presentationModules: () => [
       ...moduleContentPresentationDependencies(runtimeUiDescriptor.value),
@@ -1212,7 +1213,9 @@ export function useModulePageSession(
       togglingEnabled.value ||
       (!props.recordOnly && (!tenantScopeReady.value || !runtimePageResolved.value)),
     invalidate: (ids) => context.invalidateRecordActions?.(ids),
-    refreshList,
+    refreshList: () => {
+      if (!props.recordOnly) refreshList();
+    },
     refreshRecord: async (id, isCurrent) => {
       if (recycleBinDetailActive.value) {
         if (!isCurrent()) return false;
@@ -1228,6 +1231,8 @@ export function useModulePageSession(
       );
       if (persistentTreeDetail.value && selectedRecord.value?.id === id)
         selectedTreeRecord.value = selectedRecord.value;
+      if (props.recordOnly && isCurrent() && !detailLoadFailed.value && selectedRecord.value)
+        emit('record-only-change', { type: 'saved', record: selectedRecord.value });
       return true;
     },
     onError: (cause) =>
@@ -1340,7 +1345,7 @@ export function useModulePageSession(
   ): ModulePageListRowExpansionContext {
     return {
       module: context,
-      record: createReadonlyCardRecordSnapshot(record) as QueryListRecord,
+      record: createReadonlyRecordSnapshot(record) as QueryListRecord,
       expanded,
       refreshList,
     };
@@ -1849,6 +1854,23 @@ export function useModulePageSession(
   const enhancementDetailSections = computed<ModulePageDetailSection[]>(
     () => pageEnhancement.value?.detail?.sections ?? [],
   );
+  const enhancementDetailControls = computed(() =>
+    resolveModulePageActionControls({
+      controls: pageEnhancement.value?.detail?.controls ?? [],
+      record: selectedRecord.value,
+      stateContext: modulePageActionStateContext(),
+      sessionKey: formSessionKey.value,
+      active:
+        detailOpen.value &&
+        editorMode.value === 'view' &&
+        !detailLoading.value &&
+        !detailLoadFailed.value &&
+        listMode.value !== 'recycleBin' &&
+        !flatManagementRecycleBin.active.value,
+      busy: detailActionBusy.value || interactionEditing.value || interactionBusy.value,
+      refresh: recordDataChanges.refresh,
+    }),
+  );
   const enhancementDetailDrawer = computed<ModulePageDetailDrawer | undefined>(
     () => pageEnhancement.value?.recordView?.drawer,
   );
@@ -1869,11 +1891,9 @@ export function useModulePageSession(
     return {
       module: context,
       mode: editorMode.value,
-      ...(record
-        ? { record: createReadonlyCardRecordSnapshot(toRaw(record) as Record<string, unknown>) }
-        : {}),
+      ...(record ? { record: createReadonlyRecordSnapshot(toRaw(record) as Record<string, unknown>) } : {}),
       loadedRecords: cardAssistantRecords.value.map((item) =>
-        createReadonlyCardRecordSnapshot(toRaw(item) as Record<string, unknown>),
+        createReadonlyRecordSnapshot(toRaw(item) as Record<string, unknown>),
       ),
       formSessionKey: formSessionKey.value,
       saving: saving.value,
@@ -2166,6 +2186,7 @@ export function useModulePageSession(
   const flatManagementDetailActions = computed<RecordActionItem[]>(() => [
     ...flatManagementActions.value,
     ...flatManagementEnhancementActions.value,
+    ...(flatManagementAllowsDetailEnhancement() ? enhancementDetailControls.value : []),
     ...detailPageActions.value,
     ...(flatManagementAllowsDetailEnhancement() ? placedDetailButtons.value : []),
     ...(!flatManagementRecycleBin.active.value && editorMode.value !== 'view'
@@ -5625,6 +5646,7 @@ export function useModulePageSession(
     useDrawerDetailSurface,
     recycleBinDetailActive,
     enhancementDetailActions,
+    enhancementDetailControls,
     detailPageActions,
     placedDetailButtons,
     placedFormActions,

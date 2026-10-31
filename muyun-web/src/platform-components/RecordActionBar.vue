@@ -32,8 +32,8 @@ const recordActionAvailabilityLoading = ref(false);
 let recordActionAvailabilitySequence = 0;
 
 watch(
-  () => props.recordId,
-  async (recordId) => {
+  [() => props.context, () => props.recordId],
+  async ([, recordId]) => {
     const sequence = ++recordActionAvailabilitySequence;
     if (!recordId) {
       recordActionAvailabilityLoading.value = false;

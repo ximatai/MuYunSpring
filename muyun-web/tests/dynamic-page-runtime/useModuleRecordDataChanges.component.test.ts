@@ -300,3 +300,46 @@ it.each([false, true])(
     wrapper.unmount();
   },
 );
+
+it('queues explicit refreshes behind editors, coalesces reads and drops closed records', async () => {
+  const blocked = ref(true);
+  const recordId = ref<string | undefined>('r');
+  const invalidate = vi.fn();
+  const refreshList = vi.fn();
+  const refreshRecord = vi.fn(async () => true);
+  let refresh!: () => void;
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        ({ refresh } = useModuleRecordDataChanges({
+          moduleAlias: 'test',
+          recordId: () => recordId.value,
+          blocked: () => blocked.value,
+          invalidate,
+          refreshList,
+          refreshRecord,
+          onError: vi.fn(),
+        }));
+        return () => null;
+      },
+    }),
+  );
+  refresh();
+  refresh();
+  await settle();
+  expect(invalidate).toHaveBeenCalledWith(['r']);
+  expect(refreshRecord).not.toHaveBeenCalled();
+  blocked.value = false;
+  await settle();
+  expect(refreshRecord).toHaveBeenCalledOnce();
+  expect(refreshList).toHaveBeenCalledOnce();
+  blocked.value = true;
+  refresh();
+  recordId.value = undefined;
+  blocked.value = false;
+  await settle();
+  expect(refreshRecord).toHaveBeenCalledOnce();
+  wrapper.unmount();
+  refresh();
+  expect(invalidate).toHaveBeenCalledTimes(3);
+});

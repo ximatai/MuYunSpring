@@ -1,7 +1,12 @@
 <script setup lang="ts">
 // Compiled by the installed consumer's vue-tsc; imports must resolve through package exports.
 import { ref } from 'vue';
-import { UiSearchInput, RecordExplorerPanel } from '@ximatai/muyun-web-app';
+import {
+  UiSearchInput,
+  RecordExplorerPanel,
+  type ModulePageActionControlContribution,
+  type ActionControlContext,
+} from '@ximatai/muyun-web-app';
 
 const value = ref('');
 const keyword = ref('');
@@ -34,6 +39,27 @@ const invalidSlot: PanelSlots['footer'] = 42;
 // @ts-expect-error Vendor props are not part of the public adapter contract.
 const vendorProp: SearchProps['enterButton'] = true;
 void [invalidValue, invalidSearch, invalidDisabled, invalidKeyword, invalidSlot, vendorProp];
+
+const operationControl: ModulePageActionControlContribution = {
+  key: 'hold',
+  actionCode: 'hold',
+  title: 'Hold',
+  placement: 'after-primary',
+  component: {},
+};
+// @ts-expect-error Controls require a declared authorization action.
+const unauthenticatedControl: ModulePageActionControlContribution = {
+  key: 'hold',
+  title: 'Hold',
+  component: {},
+};
+function acceptsControlContext(context: Readonly<ActionControlContext>) {
+  const signal: AbortSignal = context.signal;
+  // @ts-expect-error Business components cannot mutate the platform record.
+  context.record.id = 'other';
+  void signal;
+}
+void [operationControl, unauthenticatedControl, acceptsControlContext];
 </script>
 
 <template>

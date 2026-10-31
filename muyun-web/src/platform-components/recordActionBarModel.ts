@@ -1,8 +1,13 @@
 import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { ModuleContext } from '@muyun/web-core';
 import type { UiIconName } from '@muyun/vue-ui-antdv';
+import type { ActionControl } from './actionControl';
 
 export interface RecordActionItem {
+  /** Frontend-only interactive presentation; never converted to a menu click. */
+  control?: ActionControl;
+  /** Follow the first visible primary action; append if no primary action exists. */
+  placement?: 'after-primary';
   key?: string;
   actionCode?: string;
   title: string;

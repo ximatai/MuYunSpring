@@ -105,6 +105,17 @@ export function useModuleRecordDataChanges(options: ModuleRecordDataChangeOption
     if (timer) clearTimeout(timer);
     pendingRecords.clear();
   });
+  return {
+    /** Explicit read refresh, without manufacturing a committed business event. */
+    refresh() {
+      const id = options.recordId();
+      if (!active || !id) return;
+      options.invalidate([id]);
+      pendingRecords.add(id);
+      pendingList = true;
+      schedule();
+    },
+  };
 }
 
 /** Only declared read surfaces participate; values and labels cannot manufacture dependencies. */

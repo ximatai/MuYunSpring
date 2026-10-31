@@ -10,7 +10,7 @@ import {
 } from '@muyun/platform-components';
 import type { WebPageResponse, WebQueryRequest } from '@muyun/web-contracts';
 import {
-  createReadonlyCardRecordSnapshot,
+  createReadonlyRecordSnapshot,
   type ModulePageFormContribution,
   type ModulePageFormContributionContext,
   type ModulePageFormContributionState,
@@ -124,7 +124,7 @@ export function createModulePageFormState(
 ): ModulePageFormContributionState {
   return {
     mode,
-    draft: createReadonlyCardRecordSnapshot(draft),
+    draft: createReadonlyRecordSnapshot(draft),
     fields: [...fields.keys()].map((fieldName) =>
       detachedReadonlyFieldState(resolveRecordFormFieldState(fieldName, { fields, record: draft, mode })),
     ),
@@ -133,7 +133,7 @@ export function createModulePageFormState(
 }
 
 function detachedReadonlyFieldState(state: RecordFormFieldState): Readonly<RecordFormFieldState> {
-  return createReadonlyCardRecordSnapshot(
+  return createReadonlyRecordSnapshot(
     state as unknown as Record<string, unknown>,
   ) as Readonly<RecordFormFieldState>;
 }

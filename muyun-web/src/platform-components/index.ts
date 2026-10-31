@@ -40,6 +40,7 @@ export { reconcileSelectedKey, reconcileSelectedKeys } from './selectionRefresh'
 export { MANAGEMENT_WORKSPACE_LAYOUT, listDetailWorkspaceMinWidth } from './managementWorkspaceLayout';
 export { providePageLayout, usePageLayout } from './pageLayoutContext';
 export { default as RecordActionBar } from './RecordActionBar.vue';
+export type { ActionControl, ActionControlContext } from './actionControl';
 export { default as RecordQueryListSurface } from './RecordQueryListSurface.vue';
 export { default as RecordQueryEnumFilter } from './RecordQueryEnumFilter.vue';
 export { default as QueryGroupedSummary } from './QueryGroupedSummary.vue';

@@ -811,6 +811,7 @@ export default defineComponent({
             :detail-load-failed="detailLoadFailed"
             :recycle-bin-active="recycleBinDetailActive"
             :actions="enhancementDetailActions"
+            :controls="enhancementDetailControls"
             :configured-actions="[...detailPageActions, ...placedDetailButtons]"
             :form-actions="placedFormActions"
             :managed-actions="managedPageActions"
@@ -1162,6 +1163,7 @@ export default defineComponent({
             :detail-loading="detailLoading"
             :detail-load-failed="detailLoadFailed"
             :actions="enhancementDetailActions"
+            :controls="enhancementDetailControls"
             :configured-actions="[...detailPageActions, ...placedDetailButtons]"
             :form-actions="placedFormActions"
             :managed-actions="managedPageActions"
@@ -1446,7 +1448,14 @@ export default defineComponent({
             @change="toggleEnabled"
           />
         </template>
-        <template v-if="!enhancementDetailDrawer || enhancementDetailActions.length > 0" #operation>
+        <template
+          v-if="
+            !enhancementDetailDrawer ||
+            enhancementDetailActions.length > 0 ||
+            enhancementDetailControls.length > 0
+          "
+          #operation
+        >
           <ModuleRecordDetailActions
             :form-pending="mainFormPending"
             :save-needs-check="recordSaveNeedsCheck"
@@ -1460,6 +1469,7 @@ export default defineComponent({
             :detail-load-failed="detailLoadFailed"
             :recycle-bin-active="recycleBinDetailActive"
             :actions="enhancementDetailActions"
+            :controls="enhancementDetailControls"
             :configured-actions="[...detailPageActions, ...placedDetailButtons]"
             :form-actions="placedFormActions"
             :managed-actions="managedPageActions"

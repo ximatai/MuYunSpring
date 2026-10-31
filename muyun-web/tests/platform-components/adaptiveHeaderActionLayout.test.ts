@@ -63,3 +63,34 @@ it('places primary actions first while preserving declaration order within each 
   });
   expect(actions.map((action) => action.key)).toEqual(['edit', 'call', 'history', 'save']);
 });
+
+it('keeps controls beside the first primary anchor, preserves contribution order and wraps instead of collecting them', () => {
+  const actions = [
+    { key: 'history', width: 80 },
+    { key: 'talk', width: 40, keepDirect: true, placement: 'after-primary' as const },
+    { key: 'call', level: 'primary' as const, width: 80 },
+    { key: 'mute', width: 40, keepDirect: true, placement: 'after-primary' as const },
+    { key: 'save', level: 'primary' as const, width: 80 },
+  ];
+  expect(resolveHeaderActionLayout(actions, 1000, 60).directKeys).toEqual([
+    'call',
+    'talk',
+    'mute',
+    'save',
+    'history',
+  ]);
+  expect(resolveHeaderActionLayout(actions, 50, 60)).toEqual({
+    directKeys: ['call', 'talk', 'mute'],
+    overflowKeys: ['save', 'history'],
+  });
+  expect(
+    resolveHeaderActionLayout(
+      actions.filter((action) => action.level !== 'primary'),
+      50,
+      60,
+    ),
+  ).toEqual({
+    directKeys: ['talk', 'mute'],
+    overflowKeys: ['history'],
+  });
+});

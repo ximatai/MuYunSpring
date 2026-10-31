@@ -38,6 +38,7 @@ import {
   type ModulePageRecordActionContribution,
 } from './modulePageEnhancements';
 import { useModulePageNavigation } from './modulePageNavigation';
+import { resolveModulePageActionControls } from './modulePageActionControls';
 import { useModulePageUnsavedState } from './modulePageUnsavedState';
 import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
 import ModuleReferenceRecordDetailBrowser from './ModuleReferenceRecordDetailBrowser.vue';
@@ -101,6 +102,23 @@ const detailActions = computed<ModulePageRecordActionContribution[]>(() => {
     ...(current ? state?.(current) : { visible: false }),
   }));
 });
+const detailControls = computed(() =>
+  resolveModulePageActionControls({
+    controls: pageEnhancement.value?.detail?.controls ?? [],
+    record: record.value,
+    stateContext: { module: context },
+    sessionKey: formSessionKey.value,
+    active: mode.value === 'view' && !loading.value && !loadFailed.value,
+    busy:
+      saving.value ||
+      togglingEnabled.value ||
+      workflowInteraction.value.editing ||
+      workflowInteraction.value.busy ||
+      referenceRecordDetailInteraction.value.editing ||
+      referenceRecordDetailInteraction.value.busy,
+    refresh: () => recordDataChanges.refresh(),
+  }),
+);
 const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConfig>>(() => {
   const configs: Record<string, RecordFormFieldPickerConfig> = {};
   for (const field of fields.value.values()) {
@@ -189,7 +207,7 @@ async function loadRecord() {
   }
 }
 
-useModuleRecordDataChanges({
+const recordDataChanges = useModuleRecordDataChanges({
   moduleAlias: context.moduleAlias,
   presentationModules: () => moduleContentPresentationDependencies(context.runtime.snapshot()?.uiDescriptor),
   recordId: () => props.recordId,
@@ -203,7 +221,7 @@ useModuleRecordDataChanges({
     referenceRecordDetailInteraction.value.editing ||
     referenceRecordDetailInteraction.value.busy,
   invalidate: (ids) => context.invalidateRecordActions?.(ids),
-  refreshList: () => undefined,
+  refreshList: () => refreshModulePageList(context.moduleAlias),
   refreshRecord: async (id, isCurrent) => {
     await refreshWorkflowRecordActions(context, id).catch((cause) =>
       presentPlatformError(cause, { language, source: 'module-data-change', phase: 'authorization' }),
@@ -467,6 +485,7 @@ async function toggleEnabled() {
           :detail-loading="loading"
           :detail-load-failed="loadFailed"
           :actions="detailActions"
+          :controls="detailControls"
           @cancel="cancelEditing"
           @save="saveRecord"
           @edit="editRecord"

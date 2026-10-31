@@ -9,6 +9,8 @@ import {
   type UiIconName,
 } from '@muyun/vue-ui-antdv';
 import { resolveHeaderActionLayout, type HeaderActionLevel } from './adaptiveHeaderActionLayout';
+import ActionControlHost from './ActionControlHost.vue';
+import type { ActionControl } from './actionControl';
 
 const language = useLanguageContext();
 
@@ -23,6 +25,8 @@ export interface HeaderActionItem {
   loading?: boolean;
   danger?: boolean;
   iconName?: UiIconName;
+  control?: ActionControl;
+  placement?: 'after-primary';
 }
 
 const props = withDefaults(
@@ -40,10 +44,13 @@ const actionWidths = ref<Record<string, number>>({});
 const moreWidth = ref(72);
 let resizeObserver: ResizeObserver | undefined;
 let headerResizeObserver: ResizeObserver | undefined;
+let measureFrame: number | undefined;
+const observedControls = new Set<HTMLElement>();
 
 const layout = computed(() => {
   const actions = props.actions.map((action) => ({
     ...action,
+    keepDirect: action.control != null,
     width: actionWidths.value[action.key] ?? estimatedActionWidth(action.title),
   }));
   return resolveHeaderActionLayout(actions, availableWidth.value, moreWidth.value);
@@ -79,7 +86,28 @@ function measure() {
     // This container is the layout contract shared by tree cards and drawers.
     // Measuring it directly prevents the action content from claiming title
     // space and overflowing the right edge before it can collapse into 更多.
-    availableWidth.value = actionContainer.clientWidth;
+    const siblings = Array.from(actionContainer.children).filter(
+      (child) => child !== element && !child.contains(element) && child.getBoundingClientRect().width > 0,
+    );
+    const style = getComputedStyle(actionContainer);
+    const pixels = (value: string) => Number.parseFloat(value) || 0;
+    const occupied = siblings.reduce((sum, sibling) => {
+      const siblingStyle = getComputedStyle(sibling);
+      return (
+        sum +
+        sibling.getBoundingClientRect().width +
+        pixels(siblingStyle.marginLeft) +
+        pixels(siblingStyle.marginRight)
+      );
+    }, 0);
+    availableWidth.value = Math.max(
+      0,
+      actionContainer.clientWidth -
+        occupied -
+        siblings.length * pixels(style.columnGap) -
+        pixels(style.paddingLeft) -
+        pixels(style.paddingRight),
+    );
   } else if (element.clientWidth > 0) {
     availableWidth.value = element.clientWidth;
   }
@@ -88,23 +116,48 @@ function measure() {
     const width = Math.ceil(button.getBoundingClientRect().width);
     if (width > 0) widths[button.dataset.headerActionMeasure ?? ''] = width;
   });
-  actionWidths.value = widths;
+  if (JSON.stringify(actionWidths.value) !== JSON.stringify(widths)) actionWidths.value = widths;
   const more = element.querySelector<HTMLElement>('[data-header-more-measure]');
-  if (more) moreWidth.value = Math.ceil(more.getBoundingClientRect().width);
+  const measuredMoreWidth = more ? Math.ceil(more.getBoundingClientRect().width) : 0;
+  if (measuredMoreWidth > 0) moreWidth.value = measuredMoreWidth;
 }
 
 function handleAction(action: HeaderActionItem, event: MouseEvent) {
-  if (!action.disabled && !action.loading) emit('action', action, event);
+  if (!action.control && !action.disabled && !action.loading) emit('action', action, event);
 }
 
 function handleOverflowAction(key: string) {
   const action = props.actions.find((item) => item.key === key);
-  if (action && !action.disabled && !action.loading) emit('action', action, new MouseEvent('click'));
+  if (action && !action.control && !action.disabled && !action.loading)
+    emit('action', action, new MouseEvent('click'));
+}
+
+function observeControls() {
+  const controls = new Set(root.value?.querySelectorAll<HTMLElement>('[data-action-control]'));
+  for (const element of observedControls) {
+    if (!controls.has(element)) {
+      resizeObserver?.unobserve(element);
+      observedControls.delete(element);
+    }
+  }
+  controls.forEach((element) => {
+    resizeObserver?.observe(element);
+    observedControls.add(element);
+  });
+}
+
+function scheduleMeasure() {
+  if (measureFrame !== undefined) return;
+  // Layout writes must not resize an observed surface in the same delivery cycle.
+  measureFrame = requestAnimationFrame(() => {
+    measureFrame = undefined;
+    measure();
+  });
 }
 
 onMounted(() => {
   if (typeof ResizeObserver !== 'undefined') {
-    resizeObserver = new ResizeObserver(measure);
+    resizeObserver = new ResizeObserver(scheduleMeasure);
     if (root.value) {
       resizeObserver.observe(root.value);
       const ruler = root.value.querySelector<HTMLElement>('.adaptive-header-action-bar__measure');
@@ -117,21 +170,38 @@ onMounted(() => {
     const header = root.value?.closest<HTMLElement>('.management-panel-header');
     const titleGroup = header?.querySelector<HTMLElement>('.management-panel-header-title-group');
     if (header) {
-      headerResizeObserver = new ResizeObserver(measure);
+      headerResizeObserver = new ResizeObserver(scheduleMeasure);
       headerResizeObserver.observe(header);
       if (titleGroup) headerResizeObserver.observe(titleGroup);
     }
   }
-  nextTick(measure);
+  nextTick(() => {
+    observeControls();
+    measure();
+  });
 });
 onBeforeUnmount(() => {
+  if (measureFrame !== undefined) cancelAnimationFrame(measureFrame);
   resizeObserver?.disconnect();
   headerResizeObserver?.disconnect();
+  observedControls.clear();
 });
 watch(
-  () => props.actions,
-  () => nextTick(measure),
-  { deep: true },
+  // Observe presentation facts, never traverse business components or module contexts.
+  () =>
+    props.actions.map((action) => [
+      action.key,
+      action.title,
+      action.level,
+      action.loading,
+      action.iconName,
+      action.control?.component,
+    ]),
+  () =>
+    nextTick(() => {
+      observeControls();
+      measure();
+    }),
 );
 </script>
 
@@ -143,8 +213,22 @@ watch(
         :key="action.key"
         :title="action.disabled && action.disabledReason ? `${action.title}：${action.disabledReason}` : ''"
       >
-        <span class="adaptive-header-action-bar__trigger record-action-tooltip-trigger">
+        <span
+          class="adaptive-header-action-bar__trigger record-action-tooltip-trigger"
+          :data-action-control="action.control ? action.key : undefined"
+          :data-header-action-measure="action.control ? action.key : undefined"
+        >
+          <ActionControlHost
+            v-if="action.control"
+            :control="action.control"
+            :action-key="action.key"
+            :title="action.title"
+            :disabled="action.disabled"
+            :disabled-reason="action.disabledReason"
+            :loading="action.loading"
+          />
           <UiActionButton
+            v-else
             :emphasis="action.level === 'primary' ? 'primary' : 'secondary'"
             :intent="action.danger ? 'danger' : 'normal'"
             :disabled="action.disabled"
@@ -169,19 +253,24 @@ watch(
       </UiDropdown>
     </div>
     <div class="adaptive-header-action-bar__measure" aria-hidden="true">
-      <UiActionButton
-        v-for="action in actions"
+      <span
+        v-for="action in actions.filter((item) => !item.control)"
         :key="action.key"
         :data-header-action-measure="action.key"
-        :loading="action.loading"
-        :emphasis="action.level === 'primary' ? 'primary' : 'secondary'"
-        :intent="action.danger ? 'danger' : 'normal'"
-        :icon-name="action.iconName"
-        >{{ action.title }}</UiActionButton
       >
-      <UiActionButton data-header-more-measure>{{
-        language.t('platform.screen.AdaptiveHeaderActionBar.more', '更多')
-      }}</UiActionButton>
+        <UiActionButton
+          :loading="action.loading"
+          :emphasis="action.level === 'primary' ? 'primary' : 'secondary'"
+          :intent="action.danger ? 'danger' : 'normal'"
+          :icon-name="action.iconName"
+          >{{ action.title }}</UiActionButton
+        >
+      </span>
+      <span data-header-more-measure>
+        <UiActionButton>{{
+          language.t('platform.screen.AdaptiveHeaderActionBar.more', '更多')
+        }}</UiActionButton>
+      </span>
     </div>
   </div>
 </template>
@@ -192,6 +281,7 @@ watch(
 }
 .adaptive-header-action-bar__visible {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
@@ -199,6 +289,15 @@ watch(
 }
 .adaptive-header-action-bar__trigger {
   display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+}
+.adaptive-header-action-bar__trigger > :deep(*) {
+  max-width: 100%;
+  min-width: 0;
+}
+.adaptive-header-action-bar__trigger > :deep(.ant-btn) {
+  overflow: hidden;
 }
 .adaptive-header-action-bar__measure {
   position: fixed;

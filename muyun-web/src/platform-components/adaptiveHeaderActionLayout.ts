@@ -1,7 +1,7 @@
 /**
  * Business-facing action importance. The shell decides whether an action is
- * rendered directly or collected under "更多"; callers never declare a UI
- * placement.
+ * rendered directly or collected under "更多". Control adjacency is a separate
+ * constraint and does not promote a business operation's importance.
  */
 export type HeaderActionLevel = 'primary' | 'standard' | 'secondary';
 
@@ -9,6 +9,8 @@ export interface HeaderActionLayoutItem {
   key: string;
   level?: HeaderActionLevel;
   width: number;
+  keepDirect?: boolean;
+  placement?: 'after-primary';
 }
 
 export interface HeaderActionLayout {
@@ -31,9 +33,17 @@ export function resolveHeaderActionLayout(
   moreWidth: number,
   gap = defaultGap,
 ): HeaderActionLayout {
-  const visible = actions
-    .filter((action) => action.width > 0)
+  const measured = actions.filter((action) => action.width > 0);
+  const companions = measured.filter((action) => action.placement === 'after-primary');
+  const visible = measured
+    .filter((action) => action.placement !== 'after-primary')
     .sort((left, right) => Number(right.level === 'primary') - Number(left.level === 'primary'));
+  const primaryIndex = visible.findIndex((action) => action.level === 'primary');
+  visible.splice(primaryIndex < 0 ? visible.length : primaryIndex + 1, 0, ...companions);
+  const retained = new Set(visible.filter((action) => action.keepDirect).map((action) => action.key));
+  if (companions.some((action) => action.keepDirect) && primaryIndex >= 0) {
+    retained.add(visible[primaryIndex].key);
+  }
   const totalWidth = (items: HeaderActionLayoutItem[]) =>
     items.reduce((sum, action) => sum + action.width, 0) + Math.max(0, items.length - 1) * gap;
   if (totalWidth(visible) <= availableWidth) {
@@ -42,7 +52,9 @@ export function resolveHeaderActionLayout(
 
   const overflowKeys = new Set<string>();
   for (const level of collapseOrder) {
-    const candidates = visible.filter((action) => (action.level ?? 'standard') === level).reverse();
+    const candidates = visible
+      .filter((action) => !retained.has(action.key) && (action.level ?? 'standard') === level)
+      .reverse();
     for (const action of candidates) {
       overflowKeys.add(action.key);
       const direct = visible.filter((item) => !overflowKeys.has(item.key));
@@ -55,5 +67,9 @@ export function resolveHeaderActionLayout(
       }
     }
   }
-  return { directKeys: [], overflowKeys: visible.map((action) => action.key) };
+  // Retained controls and their primary anchor wrap in the shell at narrow widths.
+  return {
+    directKeys: visible.filter((action) => retained.has(action.key)).map((action) => action.key),
+    overflowKeys: visible.filter((action) => !retained.has(action.key)).map((action) => action.key),
+  };
 }
