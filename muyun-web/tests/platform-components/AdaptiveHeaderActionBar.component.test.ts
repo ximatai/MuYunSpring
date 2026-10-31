@@ -5,6 +5,37 @@ import AdaptiveHeaderActionBar from '@/platform-components/AdaptiveHeaderActionB
 describe('AdaptiveHeaderActionBar', () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it('coalesces resize deliveries into the next frame and cancels pending work when unmounted', async () => {
+    let notify!: () => void;
+    const frame = vi.fn(() => 42);
+    const cancel = vi.fn();
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          notify = callback;
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    vi.stubGlobal('requestAnimationFrame', frame);
+    vi.stubGlobal('cancelAnimationFrame', cancel);
+    const wrapper = mount(AdaptiveHeaderActionBar, { props: { actions: [] } });
+    try {
+      await flushPromises();
+      notify();
+      notify();
+      expect(frame).toHaveBeenCalledTimes(1);
+      wrapper.unmount();
+      expect(cancel).toHaveBeenCalledWith(42);
+    } finally {
+      if (wrapper.exists()) wrapper.unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('identifies the disabled operation so its explanation cannot be mistaken for a save failure', async () => {
     const wrapper = mount(AdaptiveHeaderActionBar, {
       props: {

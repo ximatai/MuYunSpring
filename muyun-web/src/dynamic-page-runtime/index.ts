@@ -73,6 +73,7 @@ export type {
   ModulePageCardAssistantPlacement,
   ModulePageRecordActionContext,
   ModulePageRecordActionContribution,
+  ModulePageActionControlContribution,
   ModulePageScopeContext,
   ModulePageWorkspaceView,
   ModulePageWorkspaceViewInput,

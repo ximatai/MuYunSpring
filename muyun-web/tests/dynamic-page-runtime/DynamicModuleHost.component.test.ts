@@ -682,6 +682,103 @@ describe('ModulePageHost', () => {
     window.localStorage.removeItem('muyun.preference.module-page.list-page-size.crm.customer');
   });
 
+  it.each([
+    ['STATIC', 'FLAT_MANAGEMENT'],
+    ['DYNAMIC', 'FLAT_MANAGEMENT'],
+    ['STATIC', 'LIST_DETAIL_CARD'],
+    ['DYNAMIC', 'LIST_DETAIL_CARD'],
+    ['STATIC', 'TREE_MANAGEMENT'],
+    ['DYNAMIC', 'TREE_MANAGEMENT'],
+  ])('binds custom detail controls to the %s %s record-view session', async (moduleKind, template) => {
+    let changed = false;
+    const requests: string[] = [];
+    configureModulePageEnhancements([
+      {
+        id: 'hold-control',
+        target: { moduleAlias: 'crm.customer' },
+        detail: { controls: [{ key: 'hold', actionCode: 'hold', title: 'Hold', component: {} }] },
+      },
+    ]);
+    globalThis.fetch = async (input) => {
+      const path = new Request(input).url;
+      requests.push(path);
+      if (path.endsWith('/context'))
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          moduleKind,
+          capabilities: [],
+          actions: ['view', 'update', 'hold'].map((actionCode) => ({ actionCode, authorized: true })),
+          uiDescriptor: { moduleAlias: 'crm.customer', page: page({ template }) },
+        });
+      if (path.includes('/actions/'))
+        return Response.json({
+          actions: ['view', 'update', 'hold'].map((actionCode) => ({
+            actionCode,
+            available: actionCode !== 'hold' || !changed,
+          })),
+        });
+      if (path.includes('/view/'))
+        return Response.json({
+          id: path.split('/').at(-1),
+          title: 'Record',
+          version: changed ? 2 : 1,
+          detailOnly: changed ? 'updated detail' : 'initial detail',
+        });
+      throw new Error(`Unexpected request: ${path}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: { stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } } },
+    });
+    try {
+      await flushPromises();
+      const session = wrapper
+        .findComponent({ name: 'ModulePageHostRuntime' })
+        .props('session') as ModulePageSessionView;
+      expect(session.enhancementDetailControls).toEqual([]);
+      session.handleRowAction({ key: 'view' }, { id: 'record-1', title: 'Record', version: 1 });
+      await flushPromises();
+      const first = session.enhancementDetailControls[0];
+      expect(first).toMatchObject({
+        key: 'hold',
+        actionCode: 'hold',
+        control: { record: { id: 'record-1' } },
+      });
+      if (template === 'FLAT_MANAGEMENT') {
+        expect(session.flatManagementDetailActions.some((action) => action.key === 'hold')).toBe(true);
+      }
+      changed = true;
+      const previousRequests = requests.length;
+      first.control!.refresh();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await flushPromises();
+      expect(session.enhancementDetailControls[0].control?.record).toMatchObject({
+        id: 'record-1',
+        version: 2,
+        detailOnly: 'updated detail',
+      });
+      expect(requests.slice(previousRequests).some((path) => path.endsWith('/actions/record-1'))).toBe(true);
+      session.handleRowAction({ key: 'view' }, { id: 'record-2', title: 'Record', version: 1 });
+      await flushPromises();
+      expect(session.enhancementDetailControls[0].control?.record.id).toBe('record-2');
+      expect(session.enhancementDetailControls[0].control?.sessionKey).not.toBe(first.control?.sessionKey);
+      await session.editRecord({ id: 'record-2', title: 'Record', version: 1 });
+      await flushPromises();
+      expect(session.enhancementDetailControls).toEqual([]);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it.each([false, true, null])(
     'ordinary editor consumes record update availability (%s)',
     async (available) => {

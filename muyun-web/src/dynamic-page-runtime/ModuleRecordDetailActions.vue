@@ -24,6 +24,7 @@ const props = withDefaults(
     detailLoadFailed?: boolean;
     recycleBinActive?: boolean;
     actions?: ModulePageRecordActionContribution[];
+    controls?: RecordActionItem[];
     /** Server-resolved standard action blocks, intentionally separate from frontend extensions. */
     configuredActions?: RecordActionItem[];
     /** Actions placed in the platform-owned form operation region. */
@@ -48,6 +49,7 @@ const props = withDefaults(
     detailLoadFailed: false,
     recycleBinActive: false,
     actions: () => [],
+    controls: () => [],
     configuredActions: () => [],
     formActions: () => [],
     showStandardViewActions: true,
@@ -152,6 +154,9 @@ const headerActions = computed<RecordActionItem[]>(() => {
         ]
       : []),
     ...props.actions.map((action) => ({ ...action, disabled: props.saving || action.disabled })),
+    ...(!props.detailLoading && !props.detailLoadFailed && props.record ? props.controls : []).map(
+      (action) => ({ ...action, disabled: props.saving || action.disabled }),
+    ),
     ...props.configuredActions.map((action) => ({
       ...action,
       loading: action.loading || action.key === props.activeActionKey,

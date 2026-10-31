@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { expect, it, vi } from 'vitest';
 import DynamicModuleWorkspaceDetailView from '@/dynamic-page-runtime/DynamicModuleWorkspaceDetailView.vue';
+import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements';
 import { provideModulePageUnsavedStateHost } from '@/dynamic-page-runtime/modulePageUnsavedState';
 import {
   configureModuleContext,
@@ -358,4 +359,73 @@ it('switches the disabled enable-control reason without replacing the record or 
   expect(context.recordActionsSnapshot('r')?.actions[0]).toEqual(decision);
   expect(request.mock.calls).toHaveLength(count);
   wrapper.unmount();
+});
+
+it('custom controls refresh workspace details and record availability through the shared queue', async () => {
+  let version = 1;
+  const request = vi.fn(async ({ path }: { path: string }) => {
+    if (path.endsWith('/context'))
+      return {
+        moduleAlias: 'test.control',
+        capabilities: [],
+        actions: [{ actionCode: 'hold', authorized: true }],
+        uiDescriptor: { page: { detail: {} } },
+      };
+    if (path.endsWith('/view/r')) return { id: 'r', version, detailOnly: `detail ${version}` };
+    if (path.endsWith('/actions/r'))
+      return {
+        recordId: 'r',
+        actions: [{ actionCode: 'hold', available: version === 1 }],
+      };
+    throw new Error(`unexpected request: ${path}`);
+  });
+  const context = createModuleContext({ http: { request } as HttpClient, moduleAlias: 'test.control' });
+  configureModulePageEnhancements([
+    {
+      id: 'workspace-control',
+      target: { moduleAlias: 'test.control' },
+      detail: { controls: [{ key: 'hold', actionCode: 'hold', title: 'Hold', component: {} }] },
+    },
+  ]);
+  await context.runtime.ready;
+  await context.recordActions('r');
+  const panel = defineComponent({
+    name: 'RecordDetailPanel',
+    setup(_, { slots }) {
+      return () => h('section', [slots.actions?.(), slots.default?.()]);
+    },
+  });
+  const wrapper = mount(
+    defineComponent({
+      setup: () => () =>
+        h(ModuleContextProvider, { context }, () => h(DynamicModuleWorkspaceDetailView, { recordId: 'r' })),
+    }),
+    {
+      global: {
+        stubs: {
+          RecordDetailPanel: panel,
+          WorkflowRecordPanel: true,
+          RecordDetailFields: true,
+          RecordFormSurface: true,
+          RecordModeDrawer: true,
+          RecordMetaSection: true,
+          ModuleReferenceRecordDetailBrowser: true,
+          ModuleRecordDetailActions: true,
+        },
+      },
+    },
+  );
+  try {
+    await flushPromises();
+    const actions = () => wrapper.findComponent({ name: 'ModuleRecordDetailActions' });
+    version = 2;
+    actions().props('controls')[0].control.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await flushPromises();
+    expect(actions().props('controls')[0].control.record.detailOnly).toBe('detail 2');
+    expect(context.action('hold', 'r')?.available).toBe(false);
+  } finally {
+    wrapper.unmount();
+    configureModulePageEnhancements([]);
+  }
 });

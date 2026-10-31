@@ -214,6 +214,8 @@ export interface ModuleDetailEnhancement {
   /** Semantic width override for the standard detail drawer. */
   width?: DrawerWidth;
   actions?: ModulePageRecordActionContribution[];
+  /** Interactive controls available only in the standard record-view operation area. */
+  controls?: ModulePageActionControlContribution[];
   sections?: ModulePageDetailSection[];
 }
 
@@ -346,7 +348,7 @@ export interface ModulePageRecordView {
   authorizationActionCode?: string;
 }
 
-export interface ModulePageActionContribution extends RecordActionItem {
+export interface ModulePageActionContribution extends Omit<RecordActionItem, 'control'> {
   key: string;
   /** Authorizes this toolbar action against the selected scoped-list record instead of the page module. */
   authorization?: 'scope-record';
@@ -357,7 +359,7 @@ export interface ModulePageActionContribution extends RecordActionItem {
   run(context: ModulePageActionContext): void | Promise<void>;
 }
 
-export interface ModulePageRecordActionContribution extends RecordActionItem {
+export interface ModulePageRecordActionContribution extends Omit<RecordActionItem, 'control'> {
   key: string;
   /** Resolves record-specific visibility or enabled state. The optional page context identifies authorized auxiliary facts loaded by activate(). */
   state?(
@@ -367,7 +369,21 @@ export interface ModulePageRecordActionContribution extends RecordActionItem {
   run(context: ModulePageRecordActionContext): void | Promise<void>;
 }
 
-export interface ModulePageBatchActionContribution extends RecordActionItem {
+/** Frontend-only control; authorization remains a declared module action fact. */
+export interface ModulePageActionControlContribution extends Omit<
+  RecordActionItem,
+  'control' | 'before' | 'after' | 'pinned' | 'authorizationContext' | 'authorizationRecordId'
+> {
+  key: string;
+  actionCode: string;
+  component: Component;
+  state?(
+    record: Readonly<QueryListRecord>,
+    context: ModulePageActionStateContext,
+  ): Partial<Pick<RecordActionItem, 'visible' | 'disabled' | 'disabledReason'>> | undefined;
+}
+
+export interface ModulePageBatchActionContribution extends Omit<RecordActionItem, 'control'> {
   key: string;
   run(context: ModulePageBatchActionContext): void | Promise<void>;
 }
@@ -798,9 +814,12 @@ function composeDetailEnhancement(
       .filter((width) => width !== undefined)
       .at(-1),
     actions: composeRecordActions(enhancements, (enhancement) => enhancement.detail?.actions),
+    controls: enhancements.flatMap((enhancement) => enhancement.detail?.controls ?? []),
     sections: enhancements.flatMap((enhancement) => enhancement.detail?.sections ?? []),
   };
-  return detail.width || detail.actions.length > 0 || detail.sections.length > 0 ? detail : undefined;
+  return detail.width || detail.actions.length > 0 || detail.controls.length > 0 || detail.sections.length > 0
+    ? detail
+    : undefined;
 }
 
 /**
@@ -836,7 +855,11 @@ function assertUniqueContributionKeys(enhancement: ModulePageEnhancement) {
     enhancement.list?.cellComponents ?? [],
     [...(enhancement.recordActions ?? []), ...(enhancement.list?.rowActions ?? [])],
     enhancement.list?.batchActions ?? [],
-    [...(enhancement.recordActions ?? []), ...(enhancement.detail?.actions ?? [])],
+    [
+      ...(enhancement.recordActions ?? []),
+      ...(enhancement.detail?.actions ?? []),
+      ...(enhancement.detail?.controls ?? []),
+    ],
     enhancement.detail?.sections ?? [],
     enhancement.form?.contributions ?? [],
   ];
@@ -849,6 +872,18 @@ function assertUniqueContributionKeys(enhancement: ModulePageEnhancement) {
     throw new Error(`模块页面增强 ${enhancement.id} 在同一页面区域存在重复的贡献 key`);
   }
   const fieldPolicies = enhancement.form?.fieldPolicies ?? [];
+  for (const control of enhancement.detail?.controls ?? []) {
+    if (
+      typeof control.key !== 'string' ||
+      !control.key.trim() ||
+      control.key.startsWith('__platform-') ||
+      typeof control.actionCode !== 'string' ||
+      !control.actionCode.trim() ||
+      !control.component
+    ) {
+      throw new Error(`模块页面增强 ${enhancement.id} 的操作控件必须声明业务 key 和 actionCode`);
+    }
+  }
   if (new Set(fieldPolicies.map((policy) => policy.fieldName)).size !== fieldPolicies.length) {
     throw new Error(`模块页面增强 ${enhancement.id} 对同一表单字段重复声明展示策略`);
   }
@@ -871,11 +906,18 @@ function assertUniqueContributionKeys(enhancement: ModulePageEnhancement) {
     'update',
     'delete',
   ]);
+  assertNoReservedActionKeys(enhancement.id, enhancement.detail?.controls ?? [], [
+    'create',
+    'view',
+    'edit',
+    'update',
+    'delete',
+  ]);
 }
 
 function assertNoReservedActionKeys(
   enhancementId: string,
-  actions: ReadonlyArray<ModulePageActionContribution | ModulePageRecordActionContribution>,
+  actions: ReadonlyArray<{ key: string }>,
   reservedKeys: readonly string[],
 ) {
   const conflict = actions.find((action) => reservedKeys.includes(action.key));

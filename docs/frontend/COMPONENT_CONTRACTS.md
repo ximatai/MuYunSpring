@@ -115,6 +115,59 @@ TypeScript/Vue 源码中，不进入后端 DSL，也不允许 DSL 携带前端�
 
 当前开放的受控区域是：列表公共操作、附加列表列、行操作、详情查看态操作区，以及由这些操作打开的标准抽屉内容。业务只提供动作处理函数、Vue 单元格组件或抽屉内容组件；平台继续拥有列表骨架、详情操作栏、动作授权状态、查询与分页、错误反馈、抽屉承载范围和关闭行为。动作应通过 `actionCode` 绑定模块权限；前端可用性只用于体验控制，抽屉内业务 API 仍必须由后端校验权限。
 
+详情查看态还支持 `detail.controls`，用于按住操作等无法表达为一次点击的业务控件。
+业务通过前端增强登记 Vue 组件，不操作平台 DOM，不在后端 DSL 中登记组件。
+该入口复用静态、动态标准宿主的操作栏；控件不自动成为列表行菜单动作，也不参与标准表单保存。
+
+```ts
+import {
+  configureModulePageEnhancementContributions,
+  type ModulePageEnhancement,
+} from '@ximatai/muyun-web-app';
+import HoldControl from './HoldControl.vue';
+
+const enhancement: ModulePageEnhancement = {
+  id: 'device-controls',
+  target: { moduleAlias: 'business.device' },
+  detail: {
+    controls: [{
+      key: 'hold-control',
+      actionCode: 'hold', // 已由服务端声明并授权的模块动作
+      title: '按住操作',
+      component: HoldControl,
+      placement: 'after-primary',
+    }],
+  },
+};
+configureModulePageEnhancementContributions('business', [enhancement]);
+```
+
+控件必须声明独立业务 `key` 和 `actionCode`，同一详情区域内不得与其他控件或增强动作重名，
+也不得覆盖平台保留动作。`state(record, context)` 可补充可见性、禁用状态和原因；最终状态仍经过
+平台动作授权、记录级可用性和宿主忙碌状态解析，业务不能据此放宽权限。
+
+`placement: 'after-primary'` 将控件按贡献顺序放在第一个可见主动作之后；无主动作时追加到操作区。
+控件不需要提高动作等级来获得这个位置。所有控件保持直接操作，不能转换成“更多”中的点击菜单项；
+平台优先收纳其他动作，保留该位置所绑定的主动作，仍放不下时按顺序换行。
+组件应保持紧凑并适应容器宽度，平台只挂载一个业务实例，测量实际外框并监听其尺寸变化。
+
+组件通过 `context` prop 接收公开的只读 `ActionControlContext`：动作标题、模块别名、深度冻结的
+记录快照、会话标识、最终禁用和加载状态、活动状态、`signal` 与受控 `refresh()`。
+`refresh()` 在各类标准详情中统一刷新当前记录、记录动作可用性和关联列表；刷新经过平台读刷新队列，
+编辑或忙碌期间延后执行，关闭或切换记录后不再回写旧详情。它只请求重新读取，不产生业务变更事件。
+业务组件负责将禁用状态落实到实际交互元素，并提供图标的可访问名称和键盘操作；平台不吞掉
+松手等结束事件，也不会把控件事件转换成普通点击动作。
+
+记录身份、所属页面作用域、会话或控件实现变化，详情关闭、页签停用、控件隐藏、禁用或卸载，
+都会取消当前可用会话的 `signal`。重新可用时提供新信号；旧上下文的 `refresh()` 失效。
+关闭过渡与缓存可能保留组件，业务不得仅依赖卸载清理；信号取消也不会自动回滚已发生的服务端操作。
+业务应实现幂等清理，处理指针释放、取消、捕获丢失、窗口失焦和页面隐藏，并处理异步初始化晚于
+结束的情况。单次按住操作还应有自己的取消信号，避免松手后异步资源继续启动。
+
+完整交互样例见 [`HoldActionControlExample.vue`](../../muyun-web/examples/business-web/src/components/HoldActionControlExample.vue)，
+注册样例见 [`holdActionEnhancement.ts`](../../muyun-web/examples/business-web/src/fixtures/holdActionEnhancement.ts)。
+样例仅演示交互与清理，资源申请、业务 API、错误反馈与资源释放由业务组件实现。
+
 标准宿主的业务文件入口以次级操作参与同一自适应操作栏，与新建等主操作共享折叠优先级。文件窗口继续拥有自身权限、租户范围和忙碌状态；操作栏只负责入口呈现与调用，不复制文件执行流程。
 
 `RecordDataExchangeSurface` 为静态、动态宿主提供同一文件交互：导出按用途、语言和范围执行单一主操作；导入分上传、核对、结果三个阶段，优先展示错误和待确认对象，保留失败文件直接修正重传。名称解析语言与本次原文填写语言分别声明，多语言选项渐进展开。匹配字段仅按服务端提供的对象唯一约束推荐；没有推荐时由用户选择，不按字段名或排列顺序猜测。关闭后重开保留当前文件和对象选择；切换业务范围重置文件会话。

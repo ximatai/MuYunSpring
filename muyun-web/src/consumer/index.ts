@@ -55,10 +55,12 @@ export type {
   ModulePageNavigatorExtensionContext,
   ModulePageRecordActionContext,
   ModulePageRecordActionContribution,
+  ModulePageActionControlContribution,
   ModulePageScopeContext,
   ModulePageWorkspaceView,
   ModulePageWorkspaceViewInput,
 } from '../dynamic-page-runtime/modulePageEnhancements';
+export type { ActionControlContext } from '../platform-components/actionControl';
 // Full module orchestration and mutation sessions stay behind PlatformAdminOutlet.
 // The read-only workspace and supported presentation compositors below are separate App contracts.
 export {
