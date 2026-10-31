@@ -763,12 +763,15 @@ function composeModulePageEnhancements(
   return composed;
 }
 
-/** Creates the only record shape that a card assistant may receive. */
-export function createReadonlyCardRecordSnapshot(
+/** Creates an isolated, deeply frozen record for frontend extension boundaries. */
+export function createReadonlyRecordSnapshot(
   record: Record<string, unknown>,
 ): Readonly<Record<string, unknown>> {
   return freezeSnapshot(cloneSnapshot(record)) as Readonly<Record<string, unknown>>;
 }
+
+/** @deprecated Use createReadonlyRecordSnapshot for all record extension surfaces. */
+export const createReadonlyCardRecordSnapshot = createReadonlyRecordSnapshot;
 
 function cloneSnapshot(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(cloneSnapshot);

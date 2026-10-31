@@ -12,6 +12,7 @@ export {
   configureModulePageEnhancementContributions,
   configureModulePageEnhancements,
   createModulePageEnhancementRegistry,
+  createReadonlyRecordSnapshot,
   createReadonlyCardRecordSnapshot,
   modulePageWorkspaceViews,
   resolveModulePageEnhancement,

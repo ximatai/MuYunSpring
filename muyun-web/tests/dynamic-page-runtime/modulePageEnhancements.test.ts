@@ -3,6 +3,7 @@ import {
   configureModulePageEnhancementContributions,
   configureModulePageEnhancements,
   createModulePageEnhancementRegistry,
+  createReadonlyRecordSnapshot,
   createReadonlyCardRecordSnapshot,
   modulePageWorkspaceViews,
   resolveModulePageEnhancement,
@@ -415,9 +416,10 @@ describe('module page enhancements', () => {
     ).toThrow('导航扩展 key 不能为空');
   });
 
-  it('detaches and deeply freezes card record snapshots', () => {
+  it('detaches and deeply freezes record snapshots while retaining the card alias', () => {
     const source = { title: '客户', children: [{ title: '联系人' }] };
-    const snapshot = createReadonlyCardRecordSnapshot(source);
+    expect(createReadonlyCardRecordSnapshot).toBe(createReadonlyRecordSnapshot);
+    const snapshot = createReadonlyRecordSnapshot(source);
 
     expect(snapshot).not.toBe(source);
     expect(Object.isFrozen(snapshot)).toBe(true);

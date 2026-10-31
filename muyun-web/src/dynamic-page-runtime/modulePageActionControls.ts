@@ -1,6 +1,6 @@
 import type { QueryListRecord, RecordActionItem } from '@muyun/platform-components';
 import {
-  createReadonlyCardRecordSnapshot,
+  createReadonlyRecordSnapshot,
   type ModulePageActionControlContribution,
   type ModulePageActionStateContext,
 } from './modulePageEnhancements';
@@ -16,7 +16,7 @@ export function resolveModulePageActionControls(options: {
   refresh(): void;
 }): RecordActionItem[] {
   if (!options.active || !options.record || options.controls.length === 0) return [];
-  const record = createReadonlyCardRecordSnapshot(options.record);
+  const record = createReadonlyRecordSnapshot(options.record);
   return options.controls.map(({ component, state, ...action }) => {
     const resolved = state?.(record, options.stateContext);
     return {

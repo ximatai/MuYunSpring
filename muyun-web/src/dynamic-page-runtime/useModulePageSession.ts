@@ -118,7 +118,7 @@ import {
 import { recordMutationPayload } from './recordMutationPayload';
 import { createSourceReferencePickerConfigAssembler } from './sourceReferencePickerConfig';
 import {
-  createReadonlyCardRecordSnapshot,
+  createReadonlyRecordSnapshot,
   resolveModulePageEnhancement,
   type ModulePageActionContribution,
   type ModulePageActionContext,
@@ -1345,7 +1345,7 @@ export function useModulePageSession(
   ): ModulePageListRowExpansionContext {
     return {
       module: context,
-      record: createReadonlyCardRecordSnapshot(record) as QueryListRecord,
+      record: createReadonlyRecordSnapshot(record) as QueryListRecord,
       expanded,
       refreshList,
     };
@@ -1891,11 +1891,9 @@ export function useModulePageSession(
     return {
       module: context,
       mode: editorMode.value,
-      ...(record
-        ? { record: createReadonlyCardRecordSnapshot(toRaw(record) as Record<string, unknown>) }
-        : {}),
+      ...(record ? { record: createReadonlyRecordSnapshot(toRaw(record) as Record<string, unknown>) } : {}),
       loadedRecords: cardAssistantRecords.value.map((item) =>
-        createReadonlyCardRecordSnapshot(toRaw(item) as Record<string, unknown>),
+        createReadonlyRecordSnapshot(toRaw(item) as Record<string, unknown>),
       ),
       formSessionKey: formSessionKey.value,
       saving: saving.value,

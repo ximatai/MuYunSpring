@@ -810,7 +810,7 @@ it('password management uses the standard module runner with a source-owned card
   assert.match(enhancementSource, /component: PasswordPolicyPreview/);
   assert.match(enhancementSource, /boundary: 'outside'/);
   assert.match(enhancementSource, /position: 'bottom'/);
-  assert.match(hostSource, /createReadonlyCardRecordSnapshot/);
+  assert.match(hostSource, /createReadonlyRecordSnapshot/);
   assert.match(hostSource, /module-card-assistant/);
   assert.match(passwordPreviewSource, /defineOptions\(\{ name: 'PasswordPolicyPreview' \}\)/);
   assert.match(passwordPreviewSource, /本规则/);
