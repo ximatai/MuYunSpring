@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import {
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -17,6 +18,33 @@ import { execFileSync } from "node:child_process";
 import { inspectPublication } from "./maven-publication-report.mjs";
 import { waitForPublication } from "./wait-maven-central.mjs";
 import { readVersionState } from "./version-lib.mjs";
+
+test("published consumer Spring Boot plugin matches the platform catalog", () => {
+  const catalog = readFileSync(
+    new URL("../gradle/libs.versions.toml", import.meta.url),
+    "utf8",
+  );
+  const consumer = readFileSync(
+    new URL("../samples/published-consumer/build.gradle.kts", import.meta.url),
+    "utf8",
+  );
+  const platformVersion = /^spring-boot\s*=\s*"([^"]+)"/m.exec(catalog)?.[1];
+  const consumerVersion =
+    /id\("org\.springframework\.boot"\)\s+version\s+"([^"]+)"/.exec(consumer)?.[1];
+  assert.ok(
+    platformVersion,
+    "Missing spring-boot version in gradle/libs.versions.toml",
+  );
+  assert.ok(
+    consumerVersion,
+    "Missing explicit Spring Boot plugin version in samples/published-consumer/build.gradle.kts",
+  );
+  assert.equal(
+    consumerVersion,
+    platformVersion,
+    `Published consumer Spring Boot plugin (${consumerVersion}) must match the platform catalog (${platformVersion}); update samples/published-consumer/build.gradle.kts with gradle/libs.versions.toml`,
+  );
+});
 
 for (const entry of ["publishReleaseToSonatype", "publishToSonatype"]) {
   test(`real Gradle ${entry} graph has one gated upload followed by platform orchestration`, (t) => {
