@@ -1,6 +1,6 @@
 [versions]
 metadata-extractor = "2.21.0"
-spring-boot = "4.1.1"
+spring-boot = "4.1.2"
 spring-framework = "7.0.9"
 spring-dependency-management = "1.1.7"
 muyun-database = "3.26.24"
