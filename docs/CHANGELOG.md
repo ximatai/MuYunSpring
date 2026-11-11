@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+## 0.26.32 - 2026-11-11
+
+### Changed
+
+- 正式版本由 GitHub Actions 发布到 Maven Central 和 npm。npm 包使用 Trusted Publishing 记录来源证明，现有包名和安装方式保持兼容。单个发布通道失败时可独立恢复。
+
 ## 0.26.31 - 2026-11-11
 
 ### Added

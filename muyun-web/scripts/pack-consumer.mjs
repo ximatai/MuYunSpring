@@ -29,6 +29,7 @@ writeFileSync(
       name: '@ximatai/muyun-web-app',
       version: packageVersion,
       description: 'MuYunSpring workbench and standard module runtime for business applications',
+      repository: { type: 'git', url: 'git+https://github.com/ximatai/MuYunSpring.git' },
       type: 'module',
       files: ['dist'],
       main: './dist/index.js',
