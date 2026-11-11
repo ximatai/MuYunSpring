@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative } from 'node:path';
-import { runStage, stage } from './verification-stage.mjs';
+import { npmStage, runStage, stage } from './verification-stage.mjs';
 import vue from '@vitejs/plugin-vue';
 import { build } from 'vite';
 import {
@@ -122,43 +122,18 @@ const vueTscArguments = [
   'false',
 ];
 
-if (process.platform === 'win32') {
-  await runStage(
-    'declaration generation',
-    process.execPath,
-    [process.env.npm_execpath, 'exec', '--', 'vue-tsc', ...vueTscArguments],
-    {
-      cwd: webRoot,
-      stdio: 'inherit',
-    },
-  );
-} else {
-  await runStage(
-    'declaration generation',
-    join(webRoot, 'node_modules', '.bin', 'vue-tsc'),
-    vueTscArguments,
-    {
-      cwd: webRoot,
-      stdio: 'inherit',
-    },
-  );
-}
+await runStage(
+  'declaration generation',
+  process.execPath,
+  [join(webRoot, 'node_modules', 'vue-tsc', 'bin', 'vue-tsc.js'), ...vueTscArguments],
+  { cwd: webRoot },
+);
 
 rewriteDeclarationAliases(join(stagingDirectory, 'dist', 'types'));
 
-const npmPackArguments = ['pack', '--pack-destination', outputDirectory];
-
-if (process.platform === 'win32') {
-  await runStage('tarball packing', process.execPath, [process.env.npm_execpath, ...npmPackArguments], {
-    cwd: stagingDirectory,
-    stdio: 'inherit',
-  });
-} else {
-  await runStage('tarball packing', 'npm', npmPackArguments, {
-    cwd: stagingDirectory,
-    stdio: 'inherit',
-  });
-}
+await npmStage('tarball packing', ['pack', '--pack-destination', outputDirectory], {
+  cwd: stagingDirectory,
+});
 
 function rewriteDeclarationAliases(typesDirectory) {
   const declarationFiles = collectFiles(typesDirectory).filter((file) => file.endsWith('.d.ts'));

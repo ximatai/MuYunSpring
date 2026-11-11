@@ -4,11 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { npmStage, stage } from './verification-stage.mjs';
 
-export const webRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-export const repositoryRoot = dirname(webRoot);
-export const outputDirectory = join(repositoryRoot, 'build', 'consumer-npm');
-export const cacheDirectory = join(repositoryRoot, 'build', 'consumer-verification');
-export const consumerRoot = join(cacheDirectory, 'project');
+const webRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
 // Hash names as well as bytes: additions, removals and renames must invalidate reuse.
 export function fingerprint(paths, context = '') {
@@ -94,8 +90,6 @@ export function dependencyFingerprint(root = webRoot) {
   );
 }
 
-// Each instance owns one workspace's artifacts and lock. Tests replace only the
-// external npm command, keeping fingerprints, manifests and file operations real.
 export function createConsumerPreparation(root = webRoot, runNpm = npmStage) {
   const cacheDirectory = join(dirname(root), 'build', 'consumer-verification');
   const outputDirectory = join(dirname(root), 'build', 'consumer-npm');
@@ -201,8 +195,8 @@ export function createConsumerPreparation(root = webRoot, runNpm = npmStage) {
     });
   }
 
-  return { withPreparationLock, withStableInputs, preparePackage, prepareDependencies };
+  return { consumerRoot, withPreparationLock, withStableInputs, preparePackage, prepareDependencies };
 }
 
-export const { withPreparationLock, withStableInputs, preparePackage, prepareDependencies } =
+export const { consumerRoot, withPreparationLock, withStableInputs, preparePackage, prepareDependencies } =
   createConsumerPreparation();

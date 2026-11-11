@@ -56,7 +56,6 @@ await withPreparationLock(() =>
         ['-xzf', tarball, '--strip-components=1', '-C', installedPackageRoot],
         {
           cwd: temporaryExampleRoot,
-          stdio: 'inherit',
         },
       );
       await runStage(
@@ -99,7 +98,6 @@ await withPreparationLock(() =>
         {
           cwd: temporaryExampleRoot,
           env: { ...process.env, VITE_MUYUN_API_BASE_URL: '/consumer-api-contract' },
-          stdio: 'inherit',
         },
       );
       await runStage(
@@ -119,7 +117,6 @@ await withPreparationLock(() =>
             VITE_MUYUN_AUTH_TOKEN: 'consumer-environment-token',
             VITE_MUYUN_CREDENTIALS: 'include',
           },
-          stdio: 'inherit',
         },
       );
       await runStage(
@@ -144,7 +141,6 @@ await withPreparationLock(() =>
             ),
             MUYUN_CONSUMER_PROJECT_ROOT: temporaryExampleRoot,
           },
-          stdio: 'inherit',
         },
       );
     }),

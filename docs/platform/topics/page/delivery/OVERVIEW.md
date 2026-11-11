@@ -93,7 +93,7 @@ AND quickSearch
 
 ## 边界说明
 
-1. 静态模块 UI 声明不另建页面内核；后续按统一 resolved descriptor 和读投影路线接入页面交付，职员、部门样板阶段结果见 [静态 UI 样板接入收口记录](STATIC_UI_SAMPLE_INTEGRATION_STATUS.md)。
+1. 静态模块 UI 声明与动态发布页面共用 resolved descriptor 和读投影链路，接入契约见 [UI 声明与读投影设计](../../../../architecture/UI_DECLARATION_AND_READ_PROJECTION.md)；动态页面的编辑、预览与发布边界见 [页面编排契约](PAGE_COMPOSITION.md)。
 2. 页面配置以 `moduleAlias` 和元数据字段稳定 ID 为锚点，不引入平行字段身份。
 3. 菜单入口不负责权限本身；菜单剪枝、动作授权和数据范围由身份权限专题负责。页面请求携带菜单入口上下文时，默认只能调用同一模块；只有 Web 层通过 `@PlatformPageEntryChild(parentModuleAlias = "…")` 声明为该页面子资源时，才允许其辅助接口复用父菜单上下文，不能由前端任意指定跨模块豁免。它不复用 `@PlatformStaticModule.parent`，后者只描述持久化的平台模块树。
 4. 附件接口不保存 MIME、大小、上传人等文件事实。
