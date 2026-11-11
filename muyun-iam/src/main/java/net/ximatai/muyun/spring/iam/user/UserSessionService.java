@@ -28,6 +28,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -101,6 +102,7 @@ public class UserSessionService {
             Instant attemptedAt = now();
             // A locked account never evaluates the password, so the lock cannot be used as a guessing oracle.
             if (userAccountService.loginLocked(user, attemptedAt)) {
+                attempt.feedback = new LoginFailureFeedback(attemptedAt, user.getLockedUntil(), false, null);
                 throw rejectedWithoutVerification(attempt, password, "ACCOUNT_LOCKED");
             }
             if (!userAccountService.hasLocalPassword(user)) {
@@ -211,7 +213,12 @@ public class UserSessionService {
                         session.setId(sessionId);
                     }
                     return new IssuedSession(user, session.getId(), currentUser, passwordChangeRequired);
-                }).orElseThrow(() -> attempt.rejected("ACCOUNT_STATE_CHANGED"));
+                }).orElseThrow(() -> {
+                    if (attempt.method.isPassword()) {
+                        attempt.feedback = userAccountService.currentLoginLockFeedback(verified, now());
+                    }
+                    return attempt.rejected("ACCOUNT_STATE_CHANGED");
+                });
         attempt.recordSuccessAudit(issuedAt, issued.currentUser().organizationId());
         userSessionLifecycleEventPublisher.get()
                 .publish(UserSessionLifecycleEvent.loggedIn(issued.currentUser().userId(), issued.sessionId()));
@@ -233,10 +240,10 @@ public class UserSessionService {
 
     private void recordLoginFailure(LoginAttempt attempt, UserAccount user, Instant failedAt) {
         attempt.reasonCode = "ACCOUNT_LOGIN_STATE_WRITE_FAILED";
-        userAccountService.recordLoginFailure(user, failedAt);
+        attempt.feedback = userAccountService.recordLoginFailureFeedback(user, failedAt);
     }
 
-    /** Audit state of one login attempt; every rejection reaches clients as the same authentication failure. */
+    /** Internal audit reasons stay separate from the small, explicitly public failure guidance. */
     private final class LoginAttempt {
         private final String tenantId;
         private final String claimedAccount;
@@ -244,6 +251,7 @@ public class UserSessionService {
         private final String ip;
         private final String userAgent;
         private UserAccount user;
+        private LoginFailureFeedback feedback;
         private String reasonCode = "LOGIN_FAILED";
         private boolean auditRecorded;
 
@@ -258,7 +266,8 @@ public class UserSessionService {
 
         private AuthenticationFailedException rejected(String reason) {
             reasonCode = reason;
-            return new AuthenticationFailedException("invalid username or password");
+            return new AuthenticationFailedException("invalid username or password", null,
+                    feedback == null ? Map.of() : Map.of("loginFailure", feedback));
         }
 
         private void recordSuccessAudit(Instant occurredAt, String organizationId) {

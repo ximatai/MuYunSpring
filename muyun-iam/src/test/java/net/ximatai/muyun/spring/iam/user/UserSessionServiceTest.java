@@ -16,6 +16,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -261,13 +262,41 @@ class UserSessionServiceTest {
         UserSessionService sessionService = sessionService(userService, sessionDao, clock);
 
         assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "wrong-password"))
-                .isInstanceOf(AuthenticationFailedException.class)
+                .isInstanceOfSatisfying(AuthenticationFailedException.class, failure -> {
+                    assertThat(failure.details()).containsOnlyKeys("loginFailure");
+                    assertThat(failure.details().get("loginFailure")).isEqualTo(new LoginFailureFeedback(
+                            clock.instant(), clock.instant().plus(LoginLockoutPolicy.DEFAULT_LOCK_DURATION), true, null));
+                })
                 .hasMessageContaining("invalid username or password");
 
         assertThat(writtenUser(dao).getLockedUntil())
                 .isEqualTo(clock.instant().plus(LoginLockoutPolicy.DEFAULT_LOCK_DURATION));
         assertThat(writtenUser(dao).getFailedLoginCount()).isZero();
         verify(sessionDao, never()).insert(any());
+    }
+
+    @Test
+    void shouldExposeOnlyNearLimitAttemptBudgetsFromConfiguredPolicy() {
+        for (int previousFailures = 0; previousFailures < 3; previousFailures++) {
+            UserAccount user = activeUser();
+            user.setFailedLoginCount(previousFailures);
+            UserAccountDao dao = userDao();
+            when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+            UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
+            userService.setLoginLockoutPolicy(Optional.of(LoginLockoutPolicy.of(4, Duration.ofMinutes(2))));
+            UserSessionService sessionService = sessionService(userService, mock(UserSessionDao.class), clock);
+            int remaining = 3 - previousFailures;
+            assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "wrong-password"))
+                    .isInstanceOfSatisfying(AuthenticationFailedException.class, failure -> {
+                        if (remaining > 2) {
+                            assertThat(failure.details()).isEmpty();
+                        } else {
+                            assertThat(failure.details()).containsOnlyKeys("loginFailure");
+                            assertThat(failure.details().get("loginFailure"))
+                                    .isEqualTo(new LoginFailureFeedback(clock.instant(), null, false, remaining));
+                        }
+                    });
+        }
     }
 
     @Test
@@ -281,7 +310,8 @@ class UserSessionServiceTest {
         UserSessionService sessionService = sessionService(userService, mock(UserSessionDao.class), clock);
 
         assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "wrong-password"))
-                .isInstanceOf(AuthenticationFailedException.class);
+                .isInstanceOfSatisfying(AuthenticationFailedException.class,
+                        failure -> assertThat(failure.details()).isEmpty());
 
         assertThat(writtenUser(dao).getLockedUntil()).isNull();
         assertThat(writtenUser(dao).getFailedLoginCount()).isEqualTo(LoginLockoutPolicy.DEFAULT_MAX_FAILED_ATTEMPTS);
@@ -299,7 +329,9 @@ class UserSessionServiceTest {
         UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock);
 
         assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "secret1"))
-                .isInstanceOf(AuthenticationFailedException.class)
+                .isInstanceOfSatisfying(AuthenticationFailedException.class, failure ->
+                        assertThat(failure.details().get("loginFailure")).isEqualTo(new LoginFailureFeedback(
+                                clock.instant(), user.getLockedUntil(), false, null)))
                 .hasMessageContaining("invalid username or password");
 
         assertThat(auditLogger.events).singleElement()
@@ -340,7 +372,9 @@ class UserSessionServiceTest {
         UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock);
 
         assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "secret1"))
-                .isInstanceOf(AuthenticationFailedException.class)
+                .isInstanceOfSatisfying(AuthenticationFailedException.class, failure ->
+                        assertThat(failure.details().get("loginFailure")).isEqualTo(new LoginFailureFeedback(
+                                clock.instant(), lockedMeanwhile.getLockedUntil(), false, null)))
                 .hasMessageContaining("invalid username or password");
 
         assertThat(auditLogger.events).singleElement()
@@ -361,7 +395,9 @@ class UserSessionServiceTest {
         UserSessionService sessionService = sessionService(userService, mock(UserSessionDao.class), clock);
 
         assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "wrong-password"))
-                .isInstanceOf(AuthenticationFailedException.class);
+                .isInstanceOfSatisfying(AuthenticationFailedException.class, failure ->
+                        assertThat(failure.details().get("loginFailure")).isEqualTo(new LoginFailureFeedback(
+                                clock.instant(), lockedMeanwhile.getLockedUntil(), false, null)));
 
         verify(dao, never()).updateByIdAndVersion(any(UserAccount.class), any());
     }

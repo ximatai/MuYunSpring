@@ -14,6 +14,274 @@ import { AppError, platformErrorCodes } from '@/web-core/errors';
 import type { ExternalLoginMethod, TenantBranding } from '@/web-contracts';
 
 describe('LoginView', () => {
+  it('does not restart the countdown when a pending login fails after unmount', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'performance'] });
+    let reject!: (cause: unknown) => void;
+    const client = authClient({
+      login: vi.fn(
+        () =>
+          new Promise<import('@/web-contracts').LoginResult>((_resolve, rejectLogin) => {
+            reject = rejectLogin;
+          }),
+      ),
+    });
+    const wrapper = mount(LoginView, { props: { authClient: client } });
+    try {
+      await wrapper.get('form').trigger('submit');
+      wrapper.unmount();
+      reject(
+        new AppError('locked', {
+          code: platformErrorCodes.loginBadCredentials,
+          details: {
+            loginFailure: {
+              serverTime: '2026-11-11T00:00:00Z',
+              lockedUntil: '2026-11-11T00:01:00Z',
+            },
+          },
+        }),
+      );
+      await flushPromises();
+      expect(vi.getTimerCount()).toBe(0);
+      expect(client.login).toHaveBeenCalledTimes(1);
+    } finally {
+      if (wrapper.exists()) wrapper.unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it('restores the ordinary panel when the received deadline is already expired', async () => {
+    const client = authClient({
+      login: vi.fn().mockRejectedValue(
+        new AppError('locked', {
+          code: platformErrorCodes.loginBadCredentials,
+          details: {
+            loginFailure: {
+              serverTime: '2026-11-11T00:01:00Z',
+              lockedUntil: '2026-11-11T00:01:00Z',
+            },
+          },
+        }),
+      ),
+    });
+    const wrapper = mount(LoginView, { props: { authClient: client } });
+    try {
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+      expect(wrapper.find('.login-error').exists()).toBe(false);
+      expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined();
+      expect(client.login).toHaveBeenCalledTimes(1);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it.each([false, true])(
+    'clears a server lock at expiry without retrying (triggered=%s)',
+    async (lockTriggered) => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'performance'] });
+      const client = authClient({
+        login: vi.fn().mockRejectedValue(
+          new AppError('private reason', {
+            code: platformErrorCodes.loginBadCredentials,
+            status: 401,
+            details: {
+              loginFailure: {
+                serverTime: '2026-11-11T00:00:00Z',
+                lockedUntil: '2026-11-11T00:01:01Z',
+                lockTriggered,
+              },
+            },
+          }),
+        ),
+      });
+      const wrapper = mount(LoginView, { props: { authClient: client } });
+      try {
+        await wrapper.get('form').trigger('submit');
+        await flushPromises();
+        expect(wrapper.text()).toContain(lockTriggered ? '连续登录失败，账号已临时锁定' : '账号暂时锁定');
+        expect(wrapper.text()).toContain('1:01 后可重试');
+        expect(wrapper.text()).toContain('可重试时间：');
+        expect(wrapper.text()).not.toContain('用户名或密码错误');
+        expect(wrapper.text()).not.toContain('private reason');
+        expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined();
+        await wrapper.get('form').trigger('submit');
+        expect(client.login).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(wrapper.text()).toContain('1:00 后可重试');
+        await vi.advanceTimersByTimeAsync(60000);
+        expect(wrapper.find('.login-error').exists()).toBe(false);
+        expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined();
+        expect(client.login).toHaveBeenCalledTimes(1);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        wrapper.unmount();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('shows server attempt guidance and resets lock feedback when switching accounts', async () => {
+    const client = authClient({
+      login: vi
+        .fn()
+        .mockRejectedValueOnce(
+          new AppError('bad credentials', {
+            code: platformErrorCodes.loginBadCredentials,
+            details: { loginFailure: { remainingAttempts: 2 } },
+          }),
+        )
+        .mockRejectedValueOnce(
+          new AppError('locked', {
+            code: platformErrorCodes.loginBadCredentials,
+            details: {
+              loginFailure: { serverTime: '2026-11-11T00:00:00Z', lockedUntil: '2026-11-11T00:01:00Z' },
+            },
+          }),
+        ),
+    });
+    const wrapper = mount(LoginView, { props: { authClient: client } });
+    try {
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+      expect(wrapper.text()).toContain('还可尝试 2 次，之后将临时锁定');
+      expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined();
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+      expect(wrapper.text()).toContain('账号暂时锁定');
+      await wrapper.get('input[autocomplete="username"]').setValue('another-account');
+      expect(wrapper.find('.login-error').exists()).toBe(false);
+      expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined();
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it.each([
+    { lockedUntil: 'invalid', serverTime: '2026-11-11T00:00:00Z' },
+    { remainingAttempts: 0 },
+    { remainingAttempts: '2' },
+    { remainingAttempts: 1.5 },
+  ])('uses ordinary failure guidance for malformed facts %j', async (loginFailure) => {
+    const client = authClient({
+      login: vi.fn().mockRejectedValue(
+        new AppError('private', {
+          code: platformErrorCodes.loginBadCredentials,
+          details: { loginFailure },
+        }),
+      ),
+    });
+    const wrapper = mount(LoginView, { props: { authClient: client } });
+    try {
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+      expect(wrapper.text()).toContain('用户名或密码错误，请检查后重试');
+      expect(wrapper.text()).not.toContain('锁定');
+      expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined();
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('ignores a delayed lock response after the account has changed', async () => {
+    let reject!: (cause: unknown) => void;
+    const client = authClient({
+      login: vi.fn(
+        () =>
+          new Promise<import('@/web-contracts').LoginResult>((_resolve, rejectLogin) => {
+            reject = rejectLogin;
+          }),
+      ),
+    });
+    const wrapper = mount(LoginView, { props: { authClient: client } });
+    try {
+      await wrapper.get('form').trigger('submit');
+      await wrapper.get('input[autocomplete="username"]').setValue('another-account');
+      reject(
+        new AppError('locked', {
+          code: platformErrorCodes.loginBadCredentials,
+          details: {
+            loginFailure: { serverTime: '2026-11-11T00:00:00Z', lockedUntil: '2026-11-11T00:01:00Z' },
+          },
+        }),
+      );
+      await flushPromises();
+      expect(wrapper.find('.login-error').exists()).toBe(false);
+      expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined();
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('reveals and hides the password without clearing it or submitting the login form', async () => {
+    const client = authClient({ login: vi.fn().mockResolvedValue({ token: 'test-token' }) });
+    const wrapper = mount(LoginView, { props: { authClient: client, initialUsername: 'xcmg' } });
+    try {
+      const password = wrapper.get('input[autocomplete="current-password"]');
+      await password.setValue('test-password');
+      expect(password.attributes('type')).toBe('password');
+      await wrapper.get('button[aria-label="显示密码"]').trigger('click');
+      expect(password.attributes('type')).toBe('text');
+      expect((password.element as HTMLInputElement).value).toBe('test-password');
+      expect(client.login).not.toHaveBeenCalled();
+      await wrapper.get('button[aria-label="隐藏密码"]').trigger('click');
+      expect(password.attributes('type')).toBe('password');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+      expect(client.login).toHaveBeenCalledExactlyOnceWith({
+        tenantId: '',
+        username: 'xcmg',
+        password: 'test-password',
+      });
+      expect(wrapper.emitted('authenticated')).toEqual([[{ token: 'test-token' }]]);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('starts the password change masked and toggles each field independently without submitting', async () => {
+    const client = authClient({
+      login: vi
+        .fn()
+        .mockResolvedValueOnce({ token: 'pending-token', passwordChangeRequired: true })
+        .mockResolvedValueOnce({ token: 'authenticated-token' }),
+      changeOwnPassword: vi.fn().mockResolvedValue(undefined),
+    });
+    const wrapper = mount(LoginView, { props: { authClient: client, initialUsername: 'xcmg' } });
+    try {
+      await wrapper.get('input[autocomplete="current-password"]').setValue('old-password');
+      await wrapper.get('button[aria-label="显示密码"]').trigger('click');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+      const fields = wrapper.findAll('input[autocomplete="new-password"]');
+      expect(fields).toHaveLength(2);
+      expect(fields.map((field) => field.attributes('type'))).toEqual(['password', 'password']);
+      await fields[0]!.setValue('new-password');
+      await fields[1]!.setValue('new-password');
+      await wrapper.findAll('button[aria-label="显示密码"]')[0]!.trigger('click');
+      expect(fields.map((field) => field.attributes('type'))).toEqual(['text', 'password']);
+      await wrapper.get('button[aria-label="显示密码"]').trigger('click');
+      expect(fields.map((field) => field.attributes('type'))).toEqual(['text', 'text']);
+      await wrapper.findAll('button[aria-label="隐藏密码"]')[0]!.trigger('click');
+      expect(fields.map((field) => field.attributes('type'))).toEqual(['password', 'text']);
+      expect(client.changeOwnPassword).not.toHaveBeenCalled();
+      expect(client.login).toHaveBeenCalledTimes(1);
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+      expect(client.changeOwnPassword).toHaveBeenCalledExactlyOnceWith(
+        { currentPassword: 'old-password', newPassword: 'new-password' },
+        'pending-token',
+      );
+      expect(client.login).toHaveBeenLastCalledWith({
+        tenantId: '',
+        username: 'xcmg',
+        password: 'new-password',
+      });
+      expect(wrapper.emitted('authenticated')).toEqual([[{ token: 'authenticated-token' }]]);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   afterEach(() => {
     window.history.replaceState({}, '', '/');
     window.sessionStorage.clear();
@@ -126,7 +394,10 @@ describe('LoginView', () => {
       await wrapper.find('input[autocomplete="current-password"]').setValue('password-original');
       await wrapper.find('form').trigger('submit');
       await flushPromises();
-      expect(wrapper.text()).toContain('Incorrect username or password');
+      expect(wrapper.text()).toContain(
+        'Incorrect username or password. Check your credentials and try again.',
+      );
+      expect(wrapper.text()).not.toContain('locked');
       expect(client.login).toHaveBeenCalledExactlyOnceWith({
         tenantId: '',
         username: 'user-original',
@@ -134,7 +405,9 @@ describe('LoginView', () => {
       });
       language.setLanguage('zh-CN');
       await flushPromises();
-      expect(wrapper.text()).toContain('用户名或密码错误');
+      expect(wrapper.text()).toContain('用户名或密码错误，请检查后重试。');
+      expect(wrapper.text()).not.toContain('锁定');
+      expect(wrapper.text()).not.toContain('原始错误');
       expect(wrapper.text()).toContain('平台登录');
       expect((wrapper.find('input[autocomplete="username"]').element as HTMLInputElement).value).toBe(
         'user-original',
@@ -229,7 +502,8 @@ describe('LoginView', () => {
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
-    expect(wrapper.text()).toContain('无法访问后端，请检查服务状态或站点授权配置');
+    expect(wrapper.text()).toContain('暂时无法连接服务，请稍后重试。');
+    expect(wrapper.text()).not.toContain('锁定');
   });
 });
 

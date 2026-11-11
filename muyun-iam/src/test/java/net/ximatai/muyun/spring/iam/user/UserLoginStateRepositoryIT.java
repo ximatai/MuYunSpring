@@ -137,8 +137,20 @@ class UserLoginStateRepositoryIT {
         Instant time = Instant.parse("2026-09-24T12:00:00Z");
         try (var ignored = TenantContext.use(user.getTenantId())) {
             for (int i = 0; i < LoginLockoutPolicy.DEFAULT_MAX_FAILED_ATTEMPTS; i++) {
-                service.recordLoginFailure(user, time);
+                LoginFailureFeedback feedback = service.recordLoginFailureFeedback(user, time);
+                int remaining = LoginLockoutPolicy.DEFAULT_MAX_FAILED_ATTEMPTS - i - 1;
+                if (remaining == 0) {
+                    assertThat(feedback).isEqualTo(new LoginFailureFeedback(time,
+                            time.plus(LoginLockoutPolicy.DEFAULT_LOCK_DURATION), true, null));
+                } else if (remaining <= 2) {
+                    assertThat(feedback).isEqualTo(new LoginFailureFeedback(time, null, false, remaining));
+                } else {
+                    assertThat(feedback).isNull();
+                }
             }
+            assertThat(service.recordLoginFailureFeedback(user, time.plusSeconds(1)))
+                    .isEqualTo(new LoginFailureFeedback(time.plusSeconds(1),
+                            time.plus(LoginLockoutPolicy.DEFAULT_LOCK_DURATION), false, null));
         }
         UserAccount locked = dao.findById(user.getId());
         assertThat(locked.getLockedUntil()).isEqualTo(time.plus(LoginLockoutPolicy.DEFAULT_LOCK_DURATION));

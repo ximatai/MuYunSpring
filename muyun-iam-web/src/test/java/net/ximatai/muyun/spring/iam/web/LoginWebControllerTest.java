@@ -167,6 +167,30 @@ class LoginWebControllerTest {
     }
 
     @Test
+    void shouldProjectPublicLockFeedbackWithoutChangingAuthenticationStatus() throws Exception {
+        UserSessionService service = mock(UserSessionService.class);
+        var time = java.time.Instant.parse("2026-11-11T00:00:00Z");
+        var feedback = new net.ximatai.muyun.spring.iam.user.LoginFailureFeedback(
+                time, time.plusSeconds(60), false, null);
+        when(service.login(anyString(), anyString(), anyString(), nullable(String.class), nullable(String.class)))
+                .thenThrow(new AuthenticationFailedException("invalid username or password", null,
+                        java.util.Map.of("loginFailure", feedback)));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new LoginWebController(service))
+                .setControllerAdvice(new PlatformWebExceptionHandler()).build();
+        mvc.perform(post("/iam.auth/login").contentType(APPLICATION_JSON)
+                        .content("""
+                                {"tenantId":"tenant-a","username":"alice","password":"secret1"}
+                                """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.LOGIN_BAD_CREDENTIALS))
+                .andExpect(jsonPath("$.details.loginFailure.serverTime").value("2026-11-11T00:00:00Z"))
+                .andExpect(jsonPath("$.details.loginFailure.lockedUntil").value("2026-11-11T00:01:00Z"))
+                .andExpect(jsonPath("$.details.loginFailure.lockTriggered").value(false))
+                .andExpect(jsonPath("$.details.loginFailure.reasonCode").doesNotExist())
+                .andExpect(jsonPath("$.details.loginFailure.userId").doesNotExist());
+    }
+
+    @Test
     void shouldReturnUnauthorizedWhenLoginCredentialsAreInvalid() throws Exception {
         UserSessionService userSessionService = mock(UserSessionService.class);
         when(userSessionService.login(anyString(), anyString(), anyString(), nullable(String.class), nullable(String.class)))

@@ -17,6 +17,45 @@ afterEach(() => {
   window.history.replaceState({}, '', '/');
 });
 
+it('delivers safe login guidance through the installed package and standard HTTP client', async () => {
+  const fetch = vi.fn().mockResolvedValue(
+    Response.json(
+      {
+        code: 'LOGIN_BAD_CREDENTIALS',
+        status: 401,
+        message: 'invalid username or password',
+        details: {
+          loginFailure: {
+            serverTime: '2026-11-11T00:00:00Z',
+            lockedUntil: '2026-11-11T00:01:00Z',
+            lockTriggered: false,
+            remainingAttempts: null,
+          },
+        },
+      },
+      { status: 401 },
+    ),
+  );
+  vi.stubGlobal('fetch', fetch);
+  const http = sdk.createBackendHttpClient({ withAuth: false });
+  const wrapper = mount(sdk.LoginView, { props: { authClient: sdk.createAuthClient(http) } });
+  try {
+    await wrapper.get('input[autocomplete="username"]').setValue('alice');
+    await wrapper.get('input[autocomplete="current-password"]').setValue('correct-but-locked');
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+    expect(wrapper.text()).toContain('账号暂时锁定，1:00 后可重试');
+    expect(wrapper.text()).toContain('急需登录请联系管理员');
+    expect(wrapper.text()).toContain('可重试时间：');
+    expect(wrapper.text()).not.toContain('用户名或密码错误');
+    expect(wrapper.text()).not.toContain('invalid username or password');
+    expect(wrapper.emitted('authenticated')).toBeUndefined();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
 it('assembles a custom shell with public login, callback handoff and personal binding', async () => {
   window.history.replaceState({}, '', '/?tenant=tenant-a');
   const requests: Array<{ path: string; init?: RequestInit }> = [];

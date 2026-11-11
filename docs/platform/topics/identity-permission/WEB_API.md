@@ -16,7 +16,9 @@
 
 后续请求通过 `Authorization: Bearer <token>` 解析当前用户。服务端在 `iam_user_session` 中保存 token hash，不保存明文 token；session 使用滑动过期并受绝对过期时间约束；同一用户允许多端登录。解析成功后，Web Filter 会写入 `CurrentUserContext`；租户用户同步写入 `TenantContext`，系统用户进入系统态。登出和修改密码会撤销对应 session。
 
-`/iam.auth/login` 和 `/iam.auth/logout` 以 `@AnonymousEndpoint` 声明匿名访问，`/iam.auth/login-context` 以匿名平台动作声明；`/iam.auth/context`、`/iam.auth/changeOwnPassword` 等其余入口要求登录。连续登录失败达到阈值后账号锁定，锁定期内的登录请求与密码错误返回同样的认证失败，`changeOwnPassword` 的当前密码校验同样受锁定约束；未设置本地密码的账号不能使用密码登录。
+`/iam.auth/login` 和 `/iam.auth/logout` 以 `@AnonymousEndpoint` 声明匿名访问，`/iam.auth/login-context` 以匿名平台动作声明；`/iam.auth/context`、`/iam.auth/changeOwnPassword` 等其余入口要求登录。连续登录失败达到阈值后账号锁定；密码登录失败仍返回 HTTP 401 / `LOGIN_BAD_CREDENTIALS`，`changeOwnPassword` 的当前密码校验同样受锁定约束；未设置本地密码的账号不能使用密码登录。
+
+密码登录的可选 `details.loginFailure` 只提供公开指引：`serverTime` 为服务端 ISO 时间；`lockedUntil` 为当前锁定截止时间，`lockTriggered` 标明本次是否触发锁定；未锁定且仅剩两次以内时，`remainingAttempts` 提供正整数次数。普通失败不包含该对象；字段缺省或为空不表示账号存在或凭据正确。锁定期间不验证密码，不返回正确性、内部原因或账号 ID。客户端以 `lockedUntil - serverTime` 计算本地倒计时，到期恢复输入而不自动登录，下一次请求由服务端重新判定。
 
 ## 工具访问密钥
 

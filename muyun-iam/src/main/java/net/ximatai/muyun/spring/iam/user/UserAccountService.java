@@ -572,12 +572,42 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
      * the count, so an expired lock grants a fresh attempt budget instead of relocking on the next miss.
      */
     public void recordLoginFailure(UserAccount user, Instant failedAt) {
+        recordLoginFailureState(user, failedAt);
+    }
+
+    LoginFailureFeedback recordLoginFailureFeedback(UserAccount user, Instant failedAt) {
+        UserAccount written = recordLoginFailureState(user, failedAt);
+        if (written == null) {
+            // Another attempt may already have applied a lock. Never report a fresh attempt budget.
+            return currentLoginLockFeedback(user, failedAt);
+        }
+        return loginFailureFeedback(written, failedAt, loginLocked(written, failedAt));
+    }
+
+    LoginFailureFeedback currentLoginLockFeedback(UserAccount user, Instant at) {
+        if (user == null || user.getId() == null) return null;
+        UserAccount latest = selectActiveRaw(user.getId());
+        return loginLocked(latest, at) ? loginFailureFeedback(latest, at, false) : null;
+    }
+
+    private LoginFailureFeedback loginFailureFeedback(UserAccount user, Instant at, boolean lockTriggered) {
+        if (user == null || !Boolean.TRUE.equals(user.getEnabled())) return null;
+        if (loginLocked(user, at)) {
+            return new LoginFailureFeedback(at, user.getLockedUntil(), lockTriggered, null);
+        }
+        LoginLockoutPolicy policy = loginLockoutPolicy;
+        int remaining = policy.maxFailedAttempts() - (user.getFailedLoginCount() == null ? 0 : user.getFailedLoginCount());
+        return policy.enabled() && remaining > 0 && remaining <= 2
+                ? new LoginFailureFeedback(at, null, false, remaining) : null;
+    }
+
+    private UserAccount recordLoginFailureState(UserAccount user, Instant failedAt) {
         if (user == null || user.getId() == null || user.getId().isBlank()) {
-            return;
+            return null;
         }
         LoginLockoutPolicy policy = loginLockoutPolicy;
         // Failures that race past an already applied lock neither extend it nor restart the attempt budget.
-        VersionedRecordMutation.update(getDao(), () -> unlocked(selectActiveRaw(user.getId()), failedAt), latest -> {
+        return VersionedRecordMutation.update(getDao(), () -> unlocked(selectActiveRaw(user.getId()), failedAt), latest -> {
             latest.setLastFailedLoginAt(failedAt);
             int failures = (latest.getFailedLoginCount() == null ? 0 : latest.getFailedLoginCount()) + 1;
             if (policy.enabled() && failures >= policy.maxFailedAttempts()) {

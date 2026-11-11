@@ -36,14 +36,14 @@ class VerifiedIdentitySessionEntryContractTest {
 
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
-                if (file.toString().endsWith(".java") && file.toString().contains("/src/main/java/")
+                if (file.toString().endsWith(".java") && file.toString().replace('\\', '/').contains("/src/main/java/")
                         && callsEntry(file)) callers.add(file);
                 return FileVisitResult.CONTINUE;
             }
         });
 
         assertThat(callers).isNotEmpty().allSatisfy(caller ->
-                assertThat(caller.toString()).contains("/net/ximatai/muyun/spring/iam/federation/"));
+                assertThat(caller.toString().replace('\\', '/')).contains("/net/ximatai/muyun/spring/iam/federation/"));
     }
 
     private static boolean callsEntry(Path path) {

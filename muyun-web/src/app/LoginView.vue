@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { useLanguageContext } from '@muyun/web-core';
 import { LanguageSelector } from '@muyun/platform-workbench';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useLoginFailureFeedback } from './useLoginFailureFeedback';
 import {
   AppError,
   platformErrorCodes,
@@ -54,8 +55,13 @@ const username = ref(
     normalizeInitialValue(import.meta.env.VITE_MUYUN_LOGIN_USERNAME),
 );
 const password = ref(normalizeInitialValue(import.meta.env.VITE_MUYUN_LOGIN_PASSWORD));
+const loginFeedback = useLoginFailureFeedback();
 const submitting = ref(false);
 const formError = ref<() => string>();
+watch([tenantId, username], () => {
+  loginFeedback.clear();
+  formError.value = undefined;
+});
 const passwordChangeRequired = ref(false);
 const pendingToken = ref<string>();
 const newPassword = ref('');
@@ -122,14 +128,13 @@ async function startExternalLogin(method: ExternalLoginMethod) {
 }
 
 async function submit() {
+  if (submitting.value || props.loading || loginFeedback.locked.value) return;
+  const credentials = { tenantId: tenantId.value, username: username.value, password: password.value };
+  loginFeedback.clear();
   formError.value = undefined;
   submitting.value = true;
   try {
-    const result = await props.authClient.login({
-      tenantId: tenantId.value,
-      username: username.value,
-      password: password.value,
-    });
+    const result = await props.authClient.login(credentials);
     if (result.passwordChangeRequired) {
       pendingToken.value = result.token;
       passwordChangeRequired.value = true;
@@ -138,7 +143,13 @@ async function submit() {
     }
     emit('authenticated', result);
   } catch (cause) {
-    formError.value = () => loginErrorMessage(cause);
+    if (
+      credentials.tenantId === tenantId.value &&
+      credentials.username === username.value &&
+      !loginFeedback.accept(cause)
+    ) {
+      formError.value = () => loginErrorMessage(cause);
+    }
   } finally {
     submitting.value = false;
   }
@@ -157,13 +168,10 @@ function loginErrorMessage(cause: unknown) {
       cause.code === platformErrorCodes.httpError ||
       (cause.status ?? 0) >= 500
     ) {
-      return language.t(
-        'platform.screen.LoginView.cannot-reach-the-server-check-its-status-and',
-        '无法访问后端，请检查服务状态或站点授权配置',
-      );
+      return language.t('platform.screen.LoginView.service-unavailable', '暂时无法连接服务，请稍后重试。');
     }
     if (cause.code === platformErrorCodes.loginBadCredentials) {
-      return language.t('platform.screen.LoginView.incorrect-username-or-password', '用户名或密码错误');
+      return language.t('platform.screen.LoginView.sign-in-rejected', '用户名或密码错误，请检查后重试。');
     }
     return cause.message;
   }
@@ -230,8 +238,11 @@ async function submitPasswordChange() {
         </div>
       </header>
 
-      <p v-if="formError || error || loginContextError" class="login-error">
-        {{ formError?.() || error || loginContextError?.() }}
+      <p v-if="loginFeedback.message.value || formError || error || loginContextError" class="login-error">
+        {{ loginFeedback.message.value || formError?.() || error || loginContextError?.() }}
+        <span v-if="loginFeedback.unlockTime.value" class="login-unlock-time">{{
+          loginFeedback.unlockTime.value
+        }}</span>
       </p>
 
       <WeLinkQrCode v-if="qrStart" :key="qrStart.state" :start="qrStart" @close="closeQrCode" />
@@ -255,13 +266,19 @@ async function submitPasswordChange() {
         </label>
         <label>
           <span>{{ language.t('platform.screen.LoginView.password', '密码') }}</span>
-          <UiInput v-model:value="password" type="password" autocomplete="current-password" required />
+          <UiInput
+            v-model:value="password"
+            type="password"
+            visibility-toggle
+            autocomplete="current-password"
+            required
+          />
         </label>
         <UiButton
           class="login-submit"
           html-type="submit"
           type="primary"
-          :disabled="!canSubmit"
+          :disabled="!canSubmit || loginFeedback.locked.value"
           :loading="submitting || loading || loginContextLoading"
         >
           {{
@@ -301,11 +318,23 @@ async function submitPasswordChange() {
         </p>
         <label>
           <span>{{ language.t('platform.screen.LoginView.new-password', '新密码') }}</span>
-          <UiInput v-model:value="newPassword" type="password" autocomplete="new-password" required />
+          <UiInput
+            v-model:value="newPassword"
+            type="password"
+            visibility-toggle
+            autocomplete="new-password"
+            required
+          />
         </label>
         <label>
           <span>{{ language.t('platform.screen.LoginView.confirm-new-password', '确认新密码') }}</span>
-          <UiInput v-model:value="confirmPassword" type="password" autocomplete="new-password" required />
+          <UiInput
+            v-model:value="confirmPassword"
+            type="password"
+            visibility-toggle
+            autocomplete="new-password"
+            required
+          />
         </label>
         <UiButton class="login-submit" html-type="submit" type="primary" :loading="submitting || loading">
           {{
@@ -388,6 +417,11 @@ header h1 {
 .login-form {
   display: grid;
   gap: 14px;
+}
+
+.login-unlock-time {
+  display: block;
+  margin-top: 4px;
 }
 
 .login-context {
