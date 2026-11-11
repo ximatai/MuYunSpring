@@ -106,7 +106,10 @@ it('changes reference picker default operations and retains selected business ti
     expect(
       wrapper.findAllComponents(UiSearchInput).some((item) => item.props('searchText') === 'Search'),
     ).toBe(true);
-    expect(wrapper.text()).toContain('业务原始标题');
+    expect(wrapper.findComponent({ name: 'ObjectPickerInput' }).props('selectionItems')).toEqual([
+      { key: 'stable-id', label: '业务原始标题' },
+    ]);
+    expect(wrapper.findComponent(ReferencePicker).props('value')).toEqual(['stable-id']);
     expect(wrapper.findComponent(ReferencePicker).emitted('update:value')).toBeUndefined();
   } finally {
     wrapper.unmount();

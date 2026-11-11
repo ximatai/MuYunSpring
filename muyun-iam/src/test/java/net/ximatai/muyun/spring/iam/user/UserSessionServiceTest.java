@@ -14,6 +14,8 @@ import net.ximatai.muyun.spring.ability.logging.LoginLogEvent;
 import net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.aopalliance.intercept.MethodInterceptor;
+import org.springframework.aop.framework.ProxyFactory;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -257,7 +259,7 @@ class UserSessionServiceTest {
         user.setFailedLoginCount(LoginLockoutPolicy.DEFAULT_MAX_FAILED_ATTEMPTS - 1);
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
+        UserAccountService userService = proxiedUserService(UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService));
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSessionService sessionService = sessionService(userService, sessionDao, clock);
 
@@ -323,7 +325,7 @@ class UserSessionServiceTest {
         user.setLockedUntil(clock.instant().plusSeconds(60));
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
+        UserAccountService userService = proxiedUserService(UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService));
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
         UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock);
@@ -1276,6 +1278,13 @@ class UserSessionServiceTest {
         session.setLastSeenAt(clock.instant());
         return session;
     }
+    private UserAccountService proxiedUserService(UserAccountService target) {
+        ProxyFactory factory = new ProxyFactory(target);
+        factory.setProxyTargetClass(true);
+        factory.addAdvice((MethodInterceptor) invocation -> invocation.proceed());
+        return (UserAccountService) factory.getProxy();
+    }
+
     private UserAccountDao userDao() {
         UserAccountDao dao = mock(UserAccountDao.class);
         when(dao.updateByIdAndVersion(any(UserAccount.class), any())).thenReturn(1);

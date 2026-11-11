@@ -575,7 +575,8 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         recordLoginFailureState(user, failedAt);
     }
 
-    LoginFailureFeedback recordLoginFailureFeedback(UserAccount user, Instant failedAt) {
+    /** Internal credential-attempt collaborator; public so cross-package Service subclasses remain proxyable. */
+    public LoginFailureFeedback recordLoginFailureFeedback(UserAccount user, Instant failedAt) {
         UserAccount written = recordLoginFailureState(user, failedAt);
         if (written == null) {
             // Another attempt may already have applied a lock. Never report a fresh attempt budget.
@@ -584,7 +585,8 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         return loginFailureFeedback(written, failedAt, loginLocked(written, failedAt));
     }
 
-    LoginFailureFeedback currentLoginLockFeedback(UserAccount user, Instant at) {
+    /** Reads the current authorized login-lock guidance without recording another credential failure. */
+    public LoginFailureFeedback currentLoginLockFeedback(UserAccount user, Instant at) {
         if (user == null || user.getId() == null) return null;
         UserAccount latest = selectActiveRaw(user.getId());
         return loginLocked(latest, at) ? loginFailureFeedback(latest, at, false) : null;
