@@ -91,9 +91,11 @@ node scripts/version.mjs verify-release v<version>
 
 tag 必须与当前 `muyunVersion` 去掉 `-SNAPSHOT` 后完全一致。Release workflow 按以下顺序执行：
 
-1. 验证 job 校验三处开发版本、年份、tag 和发布说明，清理工作区后执行 `verifyAll`、本地 Maven 消费者验证、
-   npm 消费者验证和 npm publish dry-run。通过后留存 npm tarball。
-2. Maven job 校验发布凭据，通过 `./gradlew publishReleaseToSonatype -Pmuyun.mavenCentralRelease=true`
+1. 后端和 npm 并行验证。后端 job 校验版本、tag 和发布说明，并始终以正式版本坐标运行本地 Maven 消费者验证。
+   同一提交的 `main` push CI 整体通过，且该次尝试的后端 `verifyAll` 步骤成功时，可复用全量测试结果。
+   CI 尚未完成、后端步骤被跳过或 GitHub API 无法确认时，tag job 自行执行 `verifyAll`。
+   npm job 校验版本和 tag，执行 npm 消费者验证及 npm publish dry-run，留存通过验证的 tarball。
+2. 两个验证 job 通过后，Maven job 校验发布凭据，通过 `./gradlew publishReleaseToSonatype -Pmuyun.mavenCentralRelease=true`
    上传单个 bundle，并等待部署状态到达 `PUBLISHED`。
 3. npm job 下载已验证的 tarball，通过 OIDC 发布同一 tag 对应的 npm 包。
 4. 两个 registry 都成功后，在独立的最小写权限 job 中推进下一开发版本并推送 `main`。
