@@ -8,6 +8,7 @@ export default [
     ignores: [
       'dist/**',
       'node_modules/**',
+      'test-results/**',
       'examples/business-web/dist/**',
       'examples/business-web/node_modules/**',
       'package-lock.json',

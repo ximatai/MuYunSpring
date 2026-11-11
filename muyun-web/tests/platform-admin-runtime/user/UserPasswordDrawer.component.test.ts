@@ -3,8 +3,9 @@ import { defineComponent, h } from 'vue';
 import { expect, it, vi } from 'vitest';
 import { createLanguageContext, provideLanguageContext } from '@muyun/web-core';
 import { presentPlatformMessage } from '@muyun/platform-components';
-vi.mock('@muyun/platform-components', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@muyun/platform-components')>()),
+// This drawer consumes only feedback methods. Loading every platform component
+// adds unrelated editors/workspaces to a test that already stubs these methods.
+vi.mock('@muyun/platform-components', () => ({
   presentPlatformMessage: vi.fn(),
   presentPlatformError: vi.fn(),
 }));

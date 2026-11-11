@@ -4,3 +4,4 @@ examples/business-web/dist
 examples/business-web/node_modules
 package-lock.json
 examples/business-web/package-lock.json
+test-results

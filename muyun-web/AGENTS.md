@@ -22,8 +22,28 @@
 定向验证使用 Vitest 自带的项目、路径和用例过滤，例如：
 
 ```bash
-npx vitest run --project component tests/platform-admin-runtime/workflow/ModuleWorkflowDrawer.component.test.ts
+npm run test:component -- tests/platform-admin-runtime/workflow/ModuleWorkflowDrawer.component.test.ts
 ```
+
+日常逻辑或组件修改可用 `npm run test:local -- <路径>` 同时过滤 unit/component 项目；单一项目继续使用
+`test:unit`、`test:component`。布局、鼠标命中或动效改动增加 `npm run test:browser -- <路径>`。
+路径过滤没有匹配测试时应失败，不用 `--passWithNoTests` 掩盖遗漏。按风险补 `npm run typecheck` 和定向 lint/格式检查。
+
+公共能力改动覆盖调用方；完整前端验收使用 `npm run check`，消费者公开面再加 `npm run verify:consumer`。
+`prepare:consumer` 只准备 tarball 与独立消费者依赖，不代表契约已通过；`verify:consumer` 会校验并复用准备，
+每次重新解包当前 tarball、构建示例及契约包并执行消费者测试。排查缓存或做冷准备验收可传 `-- --fresh`。
+整轮输入基准在准备前固定，准备后和契约完成后复核；期间源码改变时本轮不能作为当前源码的验证结果。
+同一工作区不要并发运行消费者准备/验证或 `pack:consumer`；中断留下 lock 时先确认所属进程已退出。
+
+通过 npm 的测试入口运行时，Vitest 原生 JSON 报告写入独立的 `test-results/verification/run-*` 目录；
+保留默认控制台报告和浏览器失败截图。结束后提示失败文件/用例的定向复验命令，不自动重试。
+报告目录创建失败时退回默认控制台报告，仍执行测试并保留测试退出结果。
+消费者契约必须经 `verify:consumer` 重建独立消费者，不能直接运行缺少产物的 packaged 测试。
+慢文件摘要统计用例执行窗口，不包含 import/setup；分析加载瓶颈仍需结合 Vitest 原生耗时做同条件对照。
+组件测试 mock 整个出口时，避免为已替换的协作者调用 importOriginal 加载无关组件；需要真实协作者行为时保留真实实现。
+
+前端文本由根 `.gitattributes` 约定 LF。Prettier 的 `endOfLine: auto` 兼容已有 Windows CRLF 检出，
+其余格式规则照常检查；不为换行差异批量格式化无关文件。
 
 `npm run check` 已包含全量测试、静态检查和构建；无需在它之前重复运行全量 `test:unit`、`test:component`。前后端互不影响的改动，只验证涉及的技术栈；发现失败或影响扩大时再升级范围。
 

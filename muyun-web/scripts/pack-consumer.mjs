@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { runStage, stage } from './verification-stage.mjs';
 import vue from '@vitejs/plugin-vue';
 import { build } from 'vite';
 import {
@@ -72,38 +72,40 @@ const aliases = {
   '@muyun/platform-workbench': join(webRoot, 'src/platform-workbench/index.ts'),
 };
 
-await build({
-  configFile: false,
-  plugins: [vue()],
-  // A library must leave deployment configuration to the consuming host build.
-  // Otherwise Vite erases unset variables while packing, before the host can set them.
-  define: Object.fromEntries(
-    ['VITE_MUYUN_API_BASE_URL', 'VITE_MUYUN_AUTH_TOKEN', 'VITE_MUYUN_CREDENTIALS'].map((key) => [
-      `import.meta.env.${key}`,
-      `import.meta.env.${key}`,
-    ]),
-  ),
-  resolve: { alias: aliases },
-  build: {
-    emptyOutDir: true,
-    outDir: join(stagingDirectory, 'dist'),
-    lib: {
-      entry: {
-        index: consumerEntry,
-        'record-read': join(webRoot, 'src', 'consumer', 'recordRead.ts'),
+await stage('library compilation', () =>
+  build({
+    configFile: false,
+    plugins: [vue()],
+    // A library must leave deployment configuration to the consuming host build.
+    // Otherwise Vite erases unset variables while packing, before the host can set them.
+    define: Object.fromEntries(
+      ['VITE_MUYUN_API_BASE_URL', 'VITE_MUYUN_AUTH_TOKEN', 'VITE_MUYUN_CREDENTIALS'].map((key) => [
+        `import.meta.env.${key}`,
+        `import.meta.env.${key}`,
+      ]),
+    ),
+    resolve: { alias: aliases },
+    build: {
+      emptyOutDir: true,
+      outDir: join(stagingDirectory, 'dist'),
+      lib: {
+        entry: {
+          index: consumerEntry,
+          'record-read': join(webRoot, 'src', 'consumer', 'recordRead.ts'),
+        },
+        formats: ['es'],
+        fileName: (_format, entryName) => `${entryName}.js`,
+        cssFileName: 'index',
       },
-      formats: ['es'],
-      fileName: (_format, entryName) => `${entryName}.js`,
-      cssFileName: 'index',
+      rollupOptions: {
+        external: (id) =>
+          ['vue', 'ant-design-vue', '@ant-design/icons-vue', 'dayjs'].includes(id) ||
+          id.startsWith('ant-design-vue/') ||
+          id.startsWith('dayjs/'),
+      },
     },
-    rollupOptions: {
-      external: (id) =>
-        ['vue', 'ant-design-vue', '@ant-design/icons-vue', 'dayjs'].includes(id) ||
-        id.startsWith('ant-design-vue/') ||
-        id.startsWith('dayjs/'),
-    },
-  },
-});
+  }),
+);
 
 const vueTscArguments = [
   '--project',
@@ -121,15 +123,25 @@ const vueTscArguments = [
 ];
 
 if (process.platform === 'win32') {
-  execFileSync(process.execPath, [process.env.npm_execpath, 'exec', '--', 'vue-tsc', ...vueTscArguments], {
-    cwd: webRoot,
-    stdio: 'inherit',
-  });
+  await runStage(
+    'declaration generation',
+    process.execPath,
+    [process.env.npm_execpath, 'exec', '--', 'vue-tsc', ...vueTscArguments],
+    {
+      cwd: webRoot,
+      stdio: 'inherit',
+    },
+  );
 } else {
-  execFileSync(join(webRoot, 'node_modules', '.bin', 'vue-tsc'), vueTscArguments, {
-    cwd: webRoot,
-    stdio: 'inherit',
-  });
+  await runStage(
+    'declaration generation',
+    join(webRoot, 'node_modules', '.bin', 'vue-tsc'),
+    vueTscArguments,
+    {
+      cwd: webRoot,
+      stdio: 'inherit',
+    },
+  );
 }
 
 rewriteDeclarationAliases(join(stagingDirectory, 'dist', 'types'));
@@ -137,12 +149,12 @@ rewriteDeclarationAliases(join(stagingDirectory, 'dist', 'types'));
 const npmPackArguments = ['pack', '--pack-destination', outputDirectory];
 
 if (process.platform === 'win32') {
-  execFileSync(process.execPath, [process.env.npm_execpath, ...npmPackArguments], {
+  await runStage('tarball packing', process.execPath, [process.env.npm_execpath, ...npmPackArguments], {
     cwd: stagingDirectory,
     stdio: 'inherit',
   });
 } else {
-  execFileSync('npm', npmPackArguments, {
+  await runStage('tarball packing', 'npm', npmPackArguments, {
     cwd: stagingDirectory,
     stdio: 'inherit',
   });

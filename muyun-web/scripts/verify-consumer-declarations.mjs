@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, relative } from 'node:path';
 
 const webRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const declarationsRoot = join(webRoot, '..', 'build', 'consumer-npm', 'staging', 'web-app', 'dist', 'types');
+const declarationsRoot =
+  process.argv[2] ?? join(webRoot, '..', 'build', 'consumer-npm', 'staging', 'web-app', 'dist', 'types');
 const privateAliases = /@muyun\//;
 const violations = collectFiles(declarationsRoot)
   .filter((file) => file.endsWith('.d.ts'))

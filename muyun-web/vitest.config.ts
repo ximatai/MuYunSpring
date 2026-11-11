@@ -40,6 +40,15 @@ export default mergeConfig(
     },
 
     test: {
+      reporters: process.env.MUYUN_TEST_REPORT_DISABLED === '1' ? ['default'] : ['default', 'json'],
+      outputFile:
+        process.env.MUYUN_TEST_REPORT_DISABLED === '1'
+          ? undefined
+          : {
+              json:
+                process.env.MUYUN_TEST_REPORT_PATH ??
+                `./test-results/vitest/${Date.now()}-${process.pid}.json`,
+            },
       // Keep file isolation while avoiding a separate Node process for every test file.
       pool: 'threads',
       // Bound Vue compilation and DOM-environment memory during full verification.

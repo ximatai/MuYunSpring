@@ -245,20 +245,35 @@ npm run check:boundaries
 
 ## 验证命令
 
-前端统一使用 Vitest。纯 TypeScript 的状态模型、契约、client 和数据转换测试位于 `tests/` 的镜像目录中，使用 `*.test.ts` 并运行在 Node 环境；Vue SFC、DOM 和交互测试使用 `*.component.test.ts`，运行在 jsdom 与 Vue Test Utils 环境。两类测试必须通过独立命令保持边界清晰。
+前端统一使用 Vitest。纯 TypeScript 的状态模型、契约、client 和数据转换测试位于 `tests/` 的镜像目录中，使用 `*.test.ts` 并运行在 Node 环境；Vue SFC、DOM 和交互测试使用 `*.component.test.ts`，运行在 jsdom 与 Vue Test Utils 环境；真实布局、鼠标命中和动效使用 `*.browser.test.ts`，运行在 Chromium。项目边界由 Vitest 配置维护，日常可以一次选择多个项目。
 
 ```bash
 cd muyun-web
-npm install
-npm run test:unit
-npm run test:component
-npm test
-npm run lint
-npm run format:check
-npm run build
-npm run check:boundaries
+npm ci
+# 日常：按实际改动路径过滤逻辑与组件测试，按需补类型、lint 和格式检查
+npm run test:local -- tests/platform-components/recordPickerModel.test.ts
+npm run typecheck
+# 布局、命中或动效风险：补对应浏览器测试
+npm run test:browser -- tests/platform-components/ReferencePicker.browser.test.ts
+# 公共能力：覆盖调用方；完整验收无需先重复跑各项目
+npm run check
+# 涉及导出、声明、依赖或分发：增加真实安装包消费者验证
 npm run verify:consumer
 ```
+
+`test:unit`、`test:component` 可单独选择项目，追加路径或 `-t` 过滤用例；无匹配测试会失败。
+`check` 保留版本检查、lint、格式、全部测试（含浏览器）、类型和构建。
+各阶段输出开始、结束与耗时，超过 30 秒输出当前运行阶段。
+消费者准备的复用与强制冷验证见[消费者接入](LOCAL_CONSUMER.md#消费者准备复用)。
+
+测试 npm 入口保留 Vitest 默认输出，并生成独立的原生 JSON 报告；控制台显示报告路径、最慢的几个文件执行窗口，
+失败时给出按项目、路径和用例过滤的复验命令。报告位于 ignored 的 `test-results/verification/run-*`，
+浏览器失败截图继续位于 `test-results/browser`。空路径匹配、收集错误和用例失败仍返回非零；没有自动重试。
+`check` 失败时停止后续阶段，并列出尚未执行的命令；修复后按风险复验失败项及未执行阶段，避免重复运行已通过部分。
+
+JSON 中的文件执行窗口不含模块导入或环境准备，不应拿它替代完整启动耗时。
+优化组件测试时，先结合 Vitest import/transform 耗时选择少量样本，在相同 worker 数与过滤条件下重复对照。
+仅移除已被替换的无关协作者加载，不因速度放宽交互断言；公共出口与真实组合接入继续由相应集成、浏览器和消费者契约验证。
 
 后端仍使用仓库默认验证：
 

@@ -43,6 +43,25 @@ npm run verify:consumer --prefix muyun-web
 
 tarball 会生成在仓库的 `build/consumer-npm/`。消费者仓库不得提交本机路径或 tarball 本身。
 
+### 消费者准备复用
+
+`npm run prepare:consumer --prefix muyun-web` 只准备安装包及消费者依赖。
+`npm run verify:consumer --prefix muyun-web` 自动准备并执行契约；每次都重新解包真实 tarball，
+刷新独立消费者示例、执行类型检查、示例构建、契约包构建和消费者测试，不缓存验证通过的结果。
+发布使用的 staging 目录保持为 `build/consumer-npm/staging/web-app`。
+
+准备状态存放于 ignored 的 `build/consumer-verification/`。包缓存按源码、公共资源、构建脚本、
+根配置、前端 manifest/lockfile、已安装工具信息、统一版本及相关环境变量的内容摘要失效；
+命中时同时校验 staging 与 tarball 的内容摘要。消费者依赖按示例 manifest/lockfile、npm 配置及
+Node/npm/平台信息复用，安装失败不写入完成标记。准备前后检测输入变化，验证结束再次检查源码状态。
+平台源码变化会重建包，但无需重装未变的消费者依赖；示例和契约每次从当前文件刷新。
+
+怀疑本地依赖被手工修改或需要冷准备验收时使用 `npm run verify:consumer --prefix muyun-web -- --fresh`，
+强制重新打包和 `npm ci`。依赖缓存不承诺检测 `node_modules` 中任意手工篡改，
+不要直接编辑缓存依赖；完整安装目录丢失或安装锁摘要改变会自动重装。
+同一工作区的准备与验证互斥；不要同时运行 `pack:consumer`。异常中断后先确认锁记录的进程已退出再移除 lock。
+这些命令会显示阶段耗时及运行中提示，长阶段仍有进度时无需中断重跑。
+
 ## 日常联调：链接生成包
 
 应用与框架在本机同时开发时，先在框架仓库生成一次包，再到业务 App 执行链接：
