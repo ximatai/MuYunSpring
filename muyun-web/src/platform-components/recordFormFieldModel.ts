@@ -21,6 +21,7 @@ import type { WebTreeNode } from '@muyun/web-contracts';
 import type { RecordPickerMode } from './recordPickerModel';
 import type { ScopedTreePickerProvider } from './scopedTreePickerModel';
 import type { ReferencePickerColumn, ReferencePickerProvider } from './referencePickerModel';
+import type { RecordReferencePickerSource } from './recordReferencePickerProvider';
 import { FormulaRuntime } from '../formula/FormulaRuntime';
 
 export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewFieldDescriptor) & {
@@ -227,6 +228,7 @@ export interface RecordFormFieldPickerConfig {
   /** Candidate columns are presentation only; identity and authorization stay with the provider. */
   columns?: readonly ReferencePickerColumn[];
   loadOptions?: (keyword: string) => Promise<RecordPickerRecord[]>;
+  loadPage?: RecordReferencePickerSource['loadPage'];
   loadTree?: () => Promise<WebTreeNode<RecordPickerRecord>[]>;
   resolveOptions?: (values: string[]) => Promise<RecordPickerRecord[]>;
   reloadKey?: string | number;

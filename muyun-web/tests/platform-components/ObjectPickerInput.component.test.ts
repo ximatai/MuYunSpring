@@ -3,6 +3,31 @@ import { defineComponent } from 'vue';
 import { expect, it } from 'vitest';
 import ObjectPickerInput from '@/platform-components/ObjectPickerInput.vue';
 
+it('shows multi-value names in a compact entry without turning cleared search text into a cleared selection', async () => {
+  const wrapper = shallowMount(ObjectPickerInput, {
+    props: {
+      value: '已选择 2 个记录',
+      selectionItems: [
+        { key: 'a', label: '甲 · 研发部' },
+        { key: 'b', label: '乙 · 财务部' },
+      ],
+    },
+  });
+  const input = wrapper.findComponent({ name: 'UiSelect' });
+  expect(input.props('options')).toEqual([
+    { value: 'a', label: '甲 · 研发部' },
+    { value: 'b', label: '乙 · 财务部' },
+  ]);
+  expect(input.props('maxTagCount')).toBe('responsive');
+  expect(input.props('open')).toBe(false);
+  input.vm.$emit('search', '搜索');
+  input.vm.$emit('search', '');
+  expect(wrapper.emitted('clear')).toBeUndefined();
+  input.vm.$emit('update:value', ['b']);
+  expect(wrapper.emitted('update:selectionKeys')).toEqual([[['b']]]);
+  wrapper.unmount();
+});
+
 it('uses the standard compact search entry for candidate browsing', () => {
   const wrapper = shallowMount(ObjectPickerInput, { props: { value: '演示租户管理员 (demo_admin)' } });
   const input = wrapper.findComponent({ name: 'UiSearchInput' });

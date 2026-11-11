@@ -29,7 +29,7 @@ import {
   type RecordFormRecord,
   type RecordFormFieldDescriptor,
 } from '@muyun/platform-components';
-import { workflowAccountOptions } from '../platform-components/workflowAccountOptions';
+import { workflowAccountPage } from '../platform-components/workflowAccountOptions';
 import { sameWorkflowTextSource } from '../platform-components/workflowPresentation';
 import { usePageDataChangeHandler } from '../platform-admin-runtime/pageRealtime';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
@@ -58,7 +58,7 @@ const tenantId = ref<string | undefined>(
 const scopedHttp = computed(() =>
   tenantId.value ? withHttpHeaders(context.http, { 'X-MuYun-Tenant-Id': tenantId.value }) : context.http,
 );
-const accountOptions = computed(() => workflowAccountOptions(scopedHttp.value));
+const accountPage = computed(() => workflowAccountPage(scopedHttp.value));
 const client = computed(() => createWorkflowClient(scopedHttp.value));
 const tenantContext = createModuleContext<Record<string, unknown>>({
   http: context.http,
@@ -739,7 +739,7 @@ async function togglePolicy(policy: Delegation) {
               v-model:value="filters.submitterUserId"
               :disabled="editing"
               :context="accountContext"
-              :load-options="accountOptions"
+              :load-page="accountPage"
               mode="list"
               :title-of="pickerTitle"
           /></label>
@@ -879,7 +879,7 @@ async function togglePolicy(policy: Delegation) {
           ><RecordPicker
             v-model:value="policyDraft.delegateUserId"
             :context="accountContext"
-            :load-options="accountOptions"
+            :load-page="accountPage"
             mode="list"
             :title-of="pickerTitle"
             :disabled="delegationBusy" /></label
@@ -947,7 +947,7 @@ async function togglePolicy(policy: Delegation) {
         ><RecordPicker
           :value="policy.delegateUserId"
           :context="accountContext"
-          :load-options="accountOptions"
+          :load-page="accountPage"
           mode="list"
           :title-of="pickerTitle"
           disabled

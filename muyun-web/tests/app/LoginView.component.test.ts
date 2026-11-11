@@ -14,6 +14,33 @@ import { AppError, platformErrorCodes } from '@/web-core/errors';
 import type { ExternalLoginMethod, TenantBranding } from '@/web-contracts';
 
 describe('LoginView', () => {
+  it('does not round a one-minute lock up to 61 seconds at a fractional monotonic timestamp', async () => {
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(7407.40734);
+    const wrapper = mount(LoginView, {
+      props: {
+        authClient: authClient({
+          login: vi.fn().mockRejectedValue(
+            new AppError('locked', {
+              code: platformErrorCodes.loginBadCredentials,
+              details: {
+                loginFailure: { serverTime: '2026-11-11T00:00:00Z', lockedUntil: '2026-11-11T00:01:00Z' },
+              },
+            }),
+          ),
+        }),
+      },
+    });
+    try {
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+      expect(wrapper.text()).toContain('1:00 后可重试');
+      expect(wrapper.text()).not.toContain('1:01 后可重试');
+    } finally {
+      wrapper.unmount();
+      clock.mockRestore();
+    }
+  });
+
   it('does not restart the countdown when a pending login fails after unmount', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'performance'] });
     let reject!: (cause: unknown) => void;

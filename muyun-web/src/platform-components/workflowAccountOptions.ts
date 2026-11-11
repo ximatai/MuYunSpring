@@ -1,14 +1,12 @@
 import type { HttpClient } from '@muyun/web-core';
-import type { RecordPickerRecord } from './recordPickerConstraints';
+import type { RecordReferencePickerSource } from './recordReferencePickerProvider';
 
-/** Accounts use IAM's dedicated selector rather than its tenant-navigated management list. */
-export function workflowAccountOptions(http: HttpClient) {
-  return async (keyword: string): Promise<RecordPickerRecord[]> => {
-    const result = await http.request<{ records: RecordPickerRecord[] }>({
+/** Paged delivery retains the IAM selector's own authorization and candidate rules. */
+export function workflowAccountPage(http: HttpClient): NonNullable<RecordReferencePickerSource['loadPage']> {
+  return ({ keyword, pageNum, pageSize }) =>
+    http.request({
       method: 'POST',
       path: '/iam.user/selector/query',
-      body: { keyword: keyword || undefined, enabledOnly: true, page: { pageNum: 1, pageSize: 50 } },
+      body: { keyword: keyword || undefined, enabledOnly: true, page: { pageNum, pageSize } },
     });
-    return result.records;
-  };
 }

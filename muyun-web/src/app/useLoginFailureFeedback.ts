@@ -4,7 +4,7 @@ import { AppError, platformErrorCodes, useLanguageContext } from '@muyun/web-cor
 /** Standard password-login feedback. Countdown expiry restores the form; it never retries credentials. */
 export function useLoginFailureFeedback() {
   const language = useLanguageContext();
-  const lock = ref<{ deadline: number; until: number; triggered: boolean }>();
+  const lock = ref<{ startedAt: number; duration: number; until: number; triggered: boolean }>();
   const remainingAttempts = ref<number>();
   const tick = ref(0);
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -24,7 +24,8 @@ export function useLoginFailureFeedback() {
 
   const message = computed(() => {
     if (lock.value) {
-      const seconds = Math.max(0, Math.ceil((lock.value.deadline - tick.value) / 1000));
+      const elapsed = Math.max(0, tick.value - lock.value.startedAt);
+      const seconds = Math.max(0, Math.ceil((lock.value.duration - elapsed) / 1000));
       const remaining = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
       return lock.value.triggered
         ? language.t(
@@ -70,10 +71,10 @@ export function useLoginFailureFeedback() {
       // A response whose lock has already expired does not need an error notice.
       if (duration <= 0) return true;
       tick.value = performance.now();
-      lock.value = { deadline: tick.value + duration, until, triggered: facts.lockTriggered === true };
+      lock.value = { startedAt: tick.value, duration, until, triggered: facts.lockTriggered === true };
       timer = setInterval(() => {
         tick.value = performance.now();
-        if (lock.value && tick.value >= lock.value.deadline) clear();
+        if (lock.value && tick.value - lock.value.startedAt >= lock.value.duration) clear();
       }, 250);
       return true;
     }

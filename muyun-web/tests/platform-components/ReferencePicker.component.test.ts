@@ -22,6 +22,81 @@ const records = [
   { id: 'record-2', title: '第二条', projections: { code: 'A-02' } },
 ];
 
+it('restores retained history after cancelling removals before another dropdown selection', async () => {
+  const wrapper = mountPicker({
+    mode: 'dropdown',
+    multiple: true,
+    value: ['missing', 'record-1'],
+    provider: provider({ resolve: async () => [records[0]!] }),
+  });
+  await flushPromises();
+  wrapper.findComponent({ name: 'UiButton' }).vm.$emit('click');
+  await flushPromises();
+  wrapper.findComponent({ name: 'ReferenceSelectionPanel' }).vm.$emit('remove', 'missing');
+  wrapper.findComponent({ name: 'UiModal' }).vm.$emit('cancel');
+  await flushPromises();
+  wrapper.findComponent({ name: 'UiSelect' }).vm.$emit('update:value', ['missing', 'record-1', 'record-2']);
+  expect(wrapper.emitted('update:value')?.at(-1)).toEqual([['missing', 'record-1', 'record-2']]);
+  wrapper.unmount();
+});
+
+it('reviews all selected values independently of candidate pages and commits removals only on confirmation', async () => {
+  const historical = [
+    records[0]!,
+    { id: 'outside-page', title: '页外人员', subtitle: '研发部' },
+    { id: 'missing', title: 'missing', unavailable: true },
+  ];
+  const wrapper = mountPicker({
+    provider: provider({ resolve: vi.fn().mockResolvedValue(historical) }),
+    multiple: true,
+    value: historical.map((candidate) => candidate.id),
+  });
+  await flushPromises();
+  const input = wrapper.findComponent({ name: 'ObjectPickerInput' });
+  expect(input.props('selectionItems')).toEqual([
+    { key: 'record-1', label: '第一条' },
+    { key: 'outside-page', label: '页外人员 · 研发部' },
+    { key: 'missing', label: 'missing（不可用）' },
+  ]);
+  input.vm.$emit('browse', '');
+  await flushPromises();
+  let panel = wrapper.findComponent({ name: 'ReferenceSelectionPanel' });
+  expect(panel.props('candidates').map((candidate: ReferencePickerCandidate) => candidate.id)).toEqual([
+    'record-1',
+    'outside-page',
+    'missing',
+  ]);
+  panel.vm.$emit('remove', 'outside-page');
+  expect(wrapper.emitted('update:value')).toBeUndefined();
+  wrapper.findComponent({ name: 'UiModal' }).vm.$emit('cancel');
+  input.vm.$emit('browse', '');
+  await flushPromises();
+  panel = wrapper.findComponent({ name: 'ReferenceSelectionPanel' });
+  expect(panel.props('candidates')).toHaveLength(3);
+  panel.vm.$emit('remove', 'missing');
+  wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+  expect(wrapper.emitted('update:value')?.at(-1)).toEqual([['record-1', 'outside-page']]);
+  wrapper.unmount();
+});
+
+it('retains selected IDs when a multi-value search draft is erased and restores the entry after cancellation', async () => {
+  const wrapper = mountPicker({ multiple: true, value: ['record-1'] });
+  const input = wrapper.findComponent({ name: 'ObjectPickerInput' });
+  input.vm.$emit('draft-change', '查找');
+  input.vm.$emit('draft-change', '');
+  expect(wrapper.emitted('update:value')).toBeUndefined();
+  expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([{ valid: true, status: 'ready' }]);
+  input.vm.$emit('draft-change', '查找');
+  input.vm.$emit('browse', '查找');
+  await flushPromises();
+  const version = input.props('selectionVersion');
+  wrapper.findComponent({ name: 'UiModal' }).vm.$emit('cancel');
+  await flushPromises();
+  expect(input.props('selectionVersion')).toBeGreaterThan(version);
+  expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([{ valid: true, status: 'ready' }]);
+  wrapper.unmount();
+});
+
 function provider(overrides: Partial<ReferencePickerProvider> = {}): ReferencePickerProvider {
   return {
     identity: { targetModuleAlias: 'demo.record', source: { kind: 'sourceField', id: 'ownerId' } },

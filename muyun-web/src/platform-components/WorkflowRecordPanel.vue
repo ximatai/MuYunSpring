@@ -38,7 +38,7 @@ import {
 import { formatPlatformDateTime } from './platformDateTime';
 import { usePlatformTimeZoneContext } from './platformTimeZoneContext';
 import { presentPlatformError } from './platformErrorFeedback';
-import { workflowAccountOptions } from './workflowAccountOptions';
+import { workflowAccountPage } from './workflowAccountOptions';
 import RecordPicker from './RecordPicker.vue';
 import RecordQueryListPanel from './RecordQueryListPanel.vue';
 import RecordFormFields, { type RecordFormValidity } from './RecordFormFields.vue';
@@ -307,7 +307,7 @@ async function pageInstances(page: number) {
     if (token === instanceDirectoryRevision) instancePaging.value = false;
   }
 }
-const accountOptions = computed(() => workflowAccountOptions(props.context.http));
+const accountPage = computed(() => workflowAccountPage(props.context.http));
 const accountContext = computed(() =>
   createModuleContext<Record<string, unknown>>({ http: props.context.http, moduleAlias: 'iam.user' }),
 );
@@ -1285,7 +1285,7 @@ async function execute() {
           >{{ workflowLanguage.t('platform.screen.WorkflowRecordPanel.recipient', '接收人')
           }}<RecordPicker
             :context="accountContext"
-            :load-options="accountOptions"
+            :load-page="accountPage"
             :value="targetAssigneeId || undefined"
             mode="list"
             :title-of="(record) => userTitle(record)"
@@ -1304,7 +1304,7 @@ async function execute() {
             }}<RecordPicker
               v-model:value="addSignUserId"
               :context="accountContext"
-              :load-options="accountOptions"
+              :load-page="accountPage"
               mode="list"
               :title-of="(record) => userTitle(record)" /></label
         ></template>

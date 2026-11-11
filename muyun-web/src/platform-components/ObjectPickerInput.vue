@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
-import { UiSearchInput } from '@muyun/vue-ui-antdv';
+import { UiButton, UiSelect, UiSearchInput } from '@muyun/vue-ui-antdv';
 
 const language = useLanguageContext();
 
@@ -15,6 +15,9 @@ defineOptions({ name: 'ObjectPickerInput' });
 const props = withDefaults(
   defineProps<{
     value?: string;
+    /** Authorized display items; only removals can be made from this compact multi-value entry. */
+    selectionItems?: readonly { key: string; label: string }[];
+    allowClear?: boolean;
     linked?: boolean;
     unmatched?: boolean;
     /** The owner has an unresolved draft, so asynchronous display refreshes must not overwrite it. */
@@ -28,6 +31,8 @@ const props = withDefaults(
   }>(),
   {
     value: '',
+    selectionItems: undefined,
+    allowClear: true,
     linked: false,
     unmatched: false,
     preserveDraft: false,
@@ -53,9 +58,14 @@ const emit = defineEmits<{
   'draft-change': [value: string];
   /** A non-empty user draft has left the compact entry. */
   blur: [value: string];
+  'update:selectionKeys': [keys: string[]];
 }>();
 
-const inputValue = ref(props.value);
+const inputValue = ref(props.selectionItems ? '' : props.value);
+const draftResetVersion = ref(0);
+const selectionOptions = computed(
+  () => props.selectionItems?.map((item) => ({ value: item.key, label: item.label })) ?? [],
+);
 const draftEdited = ref(false);
 let clearEmitted = false;
 
@@ -64,7 +74,9 @@ watch(
   ([value, selectionVersion], [, previousSelectionVersion]) => {
     if (props.preserveDraft && selectionVersion === previousSelectionVersion) return;
     if (draftEdited.value && selectionVersion === previousSelectionVersion) return;
-    inputValue.value = value;
+    // A closed multi-select keeps a private input draft; recreate it when discarding that draft.
+    if (props.selectionItems && inputValue.value) draftResetVersion.value += 1;
+    inputValue.value = props.selectionItems ? '' : value;
     draftEdited.value = false;
     clearEmitted = false;
   },
@@ -75,7 +87,7 @@ function updateDraft(value: string) {
   draftEdited.value = true;
   if (value.trim()) clearEmitted = false;
   emit('draft-change', value);
-  if (!value.trim() && props.value && !clearEmitted) {
+  if (!props.selectionItems && !value.trim() && props.value && !clearEmitted) {
     clearEmitted = true;
     emit('clear');
   }
@@ -120,7 +132,52 @@ function completeDraft(event: FocusEvent) {
 </script>
 
 <template>
+  <UiSelect
+    v-if="selectionItems"
+    :key="draftResetVersion"
+    class="object-picker-input-control"
+    :invalid="invalid"
+    :unmatched="unmatched"
+    :value="selectionItems.map((item) => item.key)"
+    :options="selectionOptions"
+    mode="multiple"
+    max-tag-count="responsive"
+    :max-tag-text-length="24"
+    :open="false"
+    :show-search="true"
+    :search-value="inputValue"
+    :filter-option="false"
+    :placeholder="resolvedPlaceholder"
+    :disabled="disabled"
+    :allow-clear="allowClear"
+    :aria-label="resolvedBrowseLabel"
+    @search="updateDraft"
+    @blur="completeDraft"
+    @keydown.enter.prevent="browse(inputValue)"
+    @dblclick="browseOnDoubleClick"
+    @update:value="
+      emit(
+        'update:selectionKeys',
+        Array.isArray($event) ? $event.filter((key): key is string => typeof key === 'string') : [],
+      )
+    "
+  >
+    <template #suffixAction>
+      <UiButton
+        type="text"
+        size="small"
+        icon-name="search"
+        icon-only
+        tabindex="-1"
+        :aria-label="resolvedBrowseLabel"
+        :title="resolvedBrowseLabel"
+        :disabled="disabled"
+        @click="browse(inputValue)"
+      />
+    </template>
+  </UiSelect>
   <UiSearchInput
+    v-else
     :invalid="invalid"
     class="object-picker-input-control"
     :value="inputValue"

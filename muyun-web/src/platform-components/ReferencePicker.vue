@@ -8,15 +8,17 @@ import {
   UiModal,
   UiSearchInput,
   UiSelect,
-  UiTagList,
+  UiTreeSelect,
   UiTree,
   type UiDataTableColumn,
   type UiDataTablePagination,
   type UiDataTableRecord,
   type UiDataTableSelection,
   type UiTreeNode,
+  type UiTreeSelectNode,
 } from '@muyun/vue-ui-antdv';
 import ObjectPickerInput from './ObjectPickerInput.vue';
+import ReferenceSelectionPanel from './ReferenceSelectionPanel.vue';
 import RecordExplorerPanel from './RecordExplorerPanel.vue';
 import {
   normalizeReferencePickerIds,
@@ -162,7 +164,7 @@ const rows = computed<UiDataTableRecord[]>(() =>
     subtitle: candidateSubtitle(candidate),
   })),
 );
-const browsingTree = computed(() => open.value && !keyword.value.trim() && Boolean(props.provider.loadTree));
+const browsingTree = computed(() => !keyword.value.trim() && Boolean(props.provider.loadTree));
 const treeNodes = computed<UiTreeNode[]>(() => tree.value.map(treeNode));
 const summary = computed(() => summariesFor(externalIds.value, resolvedById.value));
 const inputSummary = computed(() => {
@@ -178,8 +180,8 @@ const inputSummary = computed(() => {
     ? language.t('platform.reference-picker.unavailable', '{title}（不可用）', { title: title })
     : title;
 });
-const tags = computed(() =>
-  selectedCandidates(draftIds.value).map((candidate) => ({
+const compactSelectionItems = computed(() =>
+  summary.value.map((candidate) => ({
     key: candidate.id,
     label: candidate.unavailable
       ? language.t('platform.reference-picker.unavailable', '{title}（不可用）', {
@@ -224,6 +226,25 @@ const dropdownOptions = computed(() =>
       (!externalIds.value.includes(candidate.id) && !canSelect(candidate.id)),
   })),
 );
+const dropdownTreeNodes = computed<UiTreeSelectNode[]>(() => {
+  const nodeOf = (node: ReferencePickerTreeNode): UiTreeSelectNode => ({
+    value: node.record.id,
+    title: referencePickerDisplayTitle(node.record, language),
+    disabled: Boolean(node.record.disabled || node.record.unavailable || !canSelect(node.record.id)),
+    children: (node.children ?? []).map(nodeOf),
+  });
+  const nodes = browsingTree.value
+    ? tree.value.map(nodeOf)
+    : page.value.records.map((record) => nodeOf({ record }));
+  const visible = new Set(
+    (browsingTree.value ? treeCandidates(tree.value) : page.value.records).map((record) => record.id),
+  );
+  for (const option of dropdownOptions.value) {
+    if (!visible.has(option.value))
+      nodes.push({ value: option.value, title: option.label, disabled: Boolean(option.disabled) });
+  }
+  return nodes;
+});
 
 watch(
   externalIds,
@@ -249,7 +270,7 @@ watch(
 );
 
 onMounted(() => {
-  if (props.mode === 'dropdown') void loadPage();
+  if (props.mode === 'dropdown') void loadBrowse();
 });
 
 onBeforeUnmount(() => {
@@ -443,10 +464,20 @@ function openPickerWithPage(initialKeyword: string, result: ReferencePickerPage)
 function closePicker() {
   invalidateCompletion();
   open.value = false;
+  draftIds.value = [...externalIds.value];
   keyword.value = '';
   pageRequestVersion += 1;
   treeRequestVersion += 1;
   loading.value = false;
+  if (props.multiple) {
+    selectionVersion.value += 1;
+    setValidity('ready');
+  }
+  if (props.mode === 'dropdown') {
+    scopeSelections.value = [];
+    pageNum.value = 1;
+    void loadBrowse();
+  }
 }
 
 function candidateSubtitle(candidate: ReferencePickerCandidate) {
@@ -488,14 +519,14 @@ function loadBrowse() {
   return loadPage();
 }
 
-async function loadPage() {
+async function loadPage(append = false) {
   treeRequestVersion += 1;
   const requestVersion = ++pageRequestVersion;
   loading.value = true;
   pageError.value = undefined;
   pageReadFailed.value = false;
   // Page rows are only authorized for the exact keyword, scope, and page being requested.
-  page.value = { records: [], total: 0 };
+  if (!append) page.value = { records: [], total: 0 };
   try {
     const result = await props.provider.searchPage({
       keyword: keyword.value.trim(),
@@ -504,7 +535,16 @@ async function loadPage() {
       scope: { selections: [...scopeSelections.value] },
     });
     if (requestVersion !== pageRequestVersion) return;
-    page.value = result;
+    page.value = append
+      ? {
+          ...result,
+          records: [
+            ...new Map(
+              [...page.value.records, ...result.records].map((record) => [record.id, record]),
+            ).values(),
+          ],
+        }
+      : result;
     remember(result.records);
   } catch (cause) {
     if (requestVersion !== pageRequestVersion) return;
@@ -550,6 +590,19 @@ function search(value: string) {
   keyword.value = value;
   pageNum.value = 1;
   void loadBrowse();
+}
+
+function loadMoreDropdown() {
+  if (
+    open.value ||
+    loading.value ||
+    pageReadFailed.value ||
+    browsingTree.value ||
+    !(pageNum.value < pageCount.value)
+  )
+    return;
+  pageNum.value += 1;
+  void loadPage(true);
 }
 
 function changePage(nextPage: number) {
@@ -640,7 +693,8 @@ function draftChanged(draft: string) {
   pageError.value = undefined;
   pageReadFailed.value = false;
   if (!draft.trim()) {
-    if (props.allowClear) clearSelection();
+    if (props.multiple) setValidity('ready');
+    else if (props.allowClear) clearSelection();
     else setValidity('editing', 'platform.reference-picker.complete');
     return;
   }
@@ -777,7 +831,10 @@ function retryCompactError() {
   if (resolveError.value?.retryable) void resolveSelection(externalIds.value);
   else if (pageError.value?.retryable) {
     if (failedCompletionKeyword.value) void completeDraft(failedCompletionKeyword.value);
-    else void loadBrowse();
+    else {
+      if (props.mode === 'dropdown' && !open.value) pageNum.value = 1;
+      void loadBrowse();
+    }
   }
 }
 </script>
@@ -785,12 +842,46 @@ function retryCompactError() {
 <template>
   <div class="reference-picker">
     <template v-if="mode === 'dropdown'">
+      <UiTreeSelect
+        v-if="provider.loadTree"
+        :invalid="invalid"
+        :value="multiple ? externalIds : externalIds[0]"
+        :tree-data="dropdownTreeNodes"
+        :mode="multiple ? 'multiple' : undefined"
+        :max-tag-count="multiple ? 'responsive' : undefined"
+        :max-tag-text-length="multiple ? 24 : undefined"
+        :placeholder="placeholder"
+        :disabled="disabled"
+        :allow-clear="allowClear"
+        :show-search="true"
+        :filter-tree-node="false"
+        :loading="loading"
+        @search="search"
+        @reach-end="loadMoreDropdown"
+        @update:value="updateDropdown"
+      >
+        <template #suffixAction>
+          <UiButton
+            type="text"
+            size="small"
+            icon-name="search"
+            icon-only
+            :aria-label="title"
+            :title="title"
+            :disabled="disabled"
+            @click="openPicker(keyword)"
+          />
+        </template>
+      </UiTreeSelect>
       <UiSelect
+        v-else
         :invalid="invalid"
         class="reference-picker-select"
         :value="multiple ? externalIds : externalIds[0]"
         :options="dropdownOptions"
         :mode="multiple ? 'multiple' : undefined"
+        :max-tag-count="multiple ? 'responsive' : undefined"
+        :max-tag-text-length="multiple ? 24 : undefined"
         :placeholder="placeholder"
         :disabled="disabled"
         :allow-clear="allowClear"
@@ -798,6 +889,7 @@ function retryCompactError() {
         :filter-option="false"
         :loading="loading"
         @search="search"
+        @reach-end="loadMoreDropdown"
         @update:value="updateDropdown"
       >
         <template #suffixAction>
@@ -818,6 +910,8 @@ function retryCompactError() {
       v-else
       :invalid="invalid"
       :value="inputSummary"
+      :selection-items="multiple ? compactSelectionItems : undefined"
+      :allow-clear="allowClear"
       :selection-version="selectionVersion"
       :unmatched="validity.status === 'unmatched'"
       :preserve-draft="!validity.valid"
@@ -827,6 +921,7 @@ function retryCompactError() {
       :browse-label="title"
       @browse="openPicker"
       @clear="clearSelection"
+      @update:selection-keys="updateDropdown"
       @draft-change="draftChanged"
       @blur="completeDraft"
     />
@@ -840,7 +935,8 @@ function retryCompactError() {
     <UiModal
       :open="open"
       :title="title"
-      :width="page.navigation?.length ? 1120 : 760"
+      :width="multiple ? (page.navigation?.length ? 1320 : 1080) : page.navigation?.length ? 1120 : 760"
+      scroll-content
       :confirm-disabled="loading || !canCommit()"
       :closable="true"
       @confirm="commit"
@@ -861,83 +957,87 @@ function retryCompactError() {
           @update:value="keyword = $event"
           @search="search"
         />
-        <div v-if="multiple" class="reference-picker-selection-summary">
-          <UiTagList
-            :items="tags"
-            :empty-text="language.t('platform.reference-picker.unselected', '尚未选择')"
-          />
-          <span>{{
-            language.t('platform.reference-picker.draft-selected', '已选 {count} 个{noun}', {
-              count: draftIds.length,
-              noun: selectionNoun,
-            })
-          }}</span>
-          <UiButton v-if="draftIds.length && allowClear" type="link" size="small" @click="draftIds = []">
-            {{ language.t('platform.reference-picker.clear', '清空选择') }}
-          </UiButton>
-        </div>
-        <div class="reference-picker-browse">
-          <aside
-            v-if="page.navigation?.length"
-            class="reference-picker-navigation"
-            :aria-label="language.t('platform.reference-picker.navigation', '候选范围导航')"
-          >
-            <RecordExplorerPanel
-              v-for="axis in page.navigation"
-              :key="axis.id"
-              class="reference-picker-navigation-column"
-              :title="axis.titleKey ? language.t(axis.titleKey, axis.title) : axis.title"
-              embedded
-              :refreshable="false"
-              :searchable="false"
-              :collapse-action="false"
+        <div class="reference-picker-workspace" :class="{ 'reference-picker-workspace--multiple': multiple }">
+          <div class="reference-picker-browse">
+            <aside
+              v-if="page.navigation?.length"
+              class="reference-picker-navigation"
+              :aria-label="language.t('platform.reference-picker.navigation', '候选范围导航')"
             >
+              <RecordExplorerPanel
+                v-for="axis in page.navigation"
+                :key="axis.id"
+                class="reference-picker-navigation-column"
+                :title="axis.titleKey ? language.t(axis.titleKey, axis.title) : axis.title"
+                embedded
+                :refreshable="false"
+                :searchable="false"
+                :collapse-action="false"
+              >
+                <UiTree
+                  v-if="axis.items.length"
+                  display-mode="flat"
+                  :nodes="navigationNodes(axis.items)"
+                  :selected-key="axisSelection(axis.id)"
+                  @select="selectAxis(axis, $event)"
+                  @deselect="deselectAxis(axis)"
+                />
+              </RecordExplorerPanel>
+            </aside>
+            <div class="reference-picker-results">
+              <div v-if="pageError" class="reference-picker-error">
+                <UiError :message="referencePickerErrorMessage(pageError, language)" />
+                <UiButton v-if="pageError.retryable" size="small" @click="loadBrowse">{{
+                  language.t('platform.reference-picker.retry', '重试')
+                }}</UiButton>
+              </div>
               <UiTree
-                v-if="axis.items.length"
-                display-mode="flat"
-                :nodes="navigationNodes(axis.items)"
-                :selected-key="axisSelection(axis.id)"
-                @select="selectAxis(axis, $event)"
-                @deselect="deselectAxis(axis)"
+                v-if="browsingTree"
+                :nodes="treeNodes"
+                :selected-key="multiple ? undefined : draftIds[0]"
+                :checkable="multiple"
+                :check-strictly="multiple"
+                :checked-keys="multiple ? draftIds : undefined"
+                :can-check="multiple ? (node) => canSelect(node.key) : undefined"
+                :empty-description="emptyDescription"
+                @select="selectTree"
+                @deselect="deselectTree"
+                @update:checked-keys="updateTreeDraft"
               />
-            </RecordExplorerPanel>
-          </aside>
-          <div class="reference-picker-results">
-            <div v-if="pageError" class="reference-picker-error">
-              <UiError :message="referencePickerErrorMessage(pageError, language)" />
-              <UiButton v-if="pageError.retryable" size="small" @click="loadBrowse">{{
-                language.t('platform.reference-picker.retry', '重试')
-              }}</UiButton>
+              <UiDataTable
+                v-else
+                :columns="dataColumns"
+                :rows="rows"
+                :loading="loading"
+                :pagination="tablePagination"
+                :selection="selection"
+                :selected-row-key="multiple ? undefined : draftIds[0]"
+                :clickable-rows="!multiple"
+                fill-height
+                horizontal-scroll
+                :empty-description="emptyDescription"
+                @row-click="selectSingle"
+                @row-dblclick="completeSingle"
+              />
             </div>
-            <UiTree
-              v-if="browsingTree"
-              :nodes="treeNodes"
-              :selected-key="multiple ? undefined : draftIds[0]"
-              :checkable="multiple"
-              :check-strictly="multiple"
-              :checked-keys="multiple ? draftIds : undefined"
-              :can-check="multiple ? (node) => canSelect(node.key) : undefined"
-              :empty-description="emptyDescription"
-              @select="selectTree"
-              @deselect="deselectTree"
-              @update:checked-keys="updateTreeDraft"
-            />
-            <UiDataTable
-              v-else
-              :columns="dataColumns"
-              :rows="rows"
-              :loading="loading"
-              :pagination="tablePagination"
-              :selection="selection"
-              :selected-row-key="multiple ? undefined : draftIds[0]"
-              :clickable-rows="!multiple"
-              fill-height
-              horizontal-scroll
-              :empty-description="emptyDescription"
-              @row-click="selectSingle"
-              @row-dblclick="completeSingle"
-            />
           </div>
+          <ReferenceSelectionPanel
+            v-if="multiple && open"
+            :candidates="selectedCandidates(draftIds)"
+            :selection-noun="selectionNoun"
+            :disabled="disabled"
+            :allow-clear="allowClear"
+            @remove="
+              (id) => {
+                if (!disabled) draftIds = draftIds.filter((value) => value !== id);
+              }
+            "
+            @clear="
+              () => {
+                if (!disabled) draftIds = [];
+              }
+            "
+          />
         </div>
       </div>
     </UiModal>
@@ -983,14 +1083,29 @@ function retryCompactError() {
 .reference-picker-error {
   margin-bottom: 8px;
 }
-.reference-picker-selection-summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+.reference-picker-workspace {
+  min-width: 0;
 }
-.reference-picker-selection-summary > :first-child {
-  flex: 1;
-  min-width: 180px;
+.reference-picker-workspace--multiple {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: 20px;
+}
+.reference-picker-workspace--multiple > .reference-selection-panel {
+  border-left: 1px solid var(--muyun-color-border-secondary);
+  padding-left: 16px;
+}
+@media (max-width: 900px) {
+  .reference-picker-workspace--multiple {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .reference-picker-workspace--multiple > .reference-selection-panel {
+    border-left: 0;
+    border-top: 1px solid var(--muyun-color-border-secondary);
+    padding: 12px 0 0;
+  }
+  .reference-picker-browse:has(.reference-picker-navigation) {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

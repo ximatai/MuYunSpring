@@ -331,11 +331,11 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(detailLayoutSource, /overflow: auto/);
 
   const recordPickerSource = readSource('src/platform-components/RecordPicker.vue');
-  assert.match(recordPickerSource, /if \(props\.mode === 'list'\)[\s\S]*await loadListRecords\(\)/);
-  assert.match(recordPickerSource, /props\.context\.crud\.query/);
-  assert.match(recordPickerSource, /record\.enabled === false \|\|\s*Boolean\(firstConstraintMessage/);
   const recordMultiPickerSource = readSource('src/platform-components/RecordMultiPicker.vue');
-  assert.match(recordMultiPickerSource, /record\.enabled === false \|\|\s*Boolean\(firstConstraintMessage/);
+  const sourceAdapter = readSource('src/platform-components/recordReferencePickerProvider.ts');
+  assert.match(recordPickerSource, /<RecordReferencePicker/);
+  assert.match(recordMultiPickerSource, /<RecordReferencePicker/);
+  assert.match(sourceAdapter, /source\.context\.crud\.query/);
 });
 
 it('standard module runner waits for a complete detail and action availability before enabling mutations', () => {
@@ -489,14 +489,16 @@ it('user management is hosted by the constrained standard module workspace', () 
   assert.notMatch(routesSource, /moduleAlias: 'iam\.user'/);
 });
 
-it('record picker delegates single-value interaction to the standard select adapters', () => {
-  const pickerSource = readSource('src/platform-components/RecordPicker.vue');
+it('record pickers share reference interaction and standard select adapters', () => {
+  const pickerSource = readSource('src/platform-components/RecordReferencePicker.vue');
+  const referenceSource = readSource('src/platform-components/ReferencePicker.vue');
   const treeSelectSource = readSource('src/vue-ui-antdv/components/UiTreeSelect.vue');
 
-  assert.match(pickerSource, /<UiTreeSelect[\s\S]*:allow-clear="allowClear"[\s\S]*:show-search="true"/);
-  assert.match(pickerSource, /<UiSelect[\s\S]*:filter-option="false"/);
-  assert.match(pickerSource, /@search="keyword = \$event"/);
-  assert.match(pickerSource, /@update:value="updateValue"/);
+  assert.match(pickerSource, /<ReferencePicker/);
+  assert.match(pickerSource, /mode="dropdown"/);
+  assert.match(referenceSource, /<UiTreeSelect[\s\S]*:allow-clear="allowClear"[\s\S]*:show-search="true"/);
+  assert.match(referenceSource, /<UiSelect[\s\S]*:filter-option="false"/);
+  assert.match(referenceSource, /@reach-end="loadMoreDropdown"/);
   assert.notMatch(pickerSource, /document\.addEventListener|record-picker-clear|record-picker-panel/);
   assert.match(treeSelectSource, /:show-search="showSearch"/);
   assert.match(treeSelectSource, /:filter-tree-node="filterTreeNode"/);

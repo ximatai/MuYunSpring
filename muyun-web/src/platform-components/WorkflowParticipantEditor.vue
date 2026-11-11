@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { useLanguageContext } from '@muyun/web-core';
 import { createModuleContext, type HttpClient } from '@muyun/web-core';
 import { UiButton, UiCheckbox, UiInput, UiSelect } from '@muyun/vue-ui-antdv';
-import { workflowAccountOptions } from './workflowAccountOptions';
+import { workflowAccountPage } from './workflowAccountOptions';
 import RecordFieldLabel from './RecordFieldLabel.vue';
 import RecordMultiPicker from './RecordMultiPicker.vue';
 import type { RecordPickerRecord } from './recordPickerConstraints';
@@ -27,7 +27,7 @@ const kinds = computed(() => [
   { value: 'FIELD', label: language.t('platform.workflow-participant.participant-field', '业务人员字段') },
   { value: 'INITIATOR_SELF', label: language.t('platform.workflow-participant.initiator', '提交人本人') },
 ]);
-const accountOptions = computed(() => workflowAccountOptions(props.http));
+const accountPage = computed(() => workflowAccountPage(props.http));
 const contexts = computed(() =>
   Object.fromEntries(
     Object.entries({
@@ -103,7 +103,8 @@ function title(record: RecordPickerRecord) {
         >{{ language.t('platform.workflow-participant.targets', '选择目标')
         }}<RecordMultiPicker
           :context="contexts[rule.type]!"
-          :load-options="rule.type === 'USER' ? accountOptions : undefined"
+          :load-page="rule.type === 'USER' ? accountPage : undefined"
+          :mode="rule.type === 'USER' ? 'list' : 'auto'"
           :value="rule.ids ?? []"
           :disabled="disabled"
           :title-of="title"

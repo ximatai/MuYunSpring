@@ -17,6 +17,8 @@ const props = withDefaults(
     value?: OptionValue | OptionValueList | null;
     treeData: UiTreeSelectNode[];
     mode?: 'multiple';
+    maxTagCount?: number | 'responsive';
+    maxTagTextLength?: number;
     placeholder?: string;
     disabled?: boolean;
     allowClear?: boolean;
@@ -32,6 +34,8 @@ const props = withDefaults(
   {
     value: undefined,
     mode: undefined,
+    maxTagCount: undefined,
+    maxTagTextLength: undefined,
     placeholder: undefined,
     disabled: false,
     allowClear: true,
@@ -48,6 +52,8 @@ const emit = defineEmits<{
   'update:value': [value: OptionValue | OptionValueList | null];
   'update:searchValue': [value: string];
   search: [keyword: string];
+  /** Requests another remote candidate page when the popup reaches its end. */
+  'reach-end': [];
   blur: [event: FocusEvent];
   dblclick: [event: MouseEvent];
 }>();
@@ -61,6 +67,13 @@ function normalize(value: unknown) {
     return;
   }
   emit('update:value', typeof value === 'string' || typeof value === 'number' ? value : null);
+}
+
+function dropdownScrolled(event: UIEvent) {
+  const target = event.target;
+  if (target instanceof HTMLElement && target.scrollTop + target.clientHeight >= target.scrollHeight - 8) {
+    emit('reach-end');
+  }
 }
 
 function forwardBlur(event: FocusEvent) {
@@ -90,6 +103,8 @@ function handleDoubleClick(event: MouseEvent) {
       :value="value ?? undefined"
       :tree-data="treeData"
       :multiple="mode === 'multiple'"
+      :max-tag-count="maxTagCount"
+      :max-tag-text-length="maxTagTextLength"
       :allow-clear="allowClear"
       :show-search="showSearch"
       :search-value="searchValue"
@@ -108,6 +123,7 @@ function handleDoubleClick(event: MouseEvent) {
       :aria-invalid="invalid || unmatched || undefined"
       :status="invalid || unmatched ? 'error' : undefined"
       @dropdown-visible-change="dropdownOpen = $event"
+      @popup-scroll="dropdownScrolled"
       @update:value="normalize"
       @update:search-value="emit('update:searchValue', $event)"
       @dblclick="handleDoubleClick"
@@ -130,6 +146,9 @@ function handleDoubleClick(event: MouseEvent) {
 }
 .ui-tree-select-action-shell {
   position: relative;
+  width: 100%;
+}
+.ui-tree-select--suffix-action {
   width: 100%;
 }
 .ui-tree-select--suffix-action :deep(.ant-select-clear) {

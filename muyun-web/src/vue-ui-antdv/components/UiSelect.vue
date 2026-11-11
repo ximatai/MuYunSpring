@@ -10,6 +10,10 @@ const props = withDefaults(
     value?: OptionValue | OptionValueList | null;
     options: Option[];
     mode?: 'multiple';
+    maxTagCount?: number | 'responsive';
+    maxTagTextLength?: number;
+    /** Optional controlled popup state for compact selectors that browse in a dialog. */
+    open?: boolean;
     placeholder?: string;
     disabled?: boolean;
     allowClear?: boolean;
@@ -27,6 +31,9 @@ const props = withDefaults(
   {
     value: undefined,
     mode: undefined,
+    maxTagCount: undefined,
+    maxTagTextLength: undefined,
+    open: undefined,
     placeholder: undefined,
     disabled: false,
     allowClear: true,
@@ -45,8 +52,11 @@ const emit = defineEmits<{
   'update:value': [value: OptionValue | OptionValueList | null];
   'update:searchValue': [value: string];
   search: [keyword: string];
+  /** Requests another remote candidate page when the popup reaches its end. */
+  'reach-end': [];
   blur: [event: FocusEvent];
   dblclick: [event: MouseEvent];
+  keydown: [event: KeyboardEvent];
 }>();
 
 function normalize(value: unknown) {
@@ -58,6 +68,13 @@ function normalize(value: unknown) {
     return;
   }
   emit('update:value', typeof value === 'string' || typeof value === 'number' ? value : null);
+}
+
+function dropdownScrolled(event: UIEvent) {
+  const target = event.target;
+  if (target instanceof HTMLElement && target.scrollTop + target.clientHeight >= target.scrollHeight - 8) {
+    emit('reach-end');
+  }
 }
 
 function forwardBlur(event: FocusEvent) {
@@ -88,6 +105,8 @@ function handleDoubleClick(event: MouseEvent) {
       :allow-clear="allowClear"
       :id="id"
       :mode="mode"
+      :max-tag-count="maxTagCount"
+      :max-tag-text-length="maxTagTextLength"
       :value="value ?? undefined"
       :options="options"
       :placeholder="placeholder"
@@ -108,13 +127,15 @@ function handleDoubleClick(event: MouseEvent) {
           'ui-select--unmatched': unmatched,
         },
       ]"
-      :open="dropdownOpen"
+      :open="open ?? dropdownOpen"
       :style="$attrs.style"
       @dropdown-visible-change="dropdownOpen = $event"
+      @popup-scroll="dropdownScrolled"
       v-on="searchListeners"
       @update:value="normalize"
       @update:search-value="emit('update:searchValue', $event)"
       @dblclick="handleDoubleClick"
+      @input-key-down="emit('keydown', $event)"
     />
     <span
       v-if="$slots.suffixAction"
@@ -133,6 +154,9 @@ function handleDoubleClick(event: MouseEvent) {
 }
 .ui-select-action-shell {
   position: relative;
+  width: 100%;
+}
+.ui-select--suffix-action {
   width: 100%;
 }
 .ui-select--suffix-action :deep(.ant-select-clear) {
