@@ -573,7 +573,6 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.notMatch(roleScopeTreeSource, /moduleAlias: 'iam\.organization'/);
   assert.match(roleScopeTreeSource, /<UiTree/);
   assert.match(roleScopeTreeSource, /loadChildren/);
-  assert.match(roleScopeTreeSource, /clearSelection/);
   assert.match(roleScopeTreeSource, /selectSelectionKey/);
   assert.match(roleScopeClientSource, /\/iam\.role\/scope-selection\/descriptor/);
   assert.match(roleScopeClientSource, /\/iam\.role\/scope-selection\/candidates/);

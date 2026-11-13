@@ -55,6 +55,16 @@ class CurrencyWebControllerTest {
             assertThat(page.navigator()).isNull();
             assertThat(page.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
                     .containsExactly("baseCurrencyCode");
+            var loader = getClass().getClassLoader();
+            var languages = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(loader, "zh-CN");
+            var resources = net.ximatai.muyun.spring.common.i18n.TextResources.load(loader, languages);
+            var descriptor = ModuleUiDescriptorCompiler.compile(definition);
+            assertThat(descriptor.sourceTexts()).isNotEmpty();
+            for (var source : descriptor.sourceTexts().values()) {
+                var english = resources.resolve(source, java.util.Map.of(), "en");
+                assertThat(english.missing()).as(source.sourceId()).isFalse();
+                assertThat(english.text()).as(source.sourceId()).doesNotContainPattern("[\\p{IsHan}]");
+            }
         }
     }
 
