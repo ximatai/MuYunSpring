@@ -72,6 +72,30 @@ class DeclaredTextResourcesTest {
     }
 
     @Test
+    void passwordSecurityPagesHaveEnglishResourcesForEveryDeclaredDisplaySlot() throws Exception {
+        var controllers = Map.of(
+                Class.forName("net.ximatai.muyun.spring.iam.web.PasswordPolicyRuleWebController"),
+                net.ximatai.muyun.spring.iam.user.PasswordPolicyRule.class,
+                Class.forName("net.ximatai.muyun.spring.iam.web.PasswordSecurityPolicyWebController"),
+                net.ximatai.muyun.spring.iam.user.PasswordSecurityPolicy.class);
+        var sources = new ArrayList<TextReference>();
+        for (var entry : controllers.entrySet()) {
+            var type = entry.getKey();
+            var module = type.getAnnotation(net.ximatai.muyun.spring.platform.module.PlatformStaticModule.class);
+            var controller = (net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor)
+                    org.mockito.Mockito.mock(type, org.mockito.Mockito.CALLS_REAL_METHODS);
+            var entity = new net.ximatai.muyun.spring.dynamic.metadata.StaticEntityDefinitionCompiler()
+                    .compile("main", module.title(), entry.getValue());
+            var definition = net.ximatai.muyun.spring.platform.web.StaticModuleDefinition
+                    .builder("iam", module.alias(), module.title()).modelClass(entry.getValue()).entities(List.of(entity))
+                    .uiDefinition(controller.moduleUiDefinition()).build();
+            sources.addAll(net.ximatai.muyun.spring.platform.web.ModuleUiDescriptorCompiler
+                    .compile(definition).sourceTexts().values());
+        }
+        assertEnglish(sources, messages());
+    }
+
+    @Test
     void allStaticModuleAndMenuAnnotationsIncludingConditionalFeaturesHaveEnglishResources() throws Exception {
         var declarations = productionDeclarations;
         var english = messages();
