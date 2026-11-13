@@ -36,6 +36,18 @@ function mountNavigator(tree = true, ready = true) {
 }
 
 describe('PageNavigatorExplorer', () => {
+  it('selects the explicit default range by clearing the real selection without submitting its display identity', async () => {
+    const { wrapper } = mountNavigator(false);
+    await wrapper.setProps({ emptySelectionLabel: '平台默认', selectedId: 'tenant-a' });
+    const defaultRange = wrapper.findComponent({ name: 'RecordListExplorer' });
+    expect(defaultRange.props('selectedId')).toBeUndefined();
+    await defaultRange.vm.$emit('select', { id: '__default_range__' });
+    expect(wrapper.emitted('selectDefault')).toHaveLength(1);
+    expect(wrapper.emitted('select')).toBeUndefined();
+    await wrapper.setProps({ selectedId: undefined });
+    expect(defaultRange.props('selectedId')).toBe('__default_range__');
+    wrapper.unmount();
+  });
   it('passes the same navigation scope and parent admission to the standard tree', () => {
     const { wrapper, canUseAsParent } = mountNavigator();
     const tree = wrapper.findComponent({ name: 'TreeRecordExplorer' });

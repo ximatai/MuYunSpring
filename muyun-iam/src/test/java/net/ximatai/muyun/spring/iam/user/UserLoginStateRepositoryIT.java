@@ -59,7 +59,8 @@ class UserLoginStateRepositoryIT {
     void concurrentFailuresKeepEveryIncrementAndConcurrentCredentialChanges() throws Exception {
         UserAccount user = insertUser("tenant-login-concurrent");
         // Lockout restarts the count; disable it so every increment stays observable.
-        service.setLoginLockoutPolicy(Optional.of(LoginLockoutPolicy.of(0, null)));
+        UserAccountService service = UserAccountServiceTestFactory.create(dao, tenant -> {},
+                new PasswordHashingService(), LoginLockoutPolicy.of(0, null));
         int workers = 6;
         int writes = 12;
         CountDownLatch start = new CountDownLatch(1);
@@ -113,10 +114,6 @@ class UserLoginStateRepositoryIT {
         assertThat(stored.getPasswordHash()).isEqualTo("original-hash");
     }
 
-    @AfterEach
-    void restoreLockoutPolicy() {
-        service.setLoginLockoutPolicy(Optional.empty());
-    }
 
     @Test
     void passwordlessAccountPersistsWithoutPasswordHash() {

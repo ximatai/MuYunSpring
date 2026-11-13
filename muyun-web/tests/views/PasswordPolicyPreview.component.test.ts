@@ -1,14 +1,31 @@
-import { flushPromises, shallowMount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { createLanguageContext, provideLanguageContext, createCodeTextPresentation } from '@muyun/web-core';
 import { describe, expect, it, vi } from 'vitest';
 import PasswordPolicyPreview from '@/views/PasswordPolicyPreview.vue';
 import type { ModulePageCardAssistantContext } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
 
+const EFFECTIVE_PATH = '/iam.password_security_policy/effective';
+
 describe('PasswordPolicyPreview', () => {
+  it('loads the selected tenant policy and clears the password when the target changes', async () => {
+    const request = vi.fn().mockResolvedValue({ complexityRules: [] });
+    const wrapper = mount(PasswordPolicyPreview, {
+      props: { context: cardContext(request, { id: 'r1', tenantId: 't1', pattern: '.*' }) },
+    });
+    await wrapper.findComponent({ name: 'UiRadioGroup' }).vm.$emit('update:value', 'ALL');
+    await flushPromises();
+    expect(request).toHaveBeenLastCalledWith({ path: EFFECTIVE_PATH, query: { tenantId: 't1' } });
+    await wrapper.findComponent({ name: 'UiInput' }).vm.$emit('update:value', 'secret1');
+    await wrapper.setProps({ context: cardContext(request, { id: 'r2', tenantId: 't2', pattern: '.*' }) });
+    await flushPromises();
+    expect(request).toHaveBeenLastCalledWith({ path: EFFECTIVE_PATH, query: { tenantId: 't2' } });
+    expect(wrapper.findComponent({ name: 'UiInput' }).props('value')).toBe('');
+  });
+
   it('evaluates the current draft immediately in the browser without a request', async () => {
     const request = vi.fn();
-    const wrapper = shallowMount(PasswordPolicyPreview, {
+    const wrapper = mount(PasswordPolicyPreview, {
       props: {
         context: cardContext(request, {
           title: '必须包含大写字母',
@@ -27,28 +44,14 @@ describe('PasswordPolicyPreview', () => {
     expect(wrapper.text()).toContain('缺少大写字母');
   });
 
-  it('loads the authoritative all-rules snapshot and overlays the current draft', async () => {
-    const request = vi.fn().mockResolvedValue([
-      {
-        id: 'rule-1',
-        title: '旧规则',
-        pattern: '.*\\d.*',
-        message: '缺少数字',
-        enabled: true,
-        scopeType: 'global',
-        sortOrder: 10,
-      },
-      {
-        id: 'rule-2',
-        title: '长度规则',
-        pattern: '.{6,}',
-        message: '至少六位',
-        enabled: true,
-        scopeType: 'global',
-        sortOrder: 20,
-      },
-    ]);
-    const wrapper = shallowMount(PasswordPolicyPreview, {
+  it('loads the effective all-rules snapshot and overlays the current draft', async () => {
+    const request = vi.fn().mockResolvedValue({
+      complexityRules: [
+        { pattern: '.*\\d.*', message: '缺少数字' },
+        { pattern: '.{6,}', message: '至少六位' },
+      ],
+    });
+    const wrapper = mount(PasswordPolicyPreview, {
       props: {
         context: cardContext(
           request,
@@ -70,25 +73,17 @@ describe('PasswordPolicyPreview', () => {
     await wrapper.findComponent({ name: 'UiInput' }).vm.$emit('update:value', 'Secret1');
 
     expect(request).toHaveBeenCalledTimes(1);
-    expect(request).toHaveBeenCalledWith({ path: '/iam.password_policy_rule/active-global-rules' });
+    expect(request).toHaveBeenCalledWith({ path: EFFECTIVE_PATH });
     expect(wrapper.text()).toContain('必须包含大写字母');
-    expect(wrapper.text()).toContain('长度规则');
-    expect(wrapper.text()).not.toContain('旧规则');
+    expect(wrapper.text()).toContain('至少六位');
     expect(wrapper.text()).not.toContain('分页外旧规则');
   });
 
-  it('uses the authoritative server fallback when no current rule is selected', async () => {
-    const request = vi.fn().mockResolvedValue([
-      {
-        title: '密码长度',
-        pattern: '^.{6,}$',
-        message: '密码长度不能少于 6 位',
-        enabled: true,
-        scopeType: 'global',
-        sortOrder: 10,
-      },
-    ]);
-    const wrapper = shallowMount(PasswordPolicyPreview, {
+  it('uses the effective server fallback when no current rule is selected', async () => {
+    const request = vi.fn().mockResolvedValue({
+      complexityRules: [{ pattern: '^.{6,}$', message: '密码长度不能少于 6 位' }],
+    });
+    const wrapper = mount(PasswordPolicyPreview, {
       props: {
         context: {
           ...cardContext(request, {}, noisyLoadedRecords()),
@@ -112,9 +107,9 @@ describe('PasswordPolicyPreview', () => {
     expect(wrapper.text()).not.toContain('分页外旧规则');
   });
 
-  it('reports an authoritative-snapshot failure instead of falling back to explorer data', async () => {
+  it('reports an effective-snapshot failure instead of falling back to explorer data', async () => {
     const request = vi.fn().mockRejectedValue(new Error('network unavailable'));
-    const wrapper = shallowMount(PasswordPolicyPreview, {
+    const wrapper = mount(PasswordPolicyPreview, {
       props: {
         context: {
           ...cardContext(request, {}, noisyLoadedRecords()),
@@ -131,19 +126,11 @@ describe('PasswordPolicyPreview', () => {
     expect(wrapper.text()).not.toContain('分页外旧规则');
   });
 
-  it('appends an enabled global create draft to the authoritative snapshot', async () => {
-    const request = vi.fn().mockResolvedValue([
-      {
-        id: 'rule-1',
-        title: '长度规则',
-        pattern: '.{6,}',
-        message: '至少六位',
-        enabled: true,
-        scopeType: 'global',
-        sortOrder: 10,
-      },
-    ]);
-    const wrapper = shallowMount(PasswordPolicyPreview, {
+  it('appends an enabled create draft to the effective snapshot', async () => {
+    const request = vi.fn().mockResolvedValue({
+      complexityRules: [{ pattern: '.{6,}', message: '至少六位' }],
+    });
+    const wrapper = mount(PasswordPolicyPreview, {
       props: {
         context: cardContext(request, {
           title: '必须包含特殊字符',
@@ -160,9 +147,73 @@ describe('PasswordPolicyPreview', () => {
     await flushPromises();
     await wrapper.findComponent({ name: 'UiInput' }).vm.$emit('update:value', 'Secret1');
 
-    expect(wrapper.text()).toContain('长度规则');
+    expect(wrapper.text()).toContain('至少六位');
     expect(wrapper.text()).toContain('必须包含特殊字符');
   });
+});
+
+it.each([
+  { tenantId: undefined, mode: 'custom', enabled: true, passed: true },
+  { tenantId: undefined, mode: 'custom', enabled: false, passed: true },
+  { tenantId: 't1', mode: 'custom', enabled: true, passed: true },
+  { tenantId: 't1', mode: 'inherit', enabled: true, passed: false },
+])(
+  'replaces an effective rule only when its draft applies: %o',
+  async ({ tenantId, mode, enabled, passed }) => {
+    const request = vi.fn().mockResolvedValue({
+      complexityMode: mode,
+      complexitySource: 'PLATFORM',
+      complexityRules: [
+        {
+          id: 'length',
+          tenantId: mode === 'custom' ? tenantId : undefined,
+          pattern: '.{8,}',
+          message: 'old minimum eight',
+        },
+      ],
+    });
+    const wrapper = mount(PasswordPolicyPreview, {
+      props: {
+        context: cardContext(request, {
+          id: 'length',
+          tenantId,
+          pattern: '.{6,}',
+          message: 'new minimum six',
+          enabled,
+        }),
+      },
+    });
+    await wrapper.findComponent({ name: 'UiRadioGroup' }).vm.$emit('update:value', 'ALL');
+    await flushPromises();
+    await wrapper.findComponent({ name: 'UiInput' }).vm.$emit('update:value', '123456');
+    expect(wrapper.findAll('.preview-results li')).toHaveLength(1);
+    expect(wrapper.find('.preview-results li').classes()).toContain(passed ? 'passed' : 'failed');
+    expect(wrapper.text().includes('old minimum eight')).toBe(mode === 'inherit');
+    wrapper.unmount();
+  },
+);
+
+it('replaces the empty-set fallback when a real draft rule is enabled', async () => {
+  const request = vi.fn().mockResolvedValue({
+    complexityMode: 'custom',
+    complexitySource: 'DEFAULT',
+    complexityRules: [{ pattern: '^.{6,}$', message: 'fallback' }],
+  });
+  const wrapper = mount(PasswordPolicyPreview, {
+    props: {
+      context: cardContext(request, {
+        pattern: '.{2,}',
+        message: 'two characters',
+        enabled: true,
+      }),
+    },
+  });
+  await wrapper.findComponent({ name: 'UiRadioGroup' }).vm.$emit('update:value', 'ALL');
+  await flushPromises();
+  await wrapper.findComponent({ name: 'UiInput' }).vm.$emit('update:value', 'ab');
+  expect(wrapper.findAll('.preview-results li')).toHaveLength(1);
+  expect(wrapper.find('.preview-results li').classes()).toContain('passed');
+  wrapper.unmount();
 });
 
 function noisyLoadedRecords(): readonly Readonly<Record<string, unknown>>[] {
@@ -200,12 +251,11 @@ function cardContext(
 
 it('projects password trial feedback without re-evaluating rules or reloading on language changes', async () => {
   const language = createLanguageContext({ languageTag: 'en' });
-  const request = vi.fn().mockResolvedValue([
-    { id: 'rule-a', title: '未命名规则', message: '未配置失败提示', pattern: 'A', scopeType: 'global' },
-    { id: 'rule-b', pattern: '', scopeType: 'global' },
-  ]);
+  const request = vi.fn().mockResolvedValue({
+    complexityRules: [{ pattern: 'A', message: '未配置失败提示' }, { pattern: '' }],
+  });
   const context = { ...cardContext(request, {}), mode: 'view' as const };
-  const wrapper = shallowMount(
+  const wrapper = mount(
     defineComponent({
       setup() {
         provideLanguageContext(language);
@@ -223,7 +273,6 @@ it('projects password trial feedback without re-evaluating rules or reloading on
   expect(trialCount()).toBe(1);
   expect(preview.text()).toContain('Unnamed rule');
   expect(preview.text()).toContain('The regular expression must not be empty');
-  // A business value equal to a platform fallback remains original.
   expect(preview.text()).toContain('未配置失败提示');
   expect(preview.text()).toContain('Rules failed: 2');
   language.setLanguage('zh-CN');
@@ -259,7 +308,7 @@ it('projects version-matched policy names and messages while preserving the brow
     },
   };
   const context = cardContext(request, rule);
-  const wrapper = shallowMount(
+  const wrapper = mount(
     defineComponent({
       setup() {
         provideLanguageContext(language);

@@ -238,6 +238,7 @@ export default defineComponent({
     <StaticManagementLayout
       v-if="flatManagementPage"
       class="module-flat-management-workspace"
+      :explorer-visible="!singleRecordManagementPage"
       :refreshable="businessVisible && (!managedPageActions || flatManagementRecycleBin.active.value)"
       :explorer-title="
         businessVisible
@@ -264,6 +265,23 @@ export default defineComponent({
       :detail-title="businessVisible ? detailTitle : ''"
       :detail-subtitle="businessVisible && editorMode !== 'view' ? recordFormScopeContext : undefined"
       :navigator-count="navigatorExplorerCount + tenantScopeExplorerCount"
+      :navigator-options="[
+        ...(tenantScopeExplorerVisible
+          ? [
+              {
+                title: language.t('platform.screen.ModulePageHostRuntime.tenant', '租户'),
+                collapsible: true,
+                hasSelection: Boolean(tenantController.selectedId.value),
+              },
+            ]
+          : []),
+        ...(navigatorExtension ? [{ title: '' }] : []),
+        ...visibleNavigatorLevels.map((level) => ({
+          title: businessVisible ? level.descriptor.title : '',
+          collapsible: true,
+          hasSelection: selectedNavigatorRecords[level.descriptor.key]?.id != null,
+        })),
+      ]"
       @update:explorer-search-keyword="flatManagementSearchKeyword = $event"
       @refresh="businessVisible && flatManagementRecycleBin.refresh()"
     >
@@ -284,6 +302,9 @@ export default defineComponent({
               navigatorLevelAt(index - tenantScopeExplorerCount)
             "
             :level="navigatorLevelAt(index - tenantScopeExplorerCount)!"
+            :empty-selection-label="
+              navigatorEmptySelectionLabel(navigatorLevelAt(index - tenantScopeExplorerCount)!.descriptor.key)
+            "
             :selected-id="
               selectedNavigatorRecords[navigatorLevelAt(index - tenantScopeExplorerCount)!.descriptor.key]
                 ?.id == null
@@ -334,6 +355,9 @@ export default defineComponent({
               )
             "
             @deselect="
+              deselectNavigatorRecord(navigatorLevelAt(index - tenantScopeExplorerCount)!.descriptor.key)
+            "
+            @select-default="
               clearNavigatorRecord(navigatorLevelAt(index - tenantScopeExplorerCount)!.descriptor.key)
             "
             @action="
@@ -442,6 +466,7 @@ export default defineComponent({
           <CrudRecordListExplorer
             v-if="navigatorListScopeReady"
             :context="context"
+            :show-records="!singleRecordManagementPage"
             :selected-id="selectedRecord?.id == null ? undefined : String(selectedRecord.id)"
             :reload-key="flatManagementRecycleBin.reloadKey.value"
             :mode="flatManagementRecycleBin.mode.value"
@@ -537,7 +562,12 @@ export default defineComponent({
       </template>
       <template v-if="businessVisible">
         <RecordPanelState
-          v-if="!selectedRecord && editorMode === 'view'"
+          v-if="
+            !selectedRecord &&
+            editorMode === 'view' &&
+            (!singleRecordManagementPage || singleRecordScopeEmpty) &&
+            !enhancementCardAssistant?.handlesEmptyDetail
+          "
           :description="flatManagementContent?.detailEmptyDescription ?? detailEmptyDescription"
         />
         <RecordPanelState
@@ -631,6 +661,7 @@ export default defineComponent({
         <template v-if="businessVisible">
           <PageNavigatorExplorer
             :level="level"
+            :empty-selection-label="navigatorEmptySelectionLabel(level.descriptor.key)"
             :selected-id="
               selectedNavigatorRecords[level.descriptor.key]?.id == null
                 ? undefined
@@ -653,7 +684,8 @@ export default defineComponent({
             @loaded="(records, complete) => handleNavigatorLoaded(level, records, complete)"
             @query-controller-change="bindNavigatorQueryController"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
-            @deselect="clearNavigatorRecord(level.descriptor.key)"
+            @deselect="deselectNavigatorRecord(level.descriptor.key)"
+            @select-default="clearNavigatorRecord(level.descriptor.key)"
             @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
             @toggle-sorting="toggleNavigatorSorting(level)"
           >
@@ -934,6 +966,7 @@ export default defineComponent({
         <template v-if="businessVisible">
           <PageNavigatorExplorer
             :level="level"
+            :empty-selection-label="navigatorEmptySelectionLabel(level.descriptor.key)"
             :selected-id="
               selectedNavigatorRecords[level.descriptor.key]?.id == null
                 ? undefined
@@ -956,7 +989,8 @@ export default defineComponent({
             @loaded="(records, complete) => handleNavigatorLoaded(level, records, complete)"
             @query-controller-change="bindNavigatorQueryController"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
-            @deselect="clearNavigatorRecord(level.descriptor.key)"
+            @deselect="deselectNavigatorRecord(level.descriptor.key)"
+            @select-default="clearNavigatorRecord(level.descriptor.key)"
             @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
             @toggle-sorting="toggleNavigatorSorting(level)"
           >

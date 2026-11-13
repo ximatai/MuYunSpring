@@ -47,6 +47,8 @@ const props = withDefaults(
   defineProps<{
     context: ModuleContext<CrudRecordListBase>;
     selectedId?: string;
+    /** Retain standard query, loading and retry lifecycle without a redundant record selector. */
+    showRecords?: boolean;
     reloadKey?: number;
     /**
      * Descriptor-owned criteria from an upstream navigator selection.
@@ -77,6 +79,7 @@ const props = withDefaults(
   }>(),
   {
     selectedId: undefined,
+    showRecords: true,
     reloadKey: undefined,
     externalQueryValues: undefined,
     navigatorHostModuleAlias: undefined,
@@ -649,7 +652,7 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
 </script>
 
 <template>
-  <div class="crud-record-list-explorer">
+  <div v-show="showRecords || loading || loadError || currentContentStatus" class="crud-record-list-explorer">
     <RecordQuerySortSelector
       v-if="currentContentStatus && contentQuerySchema"
       :fields="contentQuerySchema.fields.filter((field) => field.sortable)"
@@ -669,7 +672,7 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
     }}</UiButton>
     <UiSpin v-if="loading && records.length === 0" :tip="resolvedLoadingTip" />
     <RecordListExplorer
-      v-else
+      v-else-if="showRecords"
       :records="listRecords"
       :change-reason="changeReason"
       :selected-id="selectedId"

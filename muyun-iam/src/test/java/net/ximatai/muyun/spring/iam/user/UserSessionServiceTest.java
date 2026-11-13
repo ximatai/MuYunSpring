@@ -47,6 +47,27 @@ class UserSessionServiceTest {
     }
 
     @Test
+    void unknownAccountReturnsTheSamePublicLockGuidanceAndSpendsPasswordVerification() {
+        var accounts = mock(UserAccountService.class);
+        var failures = mock(UnavailablePasswordLoginService.class);
+        var guidance = new LoginFailureFeedback(clock.instant(), clock.instant().plusSeconds(900), true, null);
+        when(failures.recordFailure("tenant-a", "missing", clock.instant())).thenReturn(guidance);
+        var audit = new RecordingLoginAuditLogger();
+        var collaborators = new UserSessionCollaborators(null, null, null, null, null, null, () -> audit);
+        var sessions = new UserSessionService(accounts,
+                new UserSessionRecordService(mock(UserSessionDao.class), mock(net.ximatai.muyun.database.core.IDatabaseOperations.class)),
+                tenant -> {}, collaborators, clock, failures);
+        assertThatThrownBy(() -> sessions.login("tenant-a", "missing", "wrong"))
+                .isInstanceOfSatisfying(AuthenticationFailedException.class, error -> {
+                    assertThat(error.code()).isEqualTo("LOGIN_BAD_CREDENTIALS");
+                    assertThat(error.details()).containsEntry("loginFailure", guidance);
+                });
+        verify(accounts).spendPasswordVerification("wrong");
+        assertThat(audit.events).singleElement().satisfies(event ->
+                assertThat(event.details().reasonCode()).isEqualTo("UNKNOWN_ACCOUNT"));
+    }
+
+    @Test
     void shouldCreateUserWithHashedPasswordAndLoginAsCurrentUser() {
         UserAccountDao dao = userDao();
         when(dao.insert(any())).thenAnswer(invocation -> {
@@ -284,8 +305,7 @@ class UserSessionServiceTest {
             user.setFailedLoginCount(previousFailures);
             UserAccountDao dao = userDao();
             when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-            UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
-            userService.setLoginLockoutPolicy(Optional.of(LoginLockoutPolicy.of(4, Duration.ofMinutes(2))));
+            UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService, LoginLockoutPolicy.of(4, Duration.ofMinutes(2)));
             UserSessionService sessionService = sessionService(userService, mock(UserSessionDao.class), clock);
             int remaining = 3 - previousFailures;
             assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "wrong-password"))
@@ -307,8 +327,7 @@ class UserSessionServiceTest {
         user.setFailedLoginCount(LoginLockoutPolicy.DEFAULT_MAX_FAILED_ATTEMPTS - 1);
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
-        userService.setLoginLockoutPolicy(Optional.of(LoginLockoutPolicy.of(0, null)));
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService, LoginLockoutPolicy.of(0, null));
         UserSessionService sessionService = sessionService(userService, mock(UserSessionDao.class), clock);
 
         assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "wrong-password"))
@@ -1188,7 +1207,7 @@ class UserSessionServiceTest {
                 null,
                 presenceLookup);
         return new UserSessionService(userAccountService, userSessionRecordService, activeTenantVerifier,
-                collaborators, clock);
+                collaborators, clock, mock(UnavailablePasswordLoginService.class));
     }
 
     private UserSessionService sessionServiceWithLoginAudit(UserAccountService userAccountService,
@@ -1212,7 +1231,7 @@ class UserSessionServiceTest {
                 () -> UserSessionPresenceLookup.NONE,
                 () -> loginAuditLogger);
         return new UserSessionService(userAccountService, new UserSessionRecordService(userSessionDao, mock(net.ximatai.muyun.database.core.IDatabaseOperations.class)),
-                userAccountService, collaborators, clock);
+                userAccountService, collaborators, clock, mock(UnavailablePasswordLoginService.class));
     }
 
     private UserAccount activeUser() {

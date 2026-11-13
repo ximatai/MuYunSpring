@@ -35,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -194,6 +195,7 @@ class UserAccountServiceContractTest {
             return 1;
         });
         PasswordPolicyRuleService passwordPolicyRuleService = mock(PasswordPolicyRuleService.class);
+        when(passwordPolicyRuleService.platformActiveRules()).thenReturn(List.of(permissiveRule()));
         UserAccountService service = userAccountServiceFixture(dao, tenantId -> {
         }, passwordHashingService).passwordPolicy(passwordPolicyRuleService).build();
 
@@ -205,17 +207,15 @@ class UserAccountServiceContractTest {
             service.changeOwnPassword("user-1", "admin2", "own3");
         }
 
-        verify(passwordPolicyRuleService).validatePassword("create1");
-        verify(passwordPolicyRuleService).validatePassword("admin2");
-        verify(passwordPolicyRuleService).validatePassword("own3");
+        // Every password-setting path resolves the effective policy for the target tenant.
+        verify(passwordPolicyRuleService, atLeast(3)).platformActiveRules();
     }
 
     @Test
     void shouldRejectPasswordWhenPolicyRuleFails() {
         UserAccountDao dao = mock(UserAccountDao.class);
         PasswordPolicyRuleService passwordPolicyRuleService = mock(PasswordPolicyRuleService.class);
-        org.mockito.Mockito.doThrow(new BusinessException("iam.user.password-policy-violated", "密码必须包含数字"))
-                .when(passwordPolicyRuleService).validatePassword("secret");
+        when(passwordPolicyRuleService.platformActiveRules()).thenReturn(List.of(digitRule()));
         UserAccountService service = userAccountServiceFixture(dao, tenantId -> {
         }, passwordHashingService).passwordPolicy(passwordPolicyRuleService).build();
 
@@ -534,7 +534,7 @@ class UserAccountServiceContractTest {
             assertThat(user.getPasswordExpiresAt()).isEqualTo(result.expiresAt());
         }
 
-        verify(passwordPolicyRuleService, atLeastOnce()).validatePassword(any());
+        verify(passwordPolicyRuleService, atLeastOnce()).platformActiveRules();
     }
 
     @Test
@@ -724,6 +724,92 @@ class UserAccountServiceContractTest {
                 .orElseThrow(() -> new AssertionError("Missing query field: " + fieldName));
     }
 
+    @Test
+    void passwordAdministrationResolvesTheTargetAccountsTenantUnderSystemOperator() {
+        UserAccountDao dao = mock(UserAccountDao.class);
+        UserAccount user = activeUser();
+        when(dao.count(any(Criteria.class))).thenReturn(1L);
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        when(dao.updateByIdAndVersion(any(UserAccount.class), any())).thenAnswer(call -> {
+            org.springframework.beans.BeanUtils.copyProperties(call.<UserAccount>getArgument(0), user);
+            return 1;
+        });
+        PasswordSecurityPolicyResolver resolver = mock(PasswordSecurityPolicyResolver.class);
+        when(resolver.matchesAll(any(), any())).thenReturn(true);
+        when(resolver.resolve(eq("tenant-a"))).thenReturn(new ResolvedPasswordSecurityPolicy(
+                "tenant-a", ResolvedPasswordSecurityPolicy.ComplexitySource.DEFAULT,
+                List.of(new EffectivePasswordRule("^.*$", net.ximatai.muyun.spring.common.i18n.TextReference.code("k", "ok"))),
+                0, null, ResolvedPasswordSecurityPolicy.LockoutSource.PLATFORM_DB));
+        UserAccountService service = userAccountServiceFixture(dao, tenantId -> {
+        }, passwordHashingService).passwordSecurityResolver(resolver).build();
+
+        // A platform super administrator manages the account within its business tenant scope.
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            service.changePassword("user-1", "NewPass12");
+            UserAccountService.PasswordResetResult result = service.resetPassword("user-1");
+            assertThat(result.count()).isEqualTo(1);
+            assertThat(result.temporaryPassword()).isNotBlank();
+        }
+
+        // The effective policy is resolved for the target account's tenant, not the system operator.
+        verify(resolver).validateComplexity(eq("NewPass12"), eq("tenant-a"));
+        verify(resolver).resolve(eq("tenant-a"));
+        verify(resolver).matchesAll(any(), any());
+    }
+
+    @Test
+    void runtimeThresholdChangesApplyOnNextFailureAndPreserveExistingLockDeadline() {
+        UserAccountDao dao = mock(UserAccountDao.class);
+        UserAccount user = activeUser();
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        when(dao.updateByIdAndVersion(any(UserAccount.class), any())).thenAnswer(call -> {
+            org.springframework.beans.BeanUtils.copyProperties(call.<UserAccount>getArgument(0), user);
+            return 1;
+        });
+        PasswordSecurityPolicyResolver resolver = mock(PasswordSecurityPolicyResolver.class);
+        java.util.concurrent.atomic.AtomicInteger threshold = new java.util.concurrent.atomic.AtomicInteger(5);
+        when(resolver.resolve(eq("tenant-a"))).thenAnswer(call -> new ResolvedPasswordSecurityPolicy(
+                "tenant-a", ResolvedPasswordSecurityPolicy.ComplexitySource.DEFAULT, List.of(),
+                threshold.get(), threshold.get() == 0 ? null : java.time.Duration.ofSeconds(60),
+                ResolvedPasswordSecurityPolicy.LockoutSource.TENANT));
+        UserAccountService service = userAccountServiceFixture(dao, tenantId -> {
+        }, passwordHashingService).passwordSecurityResolver(resolver).build();
+        java.time.Instant now = java.time.Instant.parse("2026-11-12T00:00:00Z");
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            service.recordLoginFailure(user, now);
+            assertThat(user.getFailedLoginCount()).isEqualTo(1);
+            assertThat(user.getLockedUntil()).isNull();
+            threshold.set(2);
+            service.recordLoginFailure(user, now.plusSeconds(1));
+            assertThat(user.getFailedLoginCount()).isZero();
+            java.time.Instant deadline = now.plusSeconds(61);
+            assertThat(user.getLockedUntil()).isEqualTo(deadline);
+            threshold.set(0);
+            service.recordLoginFailure(user, now.plusSeconds(2));
+            assertThat(user.getLockedUntil()).isEqualTo(deadline);
+            assertThat(user.getFailedLoginCount()).isZero();
+            service.recordLoginFailure(user, deadline.plusSeconds(1));
+            assertThat(user.getFailedLoginCount()).isEqualTo(1);
+            assertThat(service.loginLocked(user, deadline.plusSeconds(1))).isFalse();
+        }
+    }
+
+    private static PasswordPolicyRule permissiveRule() {
+        PasswordPolicyRule rule = new PasswordPolicyRule();
+        rule.setPattern("^.*$");
+        rule.setMessage("任意密码");
+        rule.setEnabled(Boolean.TRUE);
+        return rule;
+    }
+
+    private static PasswordPolicyRule digitRule() {
+        PasswordPolicyRule rule = new PasswordPolicyRule();
+        rule.setPattern("^.*\\d.*$");
+        rule.setMessage("密码必须包含数字");
+        rule.setEnabled(Boolean.TRUE);
+        return rule;
+    }
+
     private static final class UserAccountServiceFixture {
         private final UserAccountDao dao;
         private final net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier activeTenantVerifier;
@@ -731,6 +817,7 @@ class UserAccountServiceContractTest {
         private DataScopeCriteriaService dataScopeCriteriaService =
                 new net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService();
         private PasswordPolicyRuleService passwordPolicyRuleService;
+        private PasswordSecurityPolicyResolver passwordSecurityPolicyResolver;
         private AccountRoleGrantDao accountRoleGrantDao = mock(AccountRoleGrantDao.class);
         private UserSecurityEventPublisher securityEventPublisher = UserSecurityEventPublisher.NOOP;
         private UserSessionRevocationService sessionRevocationService = mock(UserSessionRevocationService.class);
@@ -752,6 +839,11 @@ class UserAccountServiceContractTest {
 
         UserAccountServiceFixture passwordPolicy(PasswordPolicyRuleService value) {
             passwordPolicyRuleService = value;
+            return this;
+        }
+
+        UserAccountServiceFixture passwordSecurityResolver(PasswordSecurityPolicyResolver value) {
+            passwordSecurityPolicyResolver = value;
             return this;
         }
 
@@ -781,7 +873,13 @@ class UserAccountServiceContractTest {
                     activeTenantVerifier,
                     passwordHashingService,
                     accountRoleGrantDao,
-                    new UserAccountSecurityServices(Optional.ofNullable(passwordPolicyRuleService),
+                    new UserAccountSecurityServices(
+                            passwordSecurityPolicyResolver != null
+                                    ? passwordSecurityPolicyResolver
+                                    : UserAccountServiceTestFactory.defaultResolver(
+                                            LoginLockoutPolicy.defaults(),
+                                            passwordPolicyRuleService == null
+                                                    ? mock(PasswordPolicyRuleService.class) : passwordPolicyRuleService),
                             securityEventPublisher, sessionRevocationService, sessionPresenceService, mock(PersonalAccessTokenStore.class))) {
                 @Override
                 public DataScopeCriteriaService getDataScopeCriteriaService() {

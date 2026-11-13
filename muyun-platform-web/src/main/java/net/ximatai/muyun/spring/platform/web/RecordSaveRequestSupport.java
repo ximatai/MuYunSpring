@@ -24,7 +24,7 @@ public final class RecordSaveRequestSupport {
     }
 
     public static <T extends EntityContract> T execute(CrudWeb<T, ?> controller,
-            String action, String recordId, T payload, Supplier<T> save) {
+            String action, String recordId, Object payload, Supplier<T> save) {
         if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes))
             return save.get();
         var request = attributes.getRequest();

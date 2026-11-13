@@ -71,6 +71,7 @@ export type {
   ModulePageLockedNavigatorEntry,
   ModulePageCardAssistant,
   ModulePageCardAssistantContext,
+  ModulePageWorkspaceDraft,
   ModulePageCardAssistantPlacement,
   ModulePageRecordActionContext,
   ModulePageRecordActionContribution,

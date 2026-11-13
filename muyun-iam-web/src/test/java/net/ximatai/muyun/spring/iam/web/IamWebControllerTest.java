@@ -2036,7 +2036,7 @@ class IamWebControllerTest {
                     new PasswordHashingService(),
                     mock(net.ximatai.muyun.spring.iam.role.AccountRoleGrantDao.class),
                     new net.ximatai.muyun.spring.iam.user.UserAccountSecurityServices(
-                            java.util.Optional.empty(),
+                            new net.ximatai.muyun.spring.iam.user.PasswordSecurityPolicyResolver(mock(net.ximatai.muyun.spring.iam.user.PasswordSecurityPolicyService.class), mock(net.ximatai.muyun.spring.iam.user.PasswordPolicyRuleService.class)),
                             net.ximatai.muyun.spring.iam.user.UserSecurityEventPublisher.NOOP,
                             mock(net.ximatai.muyun.spring.iam.user.UserSessionRevocationService.class),
                             mock(net.ximatai.muyun.spring.iam.user.UserSessionPresenceService.class),

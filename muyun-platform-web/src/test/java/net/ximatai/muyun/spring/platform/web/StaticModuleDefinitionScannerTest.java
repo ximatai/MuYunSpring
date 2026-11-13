@@ -20,7 +20,10 @@ import net.ximatai.muyun.spring.iam.web.DepartmentWebController;
 import net.ximatai.muyun.spring.iam.web.EmployeeWebController;
 import net.ximatai.muyun.spring.iam.web.LoginWebController;
 import net.ximatai.muyun.spring.iam.web.OrganizationWebController;
+import net.ximatai.muyun.spring.iam.user.LoginLockoutPolicy;
+import net.ximatai.muyun.spring.iam.user.PasswordSecurityPolicyResolver;
 import net.ximatai.muyun.spring.iam.web.PasswordPolicyRuleWebController;
+import net.ximatai.muyun.spring.iam.web.PasswordSecurityPolicyWebController;
 import net.ximatai.muyun.spring.iam.web.PositionCategoryWebController;
 import net.ximatai.muyun.spring.iam.web.PositionWebController;
 import net.ximatai.muyun.spring.iam.web.RoleWebController;
@@ -303,6 +306,12 @@ class StaticModuleDefinitionScannerTest {
                     java.util.List.of()));
             context.registerBean(PasswordPolicyRuleWebController.class,
                     () -> withService(new PasswordPolicyRuleWebController(), mock(PasswordPolicyRuleService.class)));
+            context.registerBean(PasswordSecurityPolicyWebController.class,
+                    () -> new PasswordSecurityPolicyWebController(
+                            mock(PasswordSecurityPolicyResolver.class),
+                            mock(net.ximatai.muyun.spring.iam.user.PasswordSecurityWorkspaceService.class),
+                            mock(net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService.class),
+                            mock(ActionEndpointContextResolver.class)));
             context.refresh();
             StaticModuleDefinitionScanner scanner = new StaticModuleDefinitionScanner(context);
 
@@ -318,7 +327,7 @@ class StaticModuleDefinitionScannerTest {
             assertThat(byAlias.keySet()).containsExactlyInAnyOrder(
                     "iam.tenant", "iam.organization", "iam.department", "iam.employee",
                     "iam.position_category", "iam.position", "iam.role", "iam.user",
-                    "iam.password_policy_rule");
+                    "iam.password_policy_rule", "iam.password_security_policy");
             assertThat(byAlias.get("iam.tenant")).satisfies(definition -> {
                 assertThat(definition.tenantRequired()).isFalse();
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
@@ -640,7 +649,7 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(ModuleUiDescriptorCompiler.compile(definition).page()).satisfies(page -> {
                     assertThat(page.template()).isEqualTo(ModulePageTemplate.FLAT_MANAGEMENT);
                     assertThat(page.explorer().title()).isEqualTo("密码规则");
-                    assertThat(page.explorer().secondaryField()).isNull();
+                    assertThat(page.explorer().secondaryField()).isEqualTo("message");
                     assertThat(page.detail().createTitle()).isEqualTo("新建密码规则");
                     assertThat(page.detail().showSystemInfo()).isFalse();
                     assertThat(page.detail().editor().fields())
@@ -654,6 +663,44 @@ class StaticModuleDefinitionScannerTest {
                         .containsExactly("menu", "create", "view", "update", "delete", "query",
                                 "sort", "enable", "disable");
             });
+            assertThat(byAlias.get("iam.password_security_policy")).satisfies(definition -> {
+                assertThat(definition.applicationAlias()).isEqualTo("iam");
+                assertThat(definition.title()).isEqualTo("密码安全策略");
+                assertThat(definition.uiDefinition().page()).isInstanceOf(FlatManagementPageDefinition.class);
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page()).satisfies(page -> {
+                    assertThat(page.template()).isEqualTo(ModulePageTemplate.FLAT_MANAGEMENT);
+                    assertThat(page.detail().editor().fields())
+                            .extracting(field -> field.fieldRef().fieldName())
+                            .contains("complexityMode", "lockoutMode", "maxFailedAttempts", "lockDurationSeconds");
+                    assertThat(page.detail().editor().formGroups())
+                            .extracting(group -> group.groupCode()).containsExactly("complexity", "lockout");
+                    assertThat(page.detail().editor().fields())
+                            .filteredOn(field -> field.fieldRef().fieldName().equals("complexityMode"))
+                            .singleElement().satisfies(field ->
+                                    assertThat(field.visible().formula().expression()).isEqualTo("PRESENT({tenantId})"));
+                    assertThat(page.detail().editor().fields())
+                            .filteredOn(field -> field.fieldRef().fieldName().equals("lockDurationSeconds"))
+                            .singleElement().satisfies(field -> {
+                                assertThat(field.visible().formula()).isNotNull();
+                                assertThat(field.visible().formula().expression())
+                                        .contains("{lockoutMode} == 'custom'", "{maxFailedAttempts} != 0");
+                                assertThat(field.required().formula().expression())
+                                        .isEqualTo(field.visible().formula().expression());
+                            });
+                });
+                assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
+                        .containsExactly("menu", "create", "view", "update", "delete", "query",
+                                "effectivePasswordPolicy", "savePasswordSecurity");
+                assertThat(definition.actions())
+                        .filteredOn(action -> action.actionCode().equals("effectivePasswordPolicy"))
+                        .singleElement()
+                        .satisfies(action -> assertThat(action.actionLevel()).isEqualTo(EntityActionLevel.LIST));
+            });
+            // Rule editing is served only by the standard rule module; the policy module must not
+            // re-implement parallel rule CRUD endpoints.
+            assertThat(java.util.Arrays.stream(PasswordSecurityPolicyWebController.class.getDeclaredMethods())
+                    .map(java.lang.reflect.Method::getName))
+                    .noneMatch(name -> name.toLowerCase().contains("passwordrule"));
         }
     }
 

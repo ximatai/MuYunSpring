@@ -6,8 +6,8 @@ import java.time.Duration;
  * Account lockout after consecutive credential failures. A locked account rejects every credential
  * attempt until the lock expires. Password login may disclose the lock deadline and near-limit
  * remaining attempts, without evaluating credentials during the lock.
- * Applications configure it through {@code muyun.iam.login.lockout.*}; it is not a bean replacement
- * extension point.
+ * Runtime values come exclusively from the persisted platform or tenant password security policy.
+ * The constants below are used only to initialize the platform database record.
  */
 public interface LoginLockoutPolicy {
     int DEFAULT_MAX_FAILED_ATTEMPTS = 5;

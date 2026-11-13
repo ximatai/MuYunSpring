@@ -3,6 +3,11 @@ package net.ximatai.muyun.spring.iam.web;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.web.WebQueryRequest;
+import net.ximatai.muyun.spring.web.WebQueryCondition;
 import net.ximatai.muyun.spring.iam.user.PasswordPolicyRule;
 import net.ximatai.muyun.spring.iam.user.PasswordPolicyRuleDao;
 import net.ximatai.muyun.spring.iam.user.PasswordPolicyRuleService;
@@ -22,6 +27,25 @@ import static org.mockito.Mockito.when;
 
 class PasswordPolicyRuleWebControllerTest {
     @Test
+    void supportsLoadingTheCompleteScopedRuleDraft() {
+        assertThat(new PasswordPolicyRuleWebController().supportsUnpagedQuery()).isTrue();
+    }
+    @Test
+    void systemWorkspaceDefaultsToPlatformRulesAndRetainsAnExplicitTenant() {
+        PasswordPolicyRuleWebController controller = new PasswordPolicyRuleWebController();
+        WebQueryRequest request = new WebQueryRequest(null, List.of(), List.of());
+        try (CurrentUserContext.Scope actor = CurrentUserContext.use(CurrentUser.systemUser("admin", "Admin"))) {
+            assertThat(controller.queryForCurrentWorkspace(request).conditions())
+                    .containsExactly(new WebQueryCondition("tenantId", "NULL", List.of()));
+            WebQueryRequest selected = request.withExternalQueryValues(java.util.Map.of("tenantId", "t1"));
+            assertThat(controller.queryForCurrentWorkspace(selected)).isSameAs(selected);
+        }
+        try (CurrentUserContext.Scope actor = CurrentUserContext.use(CurrentUser.tenantUser("admin", "Admin", "t1"))) {
+            assertThat(controller.queryForCurrentWorkspace(request)).isSameAs(request);
+        }
+    }
+
+    @Test
     void shouldAuthorizeTheRuleSnapshotThroughTheStandardQueryAction() throws NoSuchMethodException {
         ActionEndpoint endpoint = PasswordPolicyRuleWebController.class
                 .getMethod("activeGlobalRuleSnapshots")
@@ -38,9 +62,11 @@ class PasswordPolicyRuleWebControllerTest {
         PasswordPolicyRuleWebController controller = new PasswordPolicyRuleWebController();
         ReflectionTestUtils.setField(controller, "service", new PasswordPolicyRuleService(dao));
 
-        assertThat(controller.activeGlobalRuleSnapshots()).containsExactly(
-                new PasswordPolicyPreviewRuleSnapshot(
-                        null, "密码长度", "^.{6,}$", "密码长度不能少于 6 位", true, "global", 10));
+        try (TenantContext.Scope ignored = TenantContext.system("password-policy-rule-preview-test")) {
+            assertThat(controller.activeGlobalRuleSnapshots()).containsExactly(
+                    new PasswordPolicyPreviewRuleSnapshot(
+                            null, "密码长度", "^.{6,}$", "密码长度不能少于 6 位", true, "global", 10));
+        }
     }
 
     @Test
@@ -59,10 +85,12 @@ class PasswordPolicyRuleWebControllerTest {
         rule.setScopeId("must-not-be-projected");
         when(service.activeGlobalRules()).thenReturn(List.of(rule));
 
-        assertThat(controller.activeGlobalRuleSnapshots()).containsExactly(
-                new PasswordPolicyPreviewRuleSnapshot(
-                        "rule-1", "必须包含大写字母", ".*[A-Z].*", "必须包含大写字母",
-                        true, "global", 20));
+        try (TenantContext.Scope ignored = TenantContext.system("password-policy-rule-preview-test")) {
+            assertThat(controller.activeGlobalRuleSnapshots()).containsExactly(
+                    new PasswordPolicyPreviewRuleSnapshot(
+                            "rule-1", "必须包含大写字母", ".*[A-Z].*", "必须包含大写字母",
+                            true, "global", 20));
+        }
         verify(service).activeGlobalRules();
     }
 }

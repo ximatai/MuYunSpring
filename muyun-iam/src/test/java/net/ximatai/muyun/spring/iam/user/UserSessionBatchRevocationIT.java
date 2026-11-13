@@ -76,14 +76,14 @@ class UserSessionBatchRevocationIT {
         revocations = new UserSessionRevocationService(records, (UserSessionLifecycleEventPublisher) events::add,
                 Clock.fixed(NOW, ZoneOffset.UTC));
         accounts = new UserAccountService(accountDao, tenant -> {}, new PasswordHashingService(),
-                mock(AccountRoleGrantDao.class), new UserAccountSecurityServices(Optional.empty(),
+                mock(AccountRoleGrantDao.class), new UserAccountSecurityServices(new net.ximatai.muyun.spring.iam.user.PasswordSecurityPolicyResolver(mock(net.ximatai.muyun.spring.iam.user.PasswordSecurityPolicyService.class), mock(net.ximatai.muyun.spring.iam.user.PasswordPolicyRuleService.class)),
                 UserSecurityEventPublisher.NOOP, revocations, mock(UserSessionPresenceService.class), mock(net.ximatai.muyun.spring.iam.user.PersonalAccessTokenStore.class))) {
             @Override public net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService getDataScopeCriteriaService() {
                 return new AllowAllDataScopeCriteriaService();
             }
         };
         authentication = new UserSessionService(accounts, records, tenant -> {},
-                UserSessionCollaborators.empty(), Clock.fixed(NOW, ZoneOffset.UTC));
+                UserSessionCollaborators.empty(), Clock.fixed(NOW, ZoneOffset.UTC), mock(UnavailablePasswordLoginService.class));
     }
     @AfterEach void cleanup() {
         PlatformAbilityRuntime.resetMutationTransactionOperator();
