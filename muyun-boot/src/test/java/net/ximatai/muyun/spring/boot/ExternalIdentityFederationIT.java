@@ -1240,12 +1240,14 @@ class ExternalIdentityFederationIT {
         assertThat(jdbcTemplate.queryForList("select status from iam_join_application where provider_id=?", String.class, fixture.provider()))
                 .containsOnly("pending");
         assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isZero();
-        assertThat(post("/iam.join_application/" + approved + "/approve", Map.of(), approveToken).getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(post("/iam.join_application/" + rejected + "/reject", Map.of(), rejectToken).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post("/iam.join_application/" + approved + "/approve", Map.of("note", "Approved for pilot"), approveToken).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post("/iam.join_application/" + rejected + "/reject", null, rejectToken).getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(jdbcTemplate.queryForObject("select status from iam_join_application where id=?", String.class, approved)).isEqualTo("approved");
         assertThat(jdbcTemplate.queryForObject("select status from iam_join_application where id=?", String.class, rejected)).isEqualTo("rejected");
         assertThat(jdbcTemplate.queryForObject("select reviewer_id from iam_join_application where id=?", String.class, approved))
                 .isEqualTo(jdbcTemplate.queryForObject("select id from iam_user where tenant_id=? and username='http_approver'", String.class, TENANT));
+        assertThat(jdbcTemplate.queryForObject("select review_note from iam_join_application where id=?", String.class, approved)).isEqualTo("Approved for pilot");
+        assertThat(jdbcTemplate.queryForObject("select review_note from iam_join_application where id=?", String.class, rejected)).isNull();
         assertThat(count("iam_external_identity", "provider_id", fixture.provider())).isEqualTo(1);
         assertThat(provisioningScan(fixture.provider(), "http-approved").path("result").path("login").path("token").asText()).isNotBlank();
         assertThat(provisioningScan(fixture.provider(), "http-rejected").path("result").path("status").asText()).isEqualTo("reviewRejected");

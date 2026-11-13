@@ -286,9 +286,9 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
       recordViewContext(record: { id: string }): { close(): void };
     };
     session.detailSectionContext({ id: 'supplier-1' }).reload();
-    await flush();
-    await flush();
-    expect(wrapper.emitted('record-change')).toHaveLength(changesBeforeReload + 1);
+    await vi.waitFor(() => {
+      expect(wrapper.emitted('record-change')).toHaveLength(changesBeforeReload + 1);
+    });
     expect(browser.active.value?.recordId).toBe('supplier-1');
 
     // Both response orders must retain the latest requested snapshot.

@@ -16,16 +16,21 @@ import org.springframework.web.bind.annotation.*;
 public class JoinApplicationWebController extends StaticModuleWebControllerAdapter<JoinApplicationService>
         implements StaticQueryViewWeb<JoinApplication, JoinApplicationService>, StaticModuleUiContributor {
     @PostMapping("/{id}/approve")
-    @CustomActionEndpoint(value = "approve", title = "批准加入", level = PlatformActionLevel.RECORD, pageInvocable = true)
-    public void approve(@PathVariable String id) { webScope(() -> { service().review(id, true, null); return null; }); }
+    @CustomActionEndpoint(value = "approve", title = "批准加入", level = PlatformActionLevel.RECORD)
+    public void approve(@PathVariable String id, @RequestBody(required = false) ReviewRequest request) {
+        webScope(() -> { service().review(id, true, request == null ? null : request.note()); return null; });
+    }
 
     @PostMapping("/{id}/reject")
-    @CustomActionEndpoint(value = "reject", title = "拒绝加入", level = PlatformActionLevel.RECORD, pageInvocable = true)
-    public void reject(@PathVariable String id) { webScope(() -> { service().review(id, false, null); return null; }); }
+    @CustomActionEndpoint(value = "reject", title = "拒绝加入", level = PlatformActionLevel.RECORD)
+    public void reject(@PathVariable String id, @RequestBody(required = false) ReviewRequest request) {
+        webScope(() -> { service().review(id, false, request == null ? null : request.note()); return null; });
+    }
+
+    public record ReviewRequest(String note) {}
 
     @Override public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(JoinApplicationService.MODULE_ALIAS)
-                .pageAction("approve", PageActionAnchor.DETAIL).pageAction("reject", PageActionAnchor.DETAIL)
                 .page(PageTemplates.listDetailCard(page -> page
                         .list(list -> list.fields(fields -> fields
                                 .field("displayName", f -> f.label("申请人"))

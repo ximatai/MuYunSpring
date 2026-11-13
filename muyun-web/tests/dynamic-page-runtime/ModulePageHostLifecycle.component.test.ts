@@ -1080,6 +1080,76 @@ it('refreshes a declared enhancement drawer heading without reactivating the pag
   }
 });
 
+it.each([false, true])('reloads an action drawer target once (recordOnly=%s)', async (recordOnly) => {
+  const { configureModulePageEnhancementContributions } =
+    await import('@/dynamic-page-runtime/modulePageEnhancements');
+  const moduleAlias = 'demo.review_refresh';
+  let status = 'pending';
+  const Body = defineComponent({ name: 'ReviewRefreshBody', props: ['context'], template: '<p>Review</p>' });
+  configureModulePageEnhancementContributions('review-refresh-test', [
+    {
+      id: 'review-refresh-test',
+      target: { moduleAlias },
+      detail: {
+        actions: [
+          {
+            key: 'review',
+            title: 'Review',
+            run: ({ openDrawer }) => openDrawer({ title: 'Review', component: Body }),
+          },
+        ],
+      },
+    },
+  ]);
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    if (options.path.includes('/view/')) return { id: 'application', status };
+    if (options.path.includes('/actions/')) return { actions: [{ actionCode: 'view', available: true }] };
+    if (options.path.endsWith('/context'))
+      return { ...runtime(moduleAlias), actions: [{ actionCode: 'view', authorized: true }] };
+    return { records: [], total: 0 };
+  });
+  configureModuleContext({ http: { request } as HttpClient });
+  const wrapper = mount(ModulePageHost, {
+    props: {
+      descriptor: descriptor(moduleAlias),
+      ...(recordOnly ? { recordOnly: { recordId: 'application' } } : {}),
+    },
+    global: {
+      stubs: {
+        ...hostStubs,
+        RecordModeDrawer: { props: ['open'], template: '<section><slot v-if="open" /></section>' },
+        RecordDetailDrawer: {
+          name: 'RecordDetailDrawer',
+          props: ['open'],
+          template: '<aside><slot v-if="open" /></aside>',
+        },
+      },
+    },
+  });
+  try {
+    await flushPromises();
+    const session = wrapper.findComponent({ name: 'ModulePageHostRuntime' }).props('session');
+    if (!recordOnly) await session.selectListDetailRecord({ id: 'application' });
+    await flushPromises();
+    expect(session.selectedRecord.status).toBe('pending');
+    session.handleDetailAction({ key: 'review' });
+    await flushPromises();
+    status = 'approved';
+    const readsBeforeReload = request.mock.calls.filter(([options]) =>
+      options.path.includes('/view/'),
+    ).length;
+    wrapper.findComponent(Body).props('context').reload();
+    await flushPromises();
+    expect(session.selectedRecord.status).toBe('approved');
+    expect(request.mock.calls.filter(([options]) => options.path.includes('/view/'))).toHaveLength(
+      readsBeforeReload + 1,
+    );
+  } finally {
+    wrapper.unmount();
+    configureModulePageEnhancementContributions('review-refresh-test', []);
+  }
+});
+
 it('renders and dispatches enhancement actions in an empty flat management explorer', async () => {
   const { configureModulePageEnhancementContributions } =
     await import('@/dynamic-page-runtime/modulePageEnhancements');
