@@ -1,6 +1,5 @@
-import type { ModulePageEnhancement } from '@muyun/dynamic-page-runtime';
+import { createTenantScopeNavigator, type ModulePageEnhancement } from '@muyun/dynamic-page-runtime';
 import PasswordSecurityCard from '../views/PasswordSecurityCard.vue';
-import { passwordSecurityNavigation } from './passwordSecurityNavigation';
 
 /**
  * Unified "Settings -> Password security" surface for the platform/tenant password policy page.
@@ -11,14 +10,7 @@ import { passwordSecurityNavigation } from './passwordSecurityNavigation';
 export const passwordSecurityPageEnhancement: ModulePageEnhancement = {
   id: 'iam-password-security',
   target: { moduleAlias: 'iam.password_security_policy' },
-  navigator: {
-    ...passwordSecurityNavigation,
-    emptySelectionLabel: (context) =>
-      passwordSecurityNavigation.emptySelectionLabel?.(context) == null
-        ? undefined
-        : context.language.t('platform.password-security.platform-configuration-range', '平台配置'),
-    retainSelectedRecord: (levelKey) => levelKey === 'tenant',
-  },
+  navigator: createTenantScopeNavigator(),
   list: { singleRecord: true },
   card: {
     assistant: {

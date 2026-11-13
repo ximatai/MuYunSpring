@@ -360,32 +360,36 @@ export function useModulePageSession(
       }
       return rawContext.can(resolvedActionCode, recordId);
     },
-    action: (actionCode, recordId) => rawContext.action(treeResourceActionCode(actionCode), recordId),
+    action: (actionCode, recordId) =>
+      disabledStandardActions.value.includes(treeResourceActionCode(actionCode))
+        ? undefined
+        : rawContext.action(treeResourceActionCode(actionCode), recordId),
     runtimeAction: (actionCode) => rawContext.runtimeAction(treeResourceActionCode(actionCode)),
-    recordActions: async (recordId) => treeResourceRecordActions(await rawContext.recordActions(recordId)),
+    recordActions: async (recordId) => pageRecordActions(await rawContext.recordActions(recordId)),
     ...(rawContext.recordActionsBatch
       ? {
           recordActionsBatch: async (recordIds: string[]) =>
-            (await rawContext.recordActionsBatch!(recordIds)).map(treeResourceRecordActions),
+            (await rawContext.recordActionsBatch!(recordIds)).map(pageRecordActions),
         }
       : {}),
     recordActionsSnapshot: (recordId) => {
       const availability = rawContext.recordActionsSnapshot(recordId);
-      return availability ? treeResourceRecordActions(availability) : undefined;
+      return availability ? pageRecordActions(availability) : undefined;
     },
   };
 
-  /** Resource records inherit only their contribution's record-action decisions. */
-  function treeResourceRecordActions(
-    availability: ModuleRecordActionAvailability,
-  ): ModuleRecordActionAvailability {
+  /** Apply entry restrictions consistently to direct and resource record actions. */
+  function pageRecordActions(availability: ModuleRecordActionAvailability): ModuleRecordActionAvailability {
     const resource = treeResource.value?.resource;
-    if (!resource) return availability;
-    const prefix = `${resource}_`;
+    const prefix = resource ? `${resource}_` : '';
     return {
       ...availability,
       actions: availability.actions
-        .filter((action) => action.actionCode.startsWith(prefix))
+        .filter(
+          (action) =>
+            action.actionCode.startsWith(prefix) &&
+            !disabledStandardActions.value.includes(action.actionCode),
+        )
         .map((action) => ({ ...action, actionCode: action.actionCode.slice(prefix.length) })),
     };
   }
@@ -1390,16 +1394,21 @@ export function useModulePageSession(
   const visibleNavigatorLevels = computed(() =>
     navigatorEntryPolicy.value.hidden
       ? []
-      : navigatorLevels.value.filter((level) => {
-          // `loaded` is the authoritative result cardinality. Selection may be committed in the
-          // same reactive turn, so do not make visibility depend on a second snapshot of it.
-          const autoHidden = shouldHideSingleResultNavigator(
-            level.descriptor,
-            navigatorSingleResultKeys.value.includes(level.descriptor.key),
-            currentUser?.value?.tenantId,
-          );
-          return navigatorEmptySelectionLabel(level.descriptor.key) != null || !autoHidden;
-        }),
+      : navigatorLevels.value
+          .filter((level) => {
+            // `loaded` is the authoritative result cardinality. Selection may be committed in the
+            // same reactive turn, so do not make visibility depend on a second snapshot of it.
+            const autoHidden = shouldHideSingleResultNavigator(
+              level.descriptor,
+              navigatorSingleResultKeys.value.includes(level.descriptor.key),
+              currentUser?.value?.tenantId,
+            );
+            return navigatorEmptySelectionLabel(level.descriptor.key) != null || !autoHidden;
+          })
+          .map((level) => {
+            const title = navigatorEntryPolicy.value.title?.({ levelKey: level.descriptor.key, language });
+            return title == null ? level : { ...level, descriptor: { ...level.descriptor, title } };
+          }),
   );
   function navigatorEmptySelectionLabel(levelKey: string) {
     return navigatorEntryPolicy.value.emptySelectionLabel?.({

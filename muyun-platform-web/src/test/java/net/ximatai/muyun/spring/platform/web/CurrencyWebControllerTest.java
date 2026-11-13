@@ -17,6 +17,7 @@ import net.ximatai.muyun.spring.platform.currency.TenantCurrencySetting;
 import net.ximatai.muyun.spring.platform.currency.TenantCurrencySettingService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -27,6 +28,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -38,6 +40,35 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class CurrencyWebControllerTest {
+    @Test
+    void shouldPublishTenantRequiredSingleSettingPageWithoutAnotherTenantNavigator() {
+        TenantCurrencySettingWebController controller = new TenantCurrencySettingWebController();
+        ReflectionTestUtils.setField(controller, "service", mock(TenantCurrencySettingService.class));
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(TenantCurrencySettingWebController.class, () -> controller);
+            context.refresh();
+            var definition = new StaticModuleDefinitionScanner(context).scan().getFirst();
+            assertThat(definition.tenantRequired()).isTrue();
+            assertThat(definition.actions()).extracting(action -> action.actionCode())
+                    .contains("menu", "query", "view", "create", "update");
+            var page = (FlatManagementPageDefinition) definition.uiDefinition().page();
+            assertThat(page.navigator()).isNull();
+            assertThat(page.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
+                    .containsExactly("baseCurrencyCode");
+        }
+    }
+
+    @Test
+    void shouldRejectTenantlessSettingQueries() {
+        TenantCurrencySettingWebController controller = new TenantCurrencySettingWebController();
+        ReflectionTestUtils.setField(controller, "service", mock(TenantCurrencySettingService.class));
+        try (TenantContext.Scope ignored = TenantContext.system("currency setting test")) {
+            assertThatThrownBy(() -> controller.query(new org.springframework.mock.web.MockHttpServletRequest(), null))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("requires tenant context");
+        }
+    }
+
     @Test
     void shouldKeepTenantContextWhenListingCurrencyOptions() throws Exception {
         CurrencyService service = mock(CurrencyService.class);

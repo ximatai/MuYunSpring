@@ -1,6 +1,5 @@
-import type { ModulePageEnhancement } from '@muyun/dynamic-page-runtime';
+import { createTenantScopeNavigator, type ModulePageEnhancement } from '@muyun/dynamic-page-runtime';
 import PasswordPolicyPreview from '../views/PasswordPolicyPreview.vue';
-import { passwordSecurityNavigation } from './passwordSecurityNavigation';
 
 /**
  * IAM-owned card assistance for the standard password-policy module page.
@@ -9,7 +8,7 @@ import { passwordSecurityNavigation } from './passwordSecurityNavigation';
 export const passwordPolicyPageEnhancement: ModulePageEnhancement = {
   id: 'iam-password-policy-preview',
   target: { moduleAlias: 'iam.password_policy_rule' },
-  navigator: passwordSecurityNavigation,
+  navigator: createTenantScopeNavigator(),
   card: {
     assistant: {
       component: PasswordPolicyPreview,

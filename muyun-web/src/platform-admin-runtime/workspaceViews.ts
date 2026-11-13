@@ -1,3 +1,4 @@
+import { tenantCurrencySettingPageEnhancement } from './tenantCurrencySettingPageEnhancement';
 import { workspaceViewContributions } from './workspaceViewContributions';
 import { configureWorkspaceViewContributions } from '@muyun/platform-workbench';
 import { configureModulePageEnhancementContributions } from '@muyun/dynamic-page-runtime';
@@ -27,6 +28,7 @@ configureModulePageEnhancementContributions('platform-admin-runtime', [
   tenantModulePageEnhancement,
   employeeModulePageEnhancement,
   userModulePageEnhancement,
+  tenantCurrencySettingPageEnhancement,
   roleModulePageEnhancement,
   scheduledActionPlanPageEnhancement,
 ]);

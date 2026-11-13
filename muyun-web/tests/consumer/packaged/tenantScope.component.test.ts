@@ -69,7 +69,7 @@ it('consumes public components with reference candidates, selection, refresh and
   expect(businessRequests(requests)[0]?.headers.get('X-MuYun-Tenant-Id')).toBe('tenant-a');
   expect(wrapper.get('pre').text()).toContain('tenant-a');
 
-  await wrapper.get('button[aria-label="刷新：租户"]').trigger('click');
+  await wrapper.get('button[aria-label="刷新：管理范围"]').trigger('click');
   await flushPromises();
   expect(requests.filter((item) => item.url.endsWith('/navigator/reference/query'))).toHaveLength(2);
   expect(
@@ -77,7 +77,7 @@ it('consumes public components with reference candidates, selection, refresh and
       .filter((item) => !item.url.endsWith('/business.overview'))
       .every((item) => !item.headers.has('X-MuYun-Tenant-Id')),
   ).toBe(true);
-  await wrapper.get('button[title="搜索租户"]').trigger('click');
+  await wrapper.get('button[title="搜索管理范围"]').trigger('click');
   await wrapper.get('input').setValue('Tenant B');
   await flushPromises();
   expect(wrapper.text()).toContain('Tenant B');
@@ -85,7 +85,7 @@ it('consumes public components with reference candidates, selection, refresh and
   expect(businessRequests(requests)).toHaveLength(1);
 
   expect(wrapper.findComponent(sdk.ManagementExplorerColumn).exists()).toBe(true);
-  await wrapper.get('button[title="收起租户"]').trigger('click');
+  await wrapper.get('button[title="收起管理范围"]').trigger('click');
   expect(wrapper.find('.management-explorer-column--collapsed').exists()).toBe(true);
 });
 

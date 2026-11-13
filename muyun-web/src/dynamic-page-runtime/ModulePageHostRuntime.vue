@@ -269,7 +269,7 @@ export default defineComponent({
         ...(tenantScopeExplorerVisible
           ? [
               {
-                title: language.t('platform.screen.ModulePageHostRuntime.tenant', '租户'),
+                title: language.t('platform.navigator.management-scope', '管理范围'),
                 collapsible: true,
                 hasSelection: Boolean(tenantController.selectedId.value),
               },

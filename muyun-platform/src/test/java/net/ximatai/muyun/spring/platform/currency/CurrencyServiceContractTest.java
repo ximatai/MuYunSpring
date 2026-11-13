@@ -145,6 +145,25 @@ class CurrencyServiceContractTest {
     }
 
     @Test
+    void shouldDeriveTitleFromBaseCurrencyCodeOnCreateAndUpdate() {
+        currencyService.insert(currency("CNY", "156", "Yuan", "CNY", 2));
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            TenantCurrencySetting setting = new TenantCurrencySetting();
+            setting.setBaseCurrencyCode("cny");
+            String id = tenantSettingService.insert(setting);
+
+            assertThat(tenantSettingService.select(id).getTitle()).isEqualTo("CNY");
+            assertThat(tenantSettingService.requireCurrentBaseCurrencyCode()).isEqualTo("CNY");
+
+            currencyService.insert(currency("USD", "840", "Dollar", "$", 2));
+            TenantCurrencySetting saved = tenantSettingService.select(id);
+            saved.setBaseCurrencyCode("USD");
+            tenantSettingService.update(saved);
+            assertThat(tenantSettingService.select(id).getTitle()).isEqualTo("USD");
+        }
+    }
+
+    @Test
     void shouldCreateRateTypeAndRequireEnabledRateType() {
         String id = rateTypeService.insert(rateType("spot", "Spot"));
 

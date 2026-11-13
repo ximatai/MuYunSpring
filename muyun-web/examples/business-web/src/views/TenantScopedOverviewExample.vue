@@ -92,7 +92,7 @@ function selectTenant(record: QueryListRecord) {
       v-if="tenantContext"
       :key="identity"
       collapsible
-      title="租户"
+      title="管理范围"
       :has-selection="Boolean(tenantId)"
     >
       <TenantScopeExplorer

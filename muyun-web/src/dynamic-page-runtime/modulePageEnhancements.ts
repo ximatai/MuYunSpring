@@ -74,6 +74,8 @@ export interface ModulePageStandardActionsEnhancement {
 }
 
 export interface ModulePageNavigatorEnhancement {
+  /** Presentation only; does not alter descriptor bindings or navigator identity. */
+  title?(context: { levelKey: string; language: LanguageContext }): string | undefined;
   /** Require an explicit range change instead of toggling a selected record off. */
   retainSelectedRecord?(levelKey: string): boolean;
   /** Presentation for an explicit, selectable unfiltered/default range; no synthetic record is submitted. */
@@ -754,6 +756,7 @@ function composeModulePageEnhancements(
       const contribution = enhancement.navigator;
       if (!contribution) return resolved;
       return {
+        title: contribution.title ?? resolved?.title,
         hidden: resolved?.hidden || contribution.hidden,
         treeParentPolicy: contribution.treeParentPolicy ?? resolved?.treeParentPolicy,
         extension: contribution.extension ?? resolved?.extension,

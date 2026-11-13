@@ -21,6 +21,7 @@ import {
   provideLanguageContext,
 } from '@muyun/web-core';
 import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
+import { createTenantScopeNavigator } from '@/dynamic-page-runtime/tenantScopeNavigator';
 import { refreshModulePageList } from '@/dynamic-page-runtime/modulePageListRefresh.ts';
 
 describe('ModulePageHost', () => {
@@ -2637,6 +2638,13 @@ describe('ModulePageHost', () => {
   });
 
   it('auto-selects and hides a single navigator while retaining its downstream binding', async () => {
+    configureModulePageEnhancements([
+      {
+        id: 'tenant-range',
+        target: { moduleAlias: 'demo.position' },
+        navigator: createTenantScopeNavigator({ platformLevel: false }),
+      },
+    ]);
     globalThis.fetch = async (input) => {
       const request = new Request(input);
       if (request.url.endsWith('/platform.module/demo.position/context')) {
@@ -2702,6 +2710,7 @@ describe('ModulePageHost', () => {
 
     const navigator = wrapper.findComponent({ name: 'PageNavigatorExplorer' });
     const list = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    expect(navigator.props('level').descriptor.title).toBe('\u7ba1\u7406\u8303\u56f4');
     navigator.vm.$emit('loaded', [{ id: 'partial', title: '当前页唯一记录' }], false);
     await flushPromises();
     expect(list.props('externalQueryValues')).not.toEqual({ tenantId: 'partial' });

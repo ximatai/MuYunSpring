@@ -107,6 +107,7 @@ it('opens one scoped record directly and keeps an empty scope on the standard cr
       id: 'single-policy',
       target: { moduleAlias: 'test.policy' },
       list: { singleRecord: true },
+      standardActions: { disabled: ['delete'] },
       card: {
         assistant: { component: { render: () => null }, placement: { boundary: 'inside', position: 'top' } },
       },
@@ -143,6 +144,13 @@ it('opens one scoped record directly and keeps an empty scope on the standard cr
       .findComponent({ name: 'ModulePageHostRuntime' })
       .props('session') as ModulePageSessionView;
     expect(session.selectedRecord?.id).toBe('policy-platform');
+    await expect.poll(() => session.context.recordActionsSnapshot('policy-platform')).toBeDefined();
+    expect(session.context.can('delete', 'policy-platform')).toBe(false);
+    expect(session.context.action('delete', 'policy-platform')).toBeUndefined();
+    expect(
+      session.context.recordActionsSnapshot('policy-platform')?.actions.map((action) => action.actionCode),
+    ).not.toContain('delete');
+    expect(wrapper.findAll('button').some((button) => button.text() === '删除')).toBe(false);
     expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
     const tenantColumn = wrapper.get('.management-explorer-column').element;
     records = [];

@@ -1,3 +1,4 @@
+export { createTenantScopeNavigator, type TenantScopeNavigatorOptions } from './tenantScopeNavigator';
 export { default as ModulePageHost } from './ModulePageHost.vue';
 export {
   createModulePageAssistantSurface,
