@@ -749,7 +749,10 @@ export function useModulePageSession(
     module: context,
     scope: () => modulePageActionStateContext().scope,
     refreshList,
-    reload: reloadModulePage,
+    reload: () => {
+      reloadModulePage();
+      if (!props.recordOnly && selectedRecord.value && editorMode.value === 'view') retryLoadDetail();
+    },
     closeDetail: async () => {
       if (!(await mayLeaveDetailSession())) return;
       if (props.recordOnly) closeRecordOnlyDetail();

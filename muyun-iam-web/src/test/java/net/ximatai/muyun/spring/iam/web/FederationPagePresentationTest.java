@@ -113,8 +113,8 @@ class FederationPagePresentationTest {
         assertThat(runs.detail().display().formGroups()).extracting(FormGroupDefinition::groupCode)
                 .containsExactly("result", "diagnostics", "trace");
         assertThat(runs.detail().display().fields()).filteredOn(field ->
-                List.of("statistics", "failedPages", "cursor").contains(field.fieldRef().fieldName()))
-                .hasSize(3).allSatisfy(field -> assertThat(field.columnSpan()).isEqualTo(2));
+                List.of("cursor").contains(field.fieldRef().fieldName()))
+                .hasSize(1).allSatisfy(field -> assertThat(field.columnSpan()).isEqualTo(2));
     }
 
     @Test

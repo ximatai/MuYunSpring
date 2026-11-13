@@ -14,6 +14,11 @@ import { employeeModulePageEnhancement } from './employeeModulePageEnhancement';
 import { userModulePageEnhancement } from './userModulePageEnhancement';
 import { scheduledActionPlanPageEnhancement } from './scheduledActionPlanPageEnhancement';
 import { roleModulePageEnhancement } from './roleModulePageEnhancement';
+import {
+  tenantIdentityPolicyPageEnhancement,
+  joinApplicationPageEnhancement,
+  directorySyncRunPageEnhancement,
+} from './federationPageEnhancements';
 
 configureWorkspaceViewContributions('platform-admin-runtime', workspaceViewContributions);
 // The first-party platform enhancement is a default contribution, not an App.vue
@@ -31,6 +36,9 @@ configureModulePageEnhancementContributions('platform-admin-runtime', [
   tenantCurrencySettingPageEnhancement,
   roleModulePageEnhancement,
   scheduledActionPlanPageEnhancement,
+  tenantIdentityPolicyPageEnhancement,
+  joinApplicationPageEnhancement,
+  directorySyncRunPageEnhancement,
 ]);
 
 export {

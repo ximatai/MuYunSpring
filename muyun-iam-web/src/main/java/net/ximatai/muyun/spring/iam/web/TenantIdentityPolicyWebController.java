@@ -9,7 +9,6 @@ import net.ximatai.muyun.spring.iam.federation.TenantIdentityPolicyService;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
-import net.ximatai.muyun.spring.platform.web.PageActionAnchor;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
@@ -40,8 +39,7 @@ public class TenantIdentityPolicyWebController
     @CustomActionEndpoint(
             value = "preview",
             title = "预览通讯录",
-            level = PlatformActionLevel.RECORD,
-            pageInvocable = true)
+            level = PlatformActionLevel.RECORD)
     public String preview(@PathVariable String id) {
         return webScope(() -> service().synchronize(id, true));
     }
@@ -50,8 +48,7 @@ public class TenantIdentityPolicyWebController
     @CustomActionEndpoint(
             value = "synchronize",
             title = "立即同步",
-            level = PlatformActionLevel.RECORD,
-            pageInvocable = true)
+            level = PlatformActionLevel.RECORD)
     public String synchronize(@PathVariable String id) {
         return webScope(() -> service().synchronize(id, false));
     }
@@ -72,8 +69,6 @@ public class TenantIdentityPolicyWebController
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(TenantIdentityPolicyService.MODULE_ALIAS)
-                .pageAction("preview", PageActionAnchor.DETAIL)
-                .pageAction("synchronize", PageActionAnchor.DETAIL)
                 .page(PageTemplates.flatManagement(page -> page
                         .explorer(explorer -> explorer.title("外部登录方式").titleField("providerTitle"))
                         .detail(detail -> detail.editor(form -> form.title("外部登录方式")

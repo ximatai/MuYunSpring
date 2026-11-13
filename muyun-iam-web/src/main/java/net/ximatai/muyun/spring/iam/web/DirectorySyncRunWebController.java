@@ -41,8 +41,6 @@ public class DirectorySyncRunWebController
                                         .field("completed", field -> field.label("目录遍历完成").booleanStatus("已完成", "未完成").readOnly())
                                         .field("createdAt", field -> field.label("运行创建时间")))
                                 .group("diagnostics", "统计与诊断", "失败页用于定位来源读取异常；续跑游标由系统维护。", group -> group
-                                        .field("statistics", field -> field.label("统计摘要").columnSpan(2))
-                                        .field("failedPages", field -> field.label("失败页详情").columnSpan(2))
                                         .field("cursor", field -> field.label("续跑游标").columnSpan(2)))
                                 .group("trace", "执行关联", null, group -> group
                                         .field("policyId", field -> field.label("租户接入策略标识"))
