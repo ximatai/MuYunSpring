@@ -238,8 +238,18 @@ async function submitPasswordChange() {
         </div>
       </header>
 
-      <p v-if="loginFeedback.message.value || formError || error || loginContextError" class="login-error">
-        {{ loginFeedback.message.value || formError?.() || error || loginContextError?.() }}
+      <p
+        v-if="
+          loginFeedback.message.value || formError || (!passwordChangeRequired && error) || loginContextError
+        "
+        class="login-error"
+      >
+        {{
+          loginFeedback.message.value ||
+          formError?.() ||
+          (!passwordChangeRequired && error) ||
+          loginContextError?.()
+        }}
         <span v-if="loginFeedback.unlockTime.value" class="login-unlock-time">{{
           loginFeedback.unlockTime.value
         }}</span>

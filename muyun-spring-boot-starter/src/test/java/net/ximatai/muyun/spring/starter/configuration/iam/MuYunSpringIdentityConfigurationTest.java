@@ -67,22 +67,9 @@ class MuYunSpringIdentityConfigurationTest {
     }
 
     @Test
-    void shouldBindLoginLockoutPolicyFromProperties() {
-        identityContextRunner.run(context -> {
-            LoginLockoutPolicy policy = context.getBean(LoginLockoutPolicy.class);
-            assertThat(policy.maxFailedAttempts()).isEqualTo(LoginLockoutPolicy.DEFAULT_MAX_FAILED_ATTEMPTS);
-            assertThat(policy.lockDuration()).isEqualTo(LoginLockoutPolicy.DEFAULT_LOCK_DURATION);
-        });
-        identityContextRunner.withPropertyValues(
-                        "muyun.iam.login.lockout.max-failed-attempts=0",
-                        "muyun.iam.login.lockout.lock-duration=30m")
-                .run(context -> {
-                    LoginLockoutPolicy policy = context.getBean(LoginLockoutPolicy.class);
-                    assertThat(policy.enabled()).isFalse();
-                    assertThat(policy.lockDuration()).isEqualTo(java.time.Duration.ofMinutes(30));
-                });
-        identityContextRunner.withPropertyValues("muyun.iam.login.lockout.lock-duration=0s")
-                .run(context -> assertThat(context).hasFailed());
+    void retiredLockoutPropertiesDoNotProvideAnAlternateRuntimePolicy() {
+        identityContextRunner.withPropertyValues("muyun.iam.login.lockout.max-failed-attempts=0")
+                .run(context -> assertThat(context).doesNotHaveBean(LoginLockoutPolicy.class));
     }
 
     @Test

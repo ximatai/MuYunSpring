@@ -28,8 +28,8 @@ export const WORKSPACE_SORTING_BUSY: InjectionKey<ComputedRef<boolean>> = Symbol
 export const WORKSPACE_SORT_ACTIVITY: InjectionKey<(active: boolean) => void> =
   Symbol('workspace-sort-activity');
 
-/** Reports an actual sorting request, never the user's sorting toggle. */
-export function useWorkspaceSortActivity(active: Ref<boolean>) {
+/** Keeps workspace navigation unavailable while a child interaction is active. */
+export function useWorkspaceNavigationActivity(active: Ref<boolean>) {
   const report = inject(WORKSPACE_SORT_ACTIVITY, undefined);
   let reported = false;
   watch(
@@ -45,3 +45,6 @@ export function useWorkspaceSortActivity(active: Ref<boolean>) {
     if (reported) report?.(false);
   });
 }
+
+/** Reports an actual sorting request, never the user's sorting toggle. */
+export const useWorkspaceSortActivity = useWorkspaceNavigationActivity;

@@ -74,6 +74,17 @@ export interface ModulePageStandardActionsEnhancement {
 }
 
 export interface ModulePageNavigatorEnhancement {
+  /** Presentation only; does not alter descriptor bindings or navigator identity. */
+  title?(context: { levelKey: string; language: LanguageContext }): string | undefined;
+  /** Require an explicit range change instead of toggling a selected record off. */
+  retainSelectedRecord?(levelKey: string): boolean;
+  /** Presentation for an explicit, selectable unfiltered/default range; no synthetic record is submitted. */
+  emptySelectionLabel?(
+    context: ModulePageEmptyNavigatorScopeContext & {
+      levelKey: string;
+      language: LanguageContext;
+    },
+  ): string | undefined;
   /** Hides descriptor navigators when this entry is not navigated by their business scope. */
   hidden?: boolean;
   /** Business-owned parent admission for a navigator tree; sibling sorting remains standard. */
@@ -176,6 +187,8 @@ export interface ModulePageEnhancementActivationContext {
 }
 
 export interface ModuleListEnhancement {
+  /** Flat management scopes with at most one record open its standard card directly. */
+  singleRecord?: boolean;
   actions?: ModulePageActionContribution[];
   columns?: ModulePageColumnContribution[];
   /** Replaces the visual renderer of a descriptor-owned column without adding a duplicate column. */
@@ -302,6 +315,8 @@ export interface ModuleCardEnhancement {
 export interface ModulePageCardAssistant {
   /** A source component; backend descriptors never select or name it. */
   component: Component;
+  /** The assistant presents the empty-scope state in place of the default empty detail. */
+  handlesEmptyDetail?: boolean;
   /** Explicitly anchors the component to the standard record-card boundary. */
   placement: ModulePageCardAssistantPlacement;
 }
@@ -313,11 +328,25 @@ export interface ModulePageCardAssistantPlacement {
   position: 'top' | 'bottom';
 }
 
+/** A page enhancement may contribute a draft to the owning detail save session. */
+export interface ModulePageWorkspaceDraft {
+  ready(): boolean;
+  dirty(): boolean;
+  save(input: {
+    record: QueryListRecord;
+    mode: 'create' | 'edit';
+    recordDirty: boolean;
+    requestId?: string;
+  }): Promise<{ record: QueryListRecord }>;
+}
+
 export interface ModulePageCardAssistantContext {
   module: ModuleContext<QueryListRecord>;
   mode: 'view' | 'create' | 'edit';
   /** Detached and deeply frozen current record or form draft. It may be absent before selection. */
   record?: Readonly<Record<string, unknown>>;
+  /** Detached navigator selection facts, including when the current range has no saved record. */
+  navigatorRecords?: Readonly<Record<string, Readonly<Record<string, unknown>> | undefined>>;
   /**
    * Detached snapshot of records already loaded by the standard explorer.
    * This never triggers an auxiliary request and may be bounded by the explorer.
@@ -327,6 +356,7 @@ export interface ModulePageCardAssistantContext {
   saving: boolean;
   loading: boolean;
   loadFailed: boolean;
+  registerWorkspaceDraft?(draft: ModulePageWorkspaceDraft | undefined): void;
 }
 
 /** Application-owned presentation of the platform's standard record-view intent. */
@@ -726,12 +756,15 @@ function composeModulePageEnhancements(
       const contribution = enhancement.navigator;
       if (!contribution) return resolved;
       return {
+        title: contribution.title ?? resolved?.title,
         hidden: resolved?.hidden || contribution.hidden,
         treeParentPolicy: contribution.treeParentPolicy ?? resolved?.treeParentPolicy,
         extension: contribution.extension ?? resolved?.extension,
         lockedEntry: contribution.lockedEntry ?? resolved?.lockedEntry,
         bypassListScope: resolved?.bypassListScope || contribution.bypassListScope,
         emptyListScope: contribution.emptyListScope ?? resolved?.emptyListScope,
+        emptySelectionLabel: contribution.emptySelectionLabel ?? resolved?.emptySelectionLabel,
+        retainSelectedRecord: contribution.retainSelectedRecord ?? resolved?.retainSelectedRecord,
       };
     },
     undefined,
@@ -795,6 +828,7 @@ function composeListEnhancement(
   rowExpansion: ModulePageListRowExpansion | undefined,
 ): ModuleListEnhancement | undefined {
   const list = {
+    singleRecord: enhancements.some((enhancement) => enhancement.list?.singleRecord) || undefined,
     actions: enhancements.flatMap((enhancement) => enhancement.list?.actions ?? []),
     columns: enhancements.flatMap((enhancement) => enhancement.list?.columns ?? []),
     cellComponents: enhancements.flatMap((enhancement) => enhancement.list?.cellComponents ?? []),

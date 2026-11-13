@@ -8,13 +8,13 @@ import org.springframework.context.annotation.Configuration;
 public class UserAccountCollaboratorConfiguration {
     @Bean
     UserAccountSecurityServices userAccountSecurityServices(
-            ObjectProvider<PasswordPolicyRuleService> passwordPolicyRuleService,
+            PasswordSecurityPolicyResolver passwordSecurityPolicyResolver,
             ObjectProvider<UserSecurityEventPublisher> securityEventPublisher,
             UserSessionRevocationService sessionRevocationService,
             UserSessionPresenceService sessionPresenceService,
             PersonalAccessTokenStore personalAccessTokenStore) {
         return new UserAccountSecurityServices(
-                java.util.Optional.ofNullable(passwordPolicyRuleService.getIfAvailable()),
+                passwordSecurityPolicyResolver,
                 event -> securityEventPublisher
                         .getIfAvailable(() -> UserSecurityEventPublisher.NOOP)
                         .publish(event),

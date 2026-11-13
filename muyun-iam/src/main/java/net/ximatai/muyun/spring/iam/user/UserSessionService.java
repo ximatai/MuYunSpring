@@ -44,6 +44,7 @@ public class UserSessionService {
     private static final Pattern TRACE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:/-]*");
 
     private final UserAccountService userAccountService;
+    private final UnavailablePasswordLoginService unavailablePasswordLogins;
     private final UserSessionRecordService userSessionRecordService;
     private final UserSessionRevocationService userSessionRevocationService;
     private final ActiveTenantVerifier activeTenantVerifier;
@@ -60,10 +61,11 @@ public class UserSessionService {
                               UserSessionRecordService userSessionRecordService,
                               ActiveTenantVerifier activeTenantVerifier,
                               UserSessionCollaborators collaborators,
-                              Clock clock) {
+                              Clock clock, UnavailablePasswordLoginService unavailablePasswordLogins) {
         UserSessionCollaborators resolved = collaborators == null ? UserSessionCollaborators.empty() : collaborators;
         Clock effectiveClock = clock == null ? Clock.systemUTC() : clock;
         this.userAccountService = userAccountService;
+        this.unavailablePasswordLogins = Objects.requireNonNull(unavailablePasswordLogins, "unavailablePasswordLogins");
         this.userSessionRecordService = userSessionRecordService;
         Supplier<UserSessionLifecycleEventPublisher> lifecycleEventPublisher = resolved.lifecycleEventPublisher();
         UserSessionRevocationService revocationService = resolved.revocationService().get();
@@ -94,18 +96,26 @@ public class UserSessionService {
             UserAccount user = userAccountService.findUserForLogin(attempt.tenantId, username);
             attempt.user = user;
             if (user == null) {
+                attempt.feedback = unavailablePasswordLogins.recordFailure(attempt.tenantId, username, now());
                 throw rejectedWithoutVerification(attempt, password, "UNKNOWN_ACCOUNT");
             }
             if (!Boolean.TRUE.equals(user.getEnabled())) {
+                attempt.feedback = unavailablePasswordLogins.recordFailure(attempt.tenantId, username, now());
                 throw rejectedWithoutVerification(attempt, password, "ACCOUNT_UNAVAILABLE");
             }
             Instant attemptedAt = now();
+            LoginFailureFeedback claimedNameLock = unavailablePasswordLogins.currentLock(attempt.tenantId, username, attemptedAt);
+            if (claimedNameLock != null) {
+                attempt.feedback = claimedNameLock;
+                throw rejectedWithoutVerification(attempt, password, "ACCOUNT_LOCKED");
+            }
             // A locked account never evaluates the password, so the lock cannot be used as a guessing oracle.
             if (userAccountService.loginLocked(user, attemptedAt)) {
                 attempt.feedback = new LoginFailureFeedback(attemptedAt, user.getLockedUntil(), false, null);
                 throw rejectedWithoutVerification(attempt, password, "ACCOUNT_LOCKED");
             }
             if (!userAccountService.hasLocalPassword(user)) {
+                attempt.feedback = unavailablePasswordLogins.recordFailure(attempt.tenantId, username, attemptedAt);
                 throw rejectedWithoutVerification(attempt, password, "PASSWORD_NOT_SET");
             }
             if (!userAccountService.passwordMatches(user, password)) {

@@ -129,6 +129,7 @@ import {
   type ModulePageDetailSection,
   type ModulePageDrawer,
   type ModulePageCardAssistantContext,
+  type ModulePageWorkspaceDraft,
   type ModulePageFormContribution,
   type ModulePageFormFieldPolicy,
   type ModulePageNavigatorEnhancement,
@@ -359,32 +360,36 @@ export function useModulePageSession(
       }
       return rawContext.can(resolvedActionCode, recordId);
     },
-    action: (actionCode, recordId) => rawContext.action(treeResourceActionCode(actionCode), recordId),
+    action: (actionCode, recordId) =>
+      disabledStandardActions.value.includes(treeResourceActionCode(actionCode))
+        ? undefined
+        : rawContext.action(treeResourceActionCode(actionCode), recordId),
     runtimeAction: (actionCode) => rawContext.runtimeAction(treeResourceActionCode(actionCode)),
-    recordActions: async (recordId) => treeResourceRecordActions(await rawContext.recordActions(recordId)),
+    recordActions: async (recordId) => pageRecordActions(await rawContext.recordActions(recordId)),
     ...(rawContext.recordActionsBatch
       ? {
           recordActionsBatch: async (recordIds: string[]) =>
-            (await rawContext.recordActionsBatch!(recordIds)).map(treeResourceRecordActions),
+            (await rawContext.recordActionsBatch!(recordIds)).map(pageRecordActions),
         }
       : {}),
     recordActionsSnapshot: (recordId) => {
       const availability = rawContext.recordActionsSnapshot(recordId);
-      return availability ? treeResourceRecordActions(availability) : undefined;
+      return availability ? pageRecordActions(availability) : undefined;
     },
   };
 
-  /** Resource records inherit only their contribution's record-action decisions. */
-  function treeResourceRecordActions(
-    availability: ModuleRecordActionAvailability,
-  ): ModuleRecordActionAvailability {
+  /** Apply entry restrictions consistently to direct and resource record actions. */
+  function pageRecordActions(availability: ModuleRecordActionAvailability): ModuleRecordActionAvailability {
     const resource = treeResource.value?.resource;
-    if (!resource) return availability;
-    const prefix = `${resource}_`;
+    const prefix = resource ? `${resource}_` : '';
     return {
       ...availability,
       actions: availability.actions
-        .filter((action) => action.actionCode.startsWith(prefix))
+        .filter(
+          (action) =>
+            action.actionCode.startsWith(prefix) &&
+            !disabledStandardActions.value.includes(action.actionCode),
+        )
         .map((action) => ({ ...action, actionCode: action.actionCode.slice(prefix.length) })),
     };
   }
@@ -1131,7 +1136,9 @@ export function useModulePageSession(
     }
     return (
       recordTitle(editingRecord.value ?? selectedRecord.value) ??
-      language.t('platform.screen.useModulePageSession.record-details', '记录详情')
+      (singleRecordManagementPage.value
+        ? title.value
+        : language.t('platform.screen.useModulePageSession.record-details', '记录详情'))
     );
   });
   const {
@@ -1238,9 +1245,15 @@ export function useModulePageSession(
     onError: (cause) =>
       presentPlatformError(cause, { source: 'module-data-change', phase: 'load', language }),
   });
+  const workspaceDraft = shallowRef<ModulePageWorkspaceDraft>();
+  const workspaceDraftDirty = computed(() => workspaceDraft.value?.dirty() === true);
+  function registerWorkspaceDraft(draft: ModulePageWorkspaceDraft | undefined) {
+    workspaceDraft.value = draft;
+  }
   const sessionDirty = computed(
     () =>
       detailDirty.value ||
+      workspaceDraftDirty.value ||
       navigatorManagementDetail.isDirty.value ||
       localEditDirty.value ||
       referenceRecordDetailInteraction.value.dirty ||
@@ -1381,17 +1394,30 @@ export function useModulePageSession(
   const visibleNavigatorLevels = computed(() =>
     navigatorEntryPolicy.value.hidden
       ? []
-      : navigatorLevels.value.filter((level) => {
-          // `loaded` is the authoritative result cardinality. Selection may be committed in the
-          // same reactive turn, so do not make visibility depend on a second snapshot of it.
-          const autoHidden = shouldHideSingleResultNavigator(
-            level.descriptor,
-            navigatorSingleResultKeys.value.includes(level.descriptor.key),
-            currentUser?.value?.tenantId,
-          );
-          return !autoHidden;
-        }),
+      : navigatorLevels.value
+          .filter((level) => {
+            // `loaded` is the authoritative result cardinality. Selection may be committed in the
+            // same reactive turn, so do not make visibility depend on a second snapshot of it.
+            const autoHidden = shouldHideSingleResultNavigator(
+              level.descriptor,
+              navigatorSingleResultKeys.value.includes(level.descriptor.key),
+              currentUser?.value?.tenantId,
+            );
+            return navigatorEmptySelectionLabel(level.descriptor.key) != null || !autoHidden;
+          })
+          .map((level) => {
+            const title = navigatorEntryPolicy.value.title?.({ levelKey: level.descriptor.key, language });
+            return title == null ? level : { ...level, descriptor: { ...level.descriptor, title } };
+          }),
   );
+  function navigatorEmptySelectionLabel(levelKey: string) {
+    return navigatorEntryPolicy.value.emptySelectionLabel?.({
+      levelKey,
+      currentUser: currentUser?.value,
+      selectedNavigatorRecords: selectedNavigatorRecords.value,
+      language,
+    });
+  }
   const navigatorExtension = computed(() => navigatorEntryPolicy.value.extension);
   const navigatorExplorerCount = computed(
     () => visibleNavigatorLevels.value.length + (navigatorExtension.value ? 1 : 0),
@@ -1689,6 +1715,13 @@ export function useModulePageSession(
       props.descriptor.menuId,
     ),
   );
+  const singleRecordManagementPage = computed(
+    () => flatManagementPage.value && pageEnhancement.value?.list?.singleRecord === true,
+  );
+  const singleRecordScopeEmpty = computed(() => {
+    const snapshot = listQueryController.value?.snapshot();
+    return singleRecordManagementPage.value && snapshot?.status === 'ready' && snapshot.total === 0;
+  });
   const formContributions = computed(() => pageEnhancement.value?.form?.contributions ?? []);
   const formFieldPolicies = computed(() => pageEnhancement.value?.form?.fieldPolicies ?? []);
   let disposePageEnhancement: (() => void) | undefined;
@@ -1892,6 +1925,14 @@ export function useModulePageSession(
       module: context,
       mode: editorMode.value,
       ...(record ? { record: createReadonlyRecordSnapshot(toRaw(record) as Record<string, unknown>) } : {}),
+      navigatorRecords: Object.freeze(
+        Object.fromEntries(
+          Object.entries(selectedNavigatorRecords.value).map(([key, item]) => [
+            key,
+            item ? createReadonlyRecordSnapshot(toRaw(item) as Record<string, unknown>) : undefined,
+          ]),
+        ),
+      ),
       loadedRecords: cardAssistantRecords.value.map((item) =>
         createReadonlyRecordSnapshot(toRaw(item) as Record<string, unknown>),
       ),
@@ -1899,6 +1940,7 @@ export function useModulePageSession(
       saving: saving.value,
       loading: detailLoading.value,
       loadFailed: detailLoadFailed.value,
+      registerWorkspaceDraft,
     };
   });
   function hasCardAssistantAt(boundary: 'inside' | 'outside', position: 'top' | 'bottom') {
@@ -2136,8 +2178,21 @@ export function useModulePageSession(
               ? t('platform.action.saving', '保存中')
               : t('platform.action.save', '保存'),
           loading: mainFormPending.value || (saving.value && activeDetailActionKey.value === 'save'),
-          disabled: mainFormPending.value || detailActionBusy.value,
+          disabled:
+            mainFormPending.value ||
+            detailActionBusy.value ||
+            (workspaceDraft.value != null && !workspaceDraft.value.ready()),
           primary: true,
+        },
+      ];
+    }
+    if (singleRecordManagementPage.value && !selectedRecord.value) {
+      return [
+        {
+          key: 'create',
+          actionCode: 'create',
+          title: flatManagementContent.value?.createTitle ?? t('platform.action.create', '新建'),
+          disabled: !singleRecordScopeEmpty.value || !recordCreationState().ready || detailActionBusy.value,
         },
       ];
     }
@@ -2425,6 +2480,14 @@ export function useModulePageSession(
 
   function handleFlatManagementLoaded(records: QueryListRecord[]) {
     loadFlatManagementRecords(records, flatManagementRecycleBin.active.value);
+    if (
+      singleRecordManagementPage.value &&
+      !selectedRecord.value &&
+      editorMode.value === 'view' &&
+      records.length === 1
+    ) {
+      void openRecordView(records[0]);
+    }
   }
 
   function explorerRecordText(record: object, field: string | undefined): string | undefined {
@@ -2490,6 +2553,10 @@ export function useModulePageSession(
   }
 
   function handleFlatManagementAction(action: RecordActionItem) {
+    if (action.key === 'create' && singleRecordScopeEmpty.value) {
+      void createRootRecord();
+      return;
+    }
     if (action.key === '__platform-check-save') {
       void checkRecordSave();
       return;
@@ -2580,6 +2647,7 @@ export function useModulePageSession(
     if (source !== 'entry' && isLockedNavigator(levelKey)) return;
     const previous = selectedNavigatorRecords.value[levelKey];
     const clearing = previous?.id != null && String(previous.id) === String(record.id);
+    if (clearing && navigatorEntryPolicy.value.retainSelectedRecord?.(levelKey)) return;
     if (clearing && source !== 'user') return;
     if (source === 'user') assistantInteractionRevision.value += 1;
     const next = { ...selectedNavigatorRecords.value };
@@ -2609,6 +2677,11 @@ export function useModulePageSession(
     }
     selectedNavigatorRecords.value = next;
     clearSelectionForScopeChange();
+  }
+
+  function deselectNavigatorRecord(levelKey: string) {
+    if (navigatorEntryPolicy.value.retainSelectedRecord?.(levelKey)) return;
+    clearNavigatorRecord(levelKey);
   }
 
   function handleNavigatorLoaded(
@@ -2671,6 +2744,7 @@ export function useModulePageSession(
     completeUnfilteredResult: boolean,
   ) {
     if (isLockedNavigator(level.descriptor.key)) return;
+    if (navigatorEmptySelectionLabel(level.descriptor.key) != null) return;
     const key = level.descriptor.key;
     const single = completeUnfilteredResult && records.length === 1 && records[0]?.id != null;
     const selectsSingleResult =
@@ -4253,7 +4327,10 @@ export function useModulePageSession(
     if (recordSaveNeedsCheck.value) return checkRecordSave();
     try {
       const record = await prepareRecordSave();
-      if (record) await submitPreparedRecord(record, editorMode.value, actionKey);
+      if (!record) return;
+      const draft = workspaceDraft.value;
+      if (draft && !draft.ready()) return;
+      await submitPreparedRecord(record, editorMode.value, actionKey, undefined, draft);
     } catch (cause) {
       if (!recordSaveError.value)
         presentPlatformError(cause, { source: 'module-action', phase: 'action', language });
@@ -4265,6 +4342,7 @@ export function useModulePageSession(
     mode: string,
     actionKey: string,
     requestId = reliableRecordSaveAvailable.value ? createUuid() : undefined,
+    draft?: ModulePageWorkspaceDraft,
   ) {
     if (detailActionBusy.value)
       throw new OperationRejectedError(
@@ -4286,6 +4364,7 @@ export function useModulePageSession(
       session === formSessionKey.value &&
       interaction === assistantInteractionRevision.value &&
       mode === editorMode.value &&
+      draft === workspaceDraft.value &&
       Boolean(editingRecord.value) &&
       snapshot ===
         JSON.stringify(
@@ -4316,9 +4395,11 @@ export function useModulePageSession(
       }
       const id = record.id == null ? undefined : String(record.id);
       const result = await (
-        mode === 'edit' && id
-          ? context.crud.update(id, record, requestId ? { requestId } : undefined)
-          : context.crud.insert(record, requestId ? { requestId } : undefined)
+        draft
+          ? draft.save({ record, mode: mode as 'create' | 'edit', recordDirty: detailDirty.value, requestId })
+          : mode === 'edit' && id
+            ? context.crud.update(id, record, requestId ? { requestId } : undefined)
+            : context.crud.insert(record, requestId ? { requestId } : undefined)
       ).catch((cause: unknown) => {
         if (isCurrent() && cause instanceof AppError && isRecordSaveRejection(cause)) {
           recordSaveError.value = cause;
@@ -5337,7 +5418,7 @@ export function useModulePageSession(
       return false;
     if (!(await referenceRecordDetailBrowser.confirmLeave())) return false;
     if (interactionBusy.value) return false;
-    if (!detailDirty.value) return true;
+    if (!detailDirty.value && !workspaceDraftDirty.value) return true;
     return confirmAction(
       {
         presentation: () => ({
@@ -5478,6 +5559,8 @@ export function useModulePageSession(
     managedPageActions,
     flatManagementRecycleBin,
     flatManagementContent,
+    singleRecordManagementPage,
+    singleRecordScopeEmpty,
     title,
     flatManagementSearchKeyword,
     editorMode,
@@ -5486,6 +5569,8 @@ export function useModulePageSession(
     navigatorExtension,
     navigatorExtensionContext,
     navigatorLevelAt,
+    navigatorEmptySelectionLabel,
+    deselectNavigatorRecord,
     selectedNavigatorRecords,
     navigatorReloadKey,
     scopeSearchKeyword,

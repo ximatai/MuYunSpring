@@ -62,7 +62,7 @@ class PersonalAccessTokenRepositoryIT {
         });
         store = new PersonalAccessTokenStore(dao, database);
         accounts = new UserAccountService(accountDao, tenant -> {}, new PasswordHashingService(),
-                mock(AccountRoleGrantDao.class), new UserAccountSecurityServices(Optional.empty(),
+                mock(AccountRoleGrantDao.class), new UserAccountSecurityServices(new net.ximatai.muyun.spring.iam.user.PasswordSecurityPolicyResolver(mock(net.ximatai.muyun.spring.iam.user.PasswordSecurityPolicyService.class), mock(net.ximatai.muyun.spring.iam.user.PasswordPolicyRuleService.class)),
                 UserSecurityEventPublisher.NOOP, mock(UserSessionRevocationService.class),
                 mock(UserSessionPresenceService.class), store)) {
             @Override public net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService getDataScopeCriteriaService() {

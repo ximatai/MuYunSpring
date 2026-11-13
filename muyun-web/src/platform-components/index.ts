@@ -325,6 +325,7 @@ export type {
   PlatformActionResultHandlingContext,
 } from './platformActionResultFeedback';
 export { executeStaticFormSave, executeStaticRecordAction } from './staticFormActionFlow';
+export { useWorkspaceNavigationActivity } from './managementWorkspaceContext';
 export {
   applyRecordExternalChange,
   createRecordEditorSessionState,

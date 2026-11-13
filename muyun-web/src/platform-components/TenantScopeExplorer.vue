@@ -40,7 +40,7 @@ function handleLoaded(records: QueryListRecord[], total?: number) {
 <template>
   <RecordExplorerPanel
     class="tenant-scope-explorer"
-    :title="language.t('platform.screen.TenantScopeExplorer.tenant', '租户')"
+    :title="language.t('platform.navigator.management-scope', '管理范围')"
     :refresh-title="language.t('platform.screen.TenantScopeExplorer.refresh-tenants', '刷新租户列表')"
     :search-keyword="keyword"
     :search-placeholder="language.t('platform.screen.TenantScopeExplorer.search-tenant', '搜索租户')"

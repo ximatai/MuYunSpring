@@ -4,6 +4,7 @@ import {
   CrudRecordListExplorer,
   RecordExplorerPanel,
   RecordPanelState,
+  RecordListExplorer,
   TreeRecordExplorer,
   type QueryListRecord,
   type RecordQueryListQueryController,
@@ -23,6 +24,7 @@ defineOptions({ name: 'PageNavigatorExplorer' });
 const props = defineProps<{
   level: NavigatorLevelRuntime;
   selectedId?: string;
+  emptySelectionLabel?: string;
   reloadKey: number;
   keyword: string;
   sort: NavigatorSortViewState;
@@ -45,6 +47,7 @@ const emit = defineEmits<{
   create: [];
   select: [record: QueryListRecord];
   deselect: [];
+  selectDefault: [];
   loaded: [records: QueryListRecord[], completeUnfilteredResult: boolean];
   queryControllerChange: [
     levelKey: string,
@@ -85,6 +88,15 @@ function itemOf(record: NavigatorItemRecord) {
     @update:search-keyword="emit('update:keyword', $event)"
     @refresh="emit('refresh')"
   >
+    <RecordListExplorer
+      v-if="emptySelectionLabel && ready !== false"
+      class="page-navigator-default-range"
+      :records="[{ id: '__default_range__', title: emptySelectionLabel }]"
+      :code-of="() => undefined"
+      :selected-id="selectedId == null ? '__default_range__' : undefined"
+      @select="emit('selectDefault')"
+      @deselect="emit('selectDefault')"
+    />
     <template v-if="managementAvailable || sort.visible" #actions>
       <NavigatorPanelActions
         :context="level.context"
@@ -163,6 +175,10 @@ function itemOf(record: NavigatorItemRecord) {
 </template>
 
 <style scoped>
+.page-navigator-default-range {
+  flex: 0 0 auto;
+  overflow: visible;
+}
 /* A read-only navigator is a range selector, never a record-management list. */
 .page-navigator-explorer--readonly :deep(.ui-record-explorer-item-actions) {
   display: none;

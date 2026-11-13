@@ -62,6 +62,21 @@ class RecordSaveRequestSupportTest {
             .isNotEqualTo(fingerprint.getAllValues().get(2));
         assertThat(fingerprint.getAllValues().get(2)).isNotEqualTo(fingerprint.getAllValues().get(3));
     }
+    @Test void fingerprintsAllNestedWorkspaceChanges() {
+        var service = mock(RecordSaveReceiptService.class);
+        bind(service).addHeader(RecordSaveRequestSupport.HEADER, "workspace-request-123456");
+        when(service.execute(anyString(), anyString(), anyString(), anyString(), any(), any()))
+                .thenAnswer(call -> ((Supplier<?>) call.getArgument(4)).get());
+        var controller = controller();
+        var policy = new Row();
+        var first = java.util.Map.of("policy", policy, "rules", java.util.List.of(java.util.Map.of("pattern", ".{8,}")));
+        var changed = java.util.Map.of("policy", policy, "rules", java.util.List.of(java.util.Map.of("pattern", ".{6,}")));
+        RecordSaveRequestSupport.execute(controller, "update", "policy", first, () -> policy);
+        RecordSaveRequestSupport.execute(controller, "update", "policy", changed, () -> policy);
+        var fingerprint = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(service, times(2)).execute(anyString(), eq("demo.record"), eq("update"), fingerprint.capture(), any(), any());
+        assertThat(fingerprint.getAllValues().get(0)).isNotEqualTo(fingerprint.getAllValues().get(1));
+    }
     @Test void authorizesCurrentRecordAccessBeforeDisclosingReceipt() {
         var service = mock(RecordSaveReceiptService.class);
         bind(service);

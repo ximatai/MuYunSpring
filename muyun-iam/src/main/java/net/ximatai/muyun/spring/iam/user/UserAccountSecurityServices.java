@@ -1,17 +1,21 @@
 package net.ximatai.muyun.spring.iam.user;
 
 import java.util.Objects;
-import java.util.Optional;
 
+/**
+ * Required security collaborators of {@link UserAccountService}. The password policy resolver is a
+ * mandatory dependency: password complexity and login-lockout decisions must always go through the
+ * single effective-policy entry, never a silently disabled fallback.
+ */
 public record UserAccountSecurityServices(
-        Optional<PasswordPolicyRuleService> passwordPolicyRuleService,
+        PasswordSecurityPolicyResolver passwordSecurityPolicyResolver,
         UserSecurityEventPublisher securityEventPublisher,
         UserSessionRevocationService sessionRevocationService,
         UserSessionPresenceService sessionPresenceService,
         PersonalAccessTokenStore personalAccessTokenStore
 ) {
     public UserAccountSecurityServices {
-        passwordPolicyRuleService = passwordPolicyRuleService == null ? Optional.empty() : passwordPolicyRuleService;
+        Objects.requireNonNull(passwordSecurityPolicyResolver, "passwordSecurityPolicyResolver");
         Objects.requireNonNull(securityEventPublisher, "securityEventPublisher");
         Objects.requireNonNull(sessionRevocationService, "sessionRevocationService");
         Objects.requireNonNull(sessionPresenceService, "sessionPresenceService");

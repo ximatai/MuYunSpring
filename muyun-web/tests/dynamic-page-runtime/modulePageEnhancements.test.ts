@@ -63,6 +63,25 @@ describe('module page enhancements', () => {
     expect(registry.resolve('iam.user', undefined, 'platform.menu.module.iam.user')).toMatchObject(fallback);
   });
 
+  it('preserves the explicit default range while merging navigator contributions', () => {
+    const emptySelectionLabel = () => 'Platform default';
+    const registry = createModulePageEnhancementRegistry([
+      {
+        id: 'default',
+        target: { moduleAlias: 'iam.password_security_policy' },
+        navigator: { emptySelectionLabel },
+      },
+      {
+        id: 'scope',
+        target: { moduleAlias: 'iam.password_security_policy' },
+        navigator: { emptyListScope: () => [] },
+      },
+    ]);
+    expect(registry.resolve('iam.password_security_policy')?.navigator?.emptySelectionLabel).toBe(
+      emptySelectionLabel,
+    );
+  });
+
   it('retains a navigator tree parent policy from a page contribution', () => {
     const registry = createModulePageEnhancementRegistry([
       {

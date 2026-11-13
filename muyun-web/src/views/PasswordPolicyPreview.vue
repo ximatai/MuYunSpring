@@ -9,6 +9,7 @@ import type { TextReference, TextPresentation, RecordTextPresentation } from '@m
 import { computed, ref, watch } from 'vue';
 import type { ModulePageCardAssistantContext } from '@muyun/dynamic-page-runtime';
 import { UiInput, UiRadioGroup, type UiRadioOption } from '@muyun/vue-ui-antdv';
+import { RecordDetailExtensionSection } from '@muyun/platform-components';
 
 const language = useLanguageContext();
 
@@ -18,6 +19,7 @@ type PreviewScope = 'CURRENT' | 'ALL';
 
 interface PasswordPolicyRuleSnapshot extends RecordTextPresentation {
   id?: string;
+  tenantId?: string;
   title?: string;
   pattern?: string;
   message?: string;
@@ -42,11 +44,20 @@ const props = defineProps<{ context: ModulePageCardAssistantContext }>();
 const scope = ref<PreviewScope>('CURRENT');
 const password = ref('');
 const authoritativeAllRules = ref<readonly PasswordPolicyRuleSnapshot[]>();
+const effectiveComplexityMode = ref<string>();
+const usesDefaultRules = ref(false);
 const allRulesLoadFailed = ref(false);
 const allRulesLoading = ref(false);
 let allRulesRequestVersion = 0;
 
 const currentRule = computed(() => asRule(props.context.record));
+const targetTenant = computed(() => {
+  const tenant =
+    props.context.record && 'tenantId' in props.context.record
+      ? props.context.record.tenantId
+      : props.context.navigatorRecords?.tenant?.id;
+  return typeof tenant === 'string' && tenant.trim() ? tenant.trim() : undefined;
+});
 const hasCurrentRule = computed(
   () => props.context.mode !== 'view' || normalizedId(currentRule.value?.id) !== undefined,
 );
@@ -80,12 +91,17 @@ function updateScope(next: string) {
 // or showing recycle-bin data and therefore cannot authoritatively define this
 // security policy. No request is made while a user types a trial password.
 watch(
-  [scope, () => props.context.formSessionKey],
+  [scope, () => props.context.formSessionKey, targetTenant],
   ([nextScope]) => {
     if (nextScope === 'ALL') void loadAuthoritativeAllRules();
   },
   { immediate: true },
 );
+
+watch(targetTenant, () => {
+  password.value = '';
+  authoritativeAllRules.value = undefined;
+});
 
 async function loadAuthoritativeAllRules() {
   const requestVersion = ++allRulesRequestVersion;
@@ -93,10 +109,26 @@ async function loadAuthoritativeAllRules() {
   allRulesLoadFailed.value = false;
   authoritativeAllRules.value = undefined;
   try {
-    const rules = await props.context.module.http.request<PasswordPolicyRuleSnapshot[]>({
-      path: '/iam.password_policy_rule/active-global-rules',
+    // The preview follows the selected target scope's effective rules, never a fixed global list.
+    const effective = await props.context.module.http.request<{
+      complexityMode: string;
+      complexitySource: string;
+      complexityRules: { id?: string; tenantId?: string; pattern: string; message: string }[];
+    }>({
+      path: '/iam.password_security_policy/effective',
+      query: targetTenant.value ? { tenantId: targetTenant.value } : undefined,
     });
     if (requestVersion !== allRulesRequestVersion) return;
+    const rules: PasswordPolicyRuleSnapshot[] = (effective.complexityRules ?? []).map((rule) => ({
+      id: rule.id,
+      tenantId: rule.tenantId,
+      title: rule.message,
+      pattern: rule.pattern,
+      message: rule.message,
+      enabled: true,
+    }));
+    effectiveComplexityMode.value = effective.complexityMode;
+    usesDefaultRules.value = effective.complexitySource === 'DEFAULT';
     authoritativeAllRules.value = Object.freeze(rules.map((rule) => Object.freeze({ ...rule })));
   } catch {
     if (requestVersion !== allRulesRequestVersion) return;
@@ -111,16 +143,27 @@ const previewRules = computed(() => {
   if (scope.value === 'CURRENT') return current ? [current] : [];
 
   if (!authoritativeAllRules.value) return [];
-  const rules = authoritativeAllRules.value.filter(participatesInAllRules);
+  let rules = [...authoritativeAllRules.value];
+  const applies = !targetTenant.value || effectiveComplexityMode.value === 'custom';
+  if (!applies) return rules;
   const currentId = normalizedId(current?.id);
   if (currentId) {
     const index = rules.findIndex((rule) => normalizedId(rule.id) === currentId);
     if (index >= 0) rules.splice(index, 1);
   }
   if (current && participatesInAllRules(current)) {
+    if (usesDefaultRules.value) rules = [];
     rules.push(current);
   }
-  return rules.length > 0 ? rules.sort(compareRules) : [];
+  return rules.length > 0
+    ? rules.sort(compareRules)
+    : [
+        {
+          pattern: '^.{6,}$',
+          message: '密码长度不能少于 6 位',
+          enabled: true,
+        },
+      ];
 });
 
 const results = computed<PasswordPolicyPreviewRuleResult[]>(() => {
@@ -261,89 +304,61 @@ function normalizedText(value: string | undefined, fallback: string) {
 }
 
 function participatesInAllRules(rule: PasswordPolicyRuleSnapshot) {
-  return rule.enabled !== false && (rule.scopeType == null || rule.scopeType.toLowerCase() === 'global');
+  return rule.enabled !== false && normalizedId(rule.tenantId) === targetTenant.value;
 }
 </script>
 
 <template>
-  <section class="password-policy-preview">
-    <header>
-      <h3>{{ language.t('platform.screen.PasswordPolicyPreview.password-preview', '密码试算') }}</h3>
-      <span :class="{ failed: results.some((item) => !item.passed) }">{{ summary }}</span>
-    </header>
+  <RecordDetailExtensionSection
+    class="password-policy-preview"
+    :title="language.t('platform.screen.PasswordPolicyPreview.password-preview', '密码试算')"
+    :subtitle="summary"
+  >
+    <div class="preview-content">
+      <UiRadioGroup
+        class="preview-scope"
+        :value="scope"
+        :options="scopeOptions"
+        size="small"
+        @update:value="updateScope"
+      />
 
-    <UiRadioGroup
-      class="preview-scope"
-      :value="scope"
-      :options="scopeOptions"
-      size="small"
-      @update:value="updateScope"
-    />
+      <UiInput
+        v-model:value="password"
+        type="text"
+        autocomplete="off"
+        :placeholder="
+          language.t('platform.screen.PasswordPolicyPreview.enter-a-test-password', '输入测试密码')
+        "
+        :aria-label="language.t('platform.screen.PasswordPolicyPreview.test-password', '测试密码')"
+      />
 
-    <UiInput
-      v-model:value="password"
-      type="text"
-      autocomplete="off"
-      :placeholder="language.t('platform.screen.PasswordPolicyPreview.enter-a-test-password', '输入测试密码')"
-      :aria-label="language.t('platform.screen.PasswordPolicyPreview.test-password', '测试密码')"
-    />
-
-    <ul v-if="results.length" class="preview-results">
-      <li
-        v-for="item in displayedResults"
-        :key="item.key"
-        :class="{ passed: item.passed, failed: !item.passed }"
-      >
-        <strong>{{ item.title }}</strong>
-        <span>{{
-          item.diagnostic ??
-          (item.passed ? language.t('platform.workflow-record.check-passed', '通过') : item.message)
-        }}</span>
-      </li>
-    </ul>
-  </section>
+      <ul v-if="results.length" class="preview-results">
+        <li
+          v-for="item in displayedResults"
+          :key="item.key"
+          :class="{ passed: item.passed, failed: !item.passed }"
+        >
+          <strong>{{ item.title }}</strong>
+          <span>{{
+            item.diagnostic ??
+            (item.passed ? language.t('platform.workflow-record.check-passed', '通过') : item.message)
+          }}</span>
+        </li>
+      </ul>
+    </div>
+  </RecordDetailExtensionSection>
 </template>
 
 <style scoped>
-.password-policy-preview {
+.preview-content {
   display: grid;
   gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--muyun-border);
-  border-radius: 8px;
-  background: var(--muyun-hover-subtle);
 }
 
-.password-policy-preview header {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.password-policy-preview h3 {
-  margin: 0;
-}
-
-.password-policy-preview h3 {
-  color: var(--muyun-text);
-  font-size: 15px;
-}
-
-.password-policy-preview header span,
 .preview-results span {
   color: var(--muyun-text-muted);
-  font-size: 12px;
-}
-
-.password-policy-preview header span {
-  color: var(--muyun-success-text);
-  font-weight: 700;
-  text-align: right;
-}
-
-.password-policy-preview header span.failed {
-  color: var(--muyun-danger-text);
+  font-size: var(--muyun-font-size-helper, 12px);
 }
 
 .preview-scope {
@@ -361,22 +376,18 @@ function participatesInAllRules(rule: PasswordPolicyRuleSnapshot) {
 .preview-results li {
   display: grid;
   gap: 3px;
-  padding: 9px 10px;
-  border: 1px solid var(--muyun-border);
-  border-radius: 6px;
-  background: var(--muyun-surface);
 }
 
-.preview-results li.passed {
-  border-color: rgb(16 185 129 / 35%);
+.preview-results li.passed span {
+  color: var(--muyun-success-text);
 }
 
-.preview-results li.failed {
-  border-color: rgb(239 68 68 / 35%);
+.preview-results li.failed span {
+  color: var(--muyun-danger-text);
 }
 
 .preview-results strong {
   color: var(--muyun-text-body);
-  font-size: 13px;
+  font-size: var(--muyun-font-size-body, 13px);
 }
 </style>

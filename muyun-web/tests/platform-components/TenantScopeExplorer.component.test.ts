@@ -61,7 +61,7 @@ describe('TenantScopeExplorer', () => {
     await flushPromises();
     expect(wrapper.findComponent({ name: 'CrudRecordListExplorer' }).exists()).toBe(true);
 
-    await wrapper.find('[title="搜索租户"]').trigger('click');
+    await wrapper.find('[title="搜索管理范围"]').trigger('click');
     await wrapper.find('input').setValue('第201');
     await flushPromises();
 
@@ -75,7 +75,7 @@ describe('TenantScopeExplorer', () => {
       ],
     });
     expect(wrapper.text()).toContain('第201个租户');
-    expect(wrapper.get('.management-panel-header-title-group').text()).toBe('租户');
+    expect(wrapper.get('.management-panel-header-title-group').text()).toBe('管理范围');
     expect(wrapper.find('.crud-record-list-pagination').exists()).toBe(false);
     expect(wrapper.emitted('loaded')).toEqual([
       [expect.any(Array), true, 201],
@@ -123,7 +123,7 @@ describe('TenantScopeExplorer', () => {
     });
     const wrapper = mount(TenantScopeExplorer, { props: { context, reloadKey: 0 } });
     await flushPromises();
-    await wrapper.find('[title="搜索租户"]').trigger('click');
+    await wrapper.find('[title="搜索管理范围"]').trigger('click');
     await wrapper.find('input').setValue('B');
     await flushPromises();
     await wrapper.find('input').setValue('');

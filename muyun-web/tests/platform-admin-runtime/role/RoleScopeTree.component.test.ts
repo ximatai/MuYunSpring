@@ -6,10 +6,23 @@ import {
   createLanguageContext,
   provideLanguageContext,
   provideModuleContextConfig,
+  type LanguageContext,
 } from '@muyun/web-core';
 import RoleScopeTree from '@/platform-admin-runtime/role/RoleScopeTree.vue';
+import { UiTree } from '@muyun/vue-ui-antdv';
+import type { ModulePageNavigatorExtensionContext } from '@muyun/dynamic-page-runtime';
 
 const backend = vi.hoisted(() => ({ request: vi.fn() }));
+
+function createHost(context: ModulePageNavigatorExtensionContext, language: LanguageContext) {
+  return defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      provideModuleContextConfig({ httpFactory: () => backend });
+      return () => h(RoleScopeTree, { context });
+    },
+  });
+}
 
 it('refreshes cached scope labels without selecting again or fetching directory facts', async () => {
   const language = createLanguageContext({ languageTag: 'en' });
@@ -42,13 +55,7 @@ it('refreshes cached scope labels without selecting again or fetching directory 
     refreshList: vi.fn(),
     reload: vi.fn(),
   };
-  const Host = defineComponent({
-    setup() {
-      provideLanguageContext(language);
-      provideModuleContextConfig({ httpFactory: () => backend });
-      return () => h(RoleScopeTree, { context });
-    },
-  });
+  const Host = createHost(context, language);
   const wrapper = mount(Host, {
     global: {
       stubs: {
@@ -82,6 +89,53 @@ it('refreshes cached scope labels without selecting again or fetching directory 
     expect(context.selectSelectionKey).toHaveBeenCalledOnce();
     expect(context.refreshList).not.toHaveBeenCalled();
     expect(context.reload).not.toHaveBeenCalled();
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it.each([
+  { key: 'platform', label: '平台角色', level: 'TENANT', navigationKey: 'role-scope-tenants' },
+  { key: 'tenant:tenant-a', label: '当前租户', level: 'ORGANIZATION', navigationKey: 'tenant:tenant-a' },
+])('retains the selected organization until explicitly switching to $key', async (scope) => {
+  backend.request.mockReset();
+  backend.request.mockResolvedValue({
+    directSelections: [{ selectionKey: scope.key, title: scope.label }],
+    navigations: [{ navigationKey: scope.navigationKey, level: scope.level, title: scope.level }],
+  });
+  const context = {
+    moduleAlias: 'iam.role',
+    selectionKey: 'organization:org-a',
+    selectSelectionKey: vi.fn(),
+    refreshList: vi.fn(),
+    reload: vi.fn(),
+  };
+  const Host = createHost(context, createLanguageContext({ languageTag: 'zh-CN' }));
+  const wrapper = mount(Host, {
+    global: { stubs: { UiTree: true } },
+  });
+  try {
+    await flushPromises();
+    expect(wrapper.text()).toContain('管理范围');
+    const tree = wrapper.getComponent(UiTree);
+    expect(tree.props('selectedKey')).toBe('organization:org-a');
+    // UiTree is controlled: deselection must not fall back to a different business scope.
+    tree.vm.$emit('deselect');
+    await flushPromises();
+    expect(context.selectSelectionKey).not.toHaveBeenCalled();
+    expect(tree.props('selectedKey')).toBe('organization:org-a');
+    expect(tree.props('nodes').map((node) => node.key)).toEqual([
+      scope.key,
+      `navigation:${scope.navigationKey}`,
+    ]);
+    tree.vm.$emit('select', { key: scope.key });
+    expect(context.selectSelectionKey).toHaveBeenCalledExactlyOnceWith(scope.key, {
+      label: scope.label,
+      secondaryLabel: undefined,
+    });
+    expect(context.refreshList).not.toHaveBeenCalled();
+    expect(context.reload).not.toHaveBeenCalled();
+    expect(backend.request).toHaveBeenCalledOnce();
   } finally {
     wrapper.unmount();
   }

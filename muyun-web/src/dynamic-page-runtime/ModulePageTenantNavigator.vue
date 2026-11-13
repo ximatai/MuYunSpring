@@ -30,7 +30,7 @@ const events = {
   <ManagementExplorerColumn
     v-if="column"
     collapsible
-    :title="language.t('platform.screen.ModulePageHostRuntime.tenant', '租户')"
+    :title="language.t('platform.navigator.management-scope', '管理范围')"
     :has-selection="Boolean(controller.selectedId.value)"
   >
     <TenantScopeExplorer v-bind="explorer" v-on="events" />

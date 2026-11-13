@@ -70,6 +70,7 @@ public class TenantCurrencySettingService extends AbstractAbilityService<TenantC
         setting.setTenantId(tenantId);
         Currency currency = currencyService.requireEnabledCurrency(setting.getBaseCurrencyCode());
         setting.setBaseCurrencyCode(currency.getCode());
+        setting.setTitle(currency.getCode());
         rejectDuplicate(setting, Criteria.of().eq(StandardEntitySchema.TENANT_ID_FIELD, tenantId), () -> PlatformErrors.badRequestText(TextReference.code(
                 "platform.rejection.tenant-currency-setting.tenant-base-currency-setting-must-be-unique-within-tenant",
                 "tenant base currency setting must be unique within tenant")));

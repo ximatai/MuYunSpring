@@ -265,6 +265,29 @@ describe('LoginView', () => {
     }
   });
 
+  it('clears the previous login page error when entering the required password change flow', async () => {
+    const client = authClient({
+      login: vi.fn().mockResolvedValue({ token: 'pending-token', passwordChangeRequired: true }),
+    });
+    const wrapper = mount(LoginView, {
+      props: { authClient: client, initialUsername: 'xcmg', error: 'current user context is not available' },
+    });
+    try {
+      expect(wrapper.text()).toContain('current user context is not available');
+      await wrapper.get('input[autocomplete="current-password"]').setValue('old-password');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+      expect(wrapper.text()).not.toContain('current user context is not available');
+      expect(wrapper.findAll('input[autocomplete="new-password"]')).toHaveLength(2);
+      await wrapper.findAll('input[autocomplete="new-password"]')[0]!.setValue('one');
+      await wrapper.findAll('input[autocomplete="new-password"]')[1]!.setValue('two');
+      await wrapper.get('form').trigger('submit');
+      expect(wrapper.text()).toContain('\u4e24\u6b21\u8f93\u5165\u7684\u65b0\u5bc6\u7801\u4e0d\u4e00\u81f4');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('starts the password change masked and toggles each field independently without submitting', async () => {
     const client = authClient({
       login: vi

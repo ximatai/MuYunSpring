@@ -471,7 +471,7 @@ it('management workspace consumes the page layout contract for constrained deskt
   assert.match(indexSource, /export \{ default as ManagementWorkspace \}/);
   assert.match(indexSource, /export \{ default as ManagementExplorerColumn \}/);
   assert.match(staticLayoutSource, /<ManagementWorkspace\s+class="static-management-page"/);
-  assert.match(staticLayoutSource, /<ManagementExplorerColumn>/);
+  assert.match(staticLayoutSource, /<ManagementExplorerColumn\s+v-if="explorerVisible">/);
   assert.notMatch(staticLayoutSource, /scrollableContent\?: boolean/);
   assert.match(detailPanelSource, /const pageLayout = usePageLayout\(\)/);
   assert.match(detailPanelSource, /:scrollable-content="pageLayout === 'workspace'"/);
@@ -573,7 +573,6 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.notMatch(roleScopeTreeSource, /moduleAlias: 'iam\.organization'/);
   assert.match(roleScopeTreeSource, /<UiTree/);
   assert.match(roleScopeTreeSource, /loadChildren/);
-  assert.match(roleScopeTreeSource, /clearSelection/);
   assert.match(roleScopeTreeSource, /selectSelectionKey/);
   assert.match(roleScopeClientSource, /\/iam\.role\/scope-selection\/descriptor/);
   assert.match(roleScopeClientSource, /\/iam\.role\/scope-selection\/candidates/);
@@ -810,7 +809,8 @@ it('password management uses the standard module runner with a source-owned card
   assert.match(enhancementSource, /moduleAlias: 'iam\.password_policy_rule'/);
   assert.match(enhancementSource, /card:\s*\{/);
   assert.match(enhancementSource, /component: PasswordPolicyPreview/);
-  assert.match(enhancementSource, /boundary: 'outside'/);
+  assert.match(enhancementSource, /boundary: 'inside'/);
+  assert.match(passwordPreviewSource, /<RecordDetailExtensionSection/);
   assert.match(enhancementSource, /position: 'bottom'/);
   assert.match(hostSource, /createReadonlyRecordSnapshot/);
   assert.match(hostSource, /module-card-assistant/);

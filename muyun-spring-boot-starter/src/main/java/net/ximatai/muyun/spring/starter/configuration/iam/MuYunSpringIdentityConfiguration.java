@@ -33,7 +33,7 @@ import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
  * 初始数据执行与启动任务编排由 {@code boot.bootstrap} 负责，避免身份配置越界。
  */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties({MuYunSpringInitialAdminProperties.class, MuYunSpringLoginLockoutProperties.class,
+@EnableConfigurationProperties({MuYunSpringInitialAdminProperties.class,
         MuYunSpringExternalIdentityFederationProperties.class, MuYunSpringSessionRetentionProperties.class})
 public class MuYunSpringIdentityConfiguration {
     @Bean

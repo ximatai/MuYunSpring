@@ -1,4 +1,4 @@
-import type { ModulePageEnhancement } from '@muyun/dynamic-page-runtime';
+import { createTenantScopeNavigator, type ModulePageEnhancement } from '@muyun/dynamic-page-runtime';
 import PasswordPolicyPreview from '../views/PasswordPolicyPreview.vue';
 
 /**
@@ -8,10 +8,11 @@ import PasswordPolicyPreview from '../views/PasswordPolicyPreview.vue';
 export const passwordPolicyPageEnhancement: ModulePageEnhancement = {
   id: 'iam-password-policy-preview',
   target: { moduleAlias: 'iam.password_policy_rule' },
+  navigator: createTenantScopeNavigator(),
   card: {
     assistant: {
       component: PasswordPolicyPreview,
-      placement: { boundary: 'outside', position: 'bottom' },
+      placement: { boundary: 'inside', position: 'bottom' },
     },
   },
 };

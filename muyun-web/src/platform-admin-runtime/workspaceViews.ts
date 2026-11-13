@@ -1,3 +1,4 @@
+import { tenantCurrencySettingPageEnhancement } from './tenantCurrencySettingPageEnhancement';
 import { workspaceViewContributions } from './workspaceViewContributions';
 import { configureWorkspaceViewContributions } from '@muyun/platform-workbench';
 import { configureModulePageEnhancementContributions } from '@muyun/dynamic-page-runtime';
@@ -7,6 +8,7 @@ import {
   platformModulePageEnhancement,
 } from './platformModulePageEnhancement';
 import { passwordPolicyPageEnhancement } from './passwordPolicyPageEnhancement';
+import { passwordSecurityPageEnhancement } from './passwordSecurityPageEnhancement';
 import { tenantModulePageEnhancement } from './tenantModulePageEnhancement';
 import { employeeModulePageEnhancement } from './employeeModulePageEnhancement';
 import { userModulePageEnhancement } from './userModulePageEnhancement';
@@ -22,9 +24,11 @@ configureModulePageEnhancementContributions('platform-admin-runtime', [
   dictionaryCategoryPageEnhancement,
   platformModuleActionPageEnhancement,
   passwordPolicyPageEnhancement,
+  passwordSecurityPageEnhancement,
   tenantModulePageEnhancement,
   employeeModulePageEnhancement,
   userModulePageEnhancement,
+  tenantCurrencySettingPageEnhancement,
   roleModulePageEnhancement,
   scheduledActionPlanPageEnhancement,
 ]);

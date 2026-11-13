@@ -20,7 +20,6 @@ import net.ximatai.muyun.spring.ability.reference.ModuleReadProjectionContributo
 import net.ximatai.muyun.spring.ability.reference.ReferencePath;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.common.exception.AuthenticationFailedException;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
@@ -73,7 +72,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     private static final int TEMPORARY_PASSWORD_MAX_ATTEMPTS = 32;
 
     private final PasswordHashingService passwordHashingService;
-    private final PasswordPolicyRuleService passwordPolicyRuleService;
+    private final PasswordSecurityPolicyResolver passwordSecurityPolicyResolver;
     private final AccountRoleGrantDao accountRoleGrantDao;
     private final UserSecurityEventPublisher userSecurityEventPublisher;
     private final UserSessionRevocationService userSessionRevocationService;
@@ -81,7 +80,6 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     private final PersonalAccessTokenStore personalAccessTokens;
     private final SecureRandom secureRandom = new SecureRandom();
     private PlatformInitialAdminSettings initialAdminSettings = PlatformInitialAdminSettings.defaults();
-    private LoginLockoutPolicy loginLockoutPolicy = LoginLockoutPolicy.defaults();
     private static final ActionExecutionPolicy CHANGE_PASSWORD_POLICY = new ActionExecutionPolicy(
             "changePassword",
             PlatformActionLevel.RECORD,
@@ -100,7 +98,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                               UserAccountSecurityServices securityServices) {
         super(MODULE_ALIAS, UserAccount.class, userAccountDao, activeTenantVerifier);
         this.passwordHashingService = Objects.requireNonNull(passwordHashingService, "passwordHashingService");
-        this.passwordPolicyRuleService = securityServices.passwordPolicyRuleService().orElse(null);
+        this.passwordSecurityPolicyResolver = Objects.requireNonNull(securityServices.passwordSecurityPolicyResolver(), "passwordSecurityPolicyResolver");
         this.accountRoleGrantDao = Objects.requireNonNull(accountRoleGrantDao, "accountRoleGrantDao");
         this.userSecurityEventPublisher = securityServices.securityEventPublisher();
         this.userSessionRevocationService = securityServices.sessionRevocationService();
@@ -113,10 +111,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         this.initialAdminSettings = settings.orElseGet(PlatformInitialAdminSettings::defaults);
     }
 
-    @Autowired
-    public void setLoginLockoutPolicy(Optional<LoginLockoutPolicy> policy) {
-        this.loginLockoutPolicy = policy.orElseGet(LoginLockoutPolicy::defaults);
-    }
+
 
     @Override
     public InitialDataOptions initialDataOptions() {
@@ -273,7 +268,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
             user.setPasswordChangedAt(null);
             user.setPasswordExpiresAt(null);
         } else {
-            validatePasswordPolicy(user.getPassword());
+            validatePasswordPolicy(user.getPassword(), user.getTenantId());
             user.setPasswordHash(passwordHashingService.hash(user.getPassword()));
             user.setPasswordStatus(user.getPasswordStatus() == null ? PasswordStatus.INITIAL : user.getPasswordStatus());
             user.setPasswordChangedAt(user.getPasswordChangedAt() == null ? Instant.now() : user.getPasswordChangedAt());
@@ -378,7 +373,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         rejectCurrentUserPasswordAdministration(validUserId);
         int count = mutateFields(currentRecordMutationPolicy(), validUserId, user -> {
             requireCommandUserEnabled(user);
-            validatePasswordPolicy(newPassword);
+            validatePasswordPolicy(newPassword, user.getTenantId());
             user.setPasswordHash(passwordHashingService.hash(newPassword));
             user.setPasswordStatus(PasswordStatus.NORMAL);
             user.setPasswordChangedAt(Instant.now());
@@ -398,8 +393,15 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     public PasswordResetResult resetPassword(String userId) {
         String validUserId = Preconditions.requireText(userId, "userId");
         rejectCurrentUserPasswordAdministration(validUserId);
-        String temporaryPassword = generateTemporaryPassword();
+        UserAccount target = selectActiveRaw(validUserId);
+        if (target == null) {
+            return new PasswordResetResult(0, null, null);
+        }
         Instant expiresAt = Instant.now().plusSeconds(86_400);
+        // Resolve the target account's effective policy once, then generate against that same rule set.
+        java.util.List<EffectivePasswordRule> complexityRules = passwordSecurityPolicyResolver
+                .resolve(target.getTenantId()).complexityRules();
+        String temporaryPassword = generateTemporaryPassword(complexityRules);
         int count = mutateFields(resetPasswordPolicy(), validUserId, user -> {
             requireCommandUserEnabled(user);
             user.setPasswordHash(passwordHashingService.hash(temporaryPassword));
@@ -469,7 +471,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     }
 
     private void applyOwnPassword(UserAccount user, String newPassword) {
-        validatePasswordPolicy(newPassword);
+        validatePasswordPolicy(newPassword, user.getTenantId());
         user.setPasswordHash(passwordHashingService.hash(newPassword));
         user.setPasswordStatus(PasswordStatus.NORMAL);
         user.setPasswordChangedAt(Instant.now());
@@ -572,42 +574,47 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
      * the count, so an expired lock grants a fresh attempt budget instead of relocking on the next miss.
      */
     public void recordLoginFailure(UserAccount user, Instant failedAt) {
-        recordLoginFailureState(user, failedAt);
+        recordLoginFailureState(user, failedAt, effectiveLockoutPolicy(tenantIdOf(user)));
     }
 
     /** Internal credential-attempt collaborator; public so cross-package Service subclasses remain proxyable. */
     public LoginFailureFeedback recordLoginFailureFeedback(UserAccount user, Instant failedAt) {
-        UserAccount written = recordLoginFailureState(user, failedAt);
+        // A single consistent lockout snapshot drives both the failure write and the public guidance.
+        LoginLockoutPolicy policy = effectiveLockoutPolicy(tenantIdOf(user));
+        UserAccount written = recordLoginFailureState(user, failedAt, policy);
         if (written == null) {
             // Another attempt may already have applied a lock. Never report a fresh attempt budget.
-            return currentLoginLockFeedback(user, failedAt);
+            return currentLoginLockFeedback(user, failedAt, policy);
         }
-        return loginFailureFeedback(written, failedAt, loginLocked(written, failedAt));
+        return loginFailureFeedback(written, failedAt, loginLocked(written, failedAt), policy);
     }
 
     /** Reads the current authorized login-lock guidance without recording another credential failure. */
     public LoginFailureFeedback currentLoginLockFeedback(UserAccount user, Instant at) {
-        if (user == null || user.getId() == null) return null;
-        UserAccount latest = selectActiveRaw(user.getId());
-        return loginLocked(latest, at) ? loginFailureFeedback(latest, at, false) : null;
+        return currentLoginLockFeedback(user, at, effectiveLockoutPolicy(tenantIdOf(user)));
     }
 
-    private LoginFailureFeedback loginFailureFeedback(UserAccount user, Instant at, boolean lockTriggered) {
+    private LoginFailureFeedback currentLoginLockFeedback(UserAccount user, Instant at, LoginLockoutPolicy policy) {
+        if (user == null || user.getId() == null) return null;
+        UserAccount latest = selectActiveRaw(user.getId());
+        return loginLocked(latest, at) ? loginFailureFeedback(latest, at, false, policy) : null;
+    }
+
+    private LoginFailureFeedback loginFailureFeedback(UserAccount user, Instant at, boolean lockTriggered,
+                                                      LoginLockoutPolicy policy) {
         if (user == null || !Boolean.TRUE.equals(user.getEnabled())) return null;
         if (loginLocked(user, at)) {
             return new LoginFailureFeedback(at, user.getLockedUntil(), lockTriggered, null);
         }
-        LoginLockoutPolicy policy = loginLockoutPolicy;
         int remaining = policy.maxFailedAttempts() - (user.getFailedLoginCount() == null ? 0 : user.getFailedLoginCount());
         return policy.enabled() && remaining > 0 && remaining <= 2
                 ? new LoginFailureFeedback(at, null, false, remaining) : null;
     }
 
-    private UserAccount recordLoginFailureState(UserAccount user, Instant failedAt) {
+    private UserAccount recordLoginFailureState(UserAccount user, Instant failedAt, LoginLockoutPolicy policy) {
         if (user == null || user.getId() == null || user.getId().isBlank()) {
             return null;
         }
-        LoginLockoutPolicy policy = loginLockoutPolicy;
         // Failures that race past an already applied lock neither extend it nor restart the attempt budget.
         return VersionedRecordMutation.update(getDao(), () -> unlocked(selectActiveRaw(user.getId()), failedAt), latest -> {
             latest.setLastFailedLoginAt(failedAt);
@@ -619,6 +626,14 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                 latest.setFailedLoginCount(failures);
             }
         });
+    }
+
+    private LoginLockoutPolicy effectiveLockoutPolicy(String tenantId) {
+        return passwordSecurityPolicyResolver.resolve(tenantId).lockoutPolicy();
+    }
+
+    private String tenantIdOf(UserAccount user) {
+        return user == null ? null : user.getTenantId();
     }
 
     boolean loginLocked(UserAccount user, Instant now) {
@@ -727,15 +742,9 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                 "lastFailedLoginAt", "failedLoginCount", "lockedUntil");
     }
 
-    private void validatePasswordPolicy(String password) {
-        if (passwordPolicyRuleService != null) {
-            passwordPolicyRuleService.validatePassword(password);
-            return;
-        }
-        if (password == null || password.length() < 6) {
-            throw BusinessExceptions.warningText("iam.user.password-policy-violated",
-                TextReference.code("iam.user.password-policy-violated", "密码长度不能少于 6 位"));
-        }
+    private void validatePasswordPolicy(String password, String tenantId) {
+        // The single effective-policy entry decides complexity for the target account's tenant.
+        passwordSecurityPolicyResolver.validateComplexity(password, tenantId);
     }
 
     private ActionExecutionPolicy currentRecordMutationPolicy() {
@@ -780,16 +789,14 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                 ));
     }
 
-    private String generateTemporaryPassword() {
+    private String generateTemporaryPassword(java.util.List<EffectivePasswordRule> complexityRules) {
         for (int attempt = 0; attempt < TEMPORARY_PASSWORD_MAX_ATTEMPTS; attempt++) {
             byte[] bytes = new byte[12];
             secureRandom.nextBytes(bytes);
             String temporaryPassword = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-            try {
-                validatePasswordPolicy(temporaryPassword);
+            // The same resolved rule set that validated generation is the one the caller will store.
+            if (passwordSecurityPolicyResolver.matchesAll(temporaryPassword, complexityRules)) {
                 return temporaryPassword;
-            } catch (PlatformException ignored) {
-                // Configured regex rules can reject random candidates; try another bounded candidate.
             }
         }
         throw BusinessExceptions.warningText("iam.user.temporary-password-unavailable",

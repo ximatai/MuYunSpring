@@ -4,6 +4,7 @@ import { page } from 'vitest/browser';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
 import { configureModuleContext, createHttpClient } from '@muyun/web-core';
 import type { ModulePageSessionView } from '@/dynamic-page-runtime/useModulePageSession';
+import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements';
 import '@/styles.css';
 
 // Real standard Host, template, list/tree and detail components; only HTTP is replaced.
@@ -45,6 +46,22 @@ it.each([1440, 980])(
           recordLabelField: 'title',
           page: {
             template,
+            ...(template === 'FLAT_MANAGEMENT'
+              ? {
+                  navigator: {
+                    levels: [
+                      {
+                        key: 'organization',
+                        kind: 'MICRO_LIST',
+                        sourceModuleAlias: 'iam.organization',
+                        title: '机构',
+                        singleResultPolicy: 'AUTO_SELECT_AND_HIDE',
+                      },
+                    ],
+                    contextBindings: [],
+                  },
+                }
+              : {}),
             traits: ['STANDARD_CRUD'],
             sortPartitionFields: [],
             explorer: { labelField: 'title' },
@@ -65,6 +82,22 @@ it.each([1440, 980])(
         const path = new URL(request.url).pathname;
         queries.push(path);
         if (path.endsWith('/context')) return Response.json(runtime);
+        if (path.includes('/iam.organization/') && path.endsWith('/query'))
+          return Response.json({
+            records: [{ id: 'only-organization', title: '唯一机构' }],
+            total: 1,
+            pageNum: 1,
+            pageSize: 200,
+            pages: 1,
+            totalKnown: true,
+          });
+        if (path.endsWith('/reference-context'))
+          return Response.json({
+            moduleAlias: 'iam.organization',
+            abilities: ['crud'],
+            capabilities: [],
+            actions: [],
+          });
         if (path.includes('/view/')) return Response.json(records[0]);
         if (path.includes('/actions'))
           return Response.json({ actions: [{ actionCode: 'view', available: true }] });
@@ -93,6 +126,13 @@ it.each([1440, 980])(
         return Response.json([]);
       });
       configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+      configureModulePageEnhancements([
+        {
+          id: 'default-range-review',
+          target: { moduleAlias: 'platform.application' },
+          navigator: { emptySelectionLabel: () => '默认范围' },
+        },
+      ]);
       const host = document.createElement('div');
       host.style.cssText = `width:${width - 32}px;height:650px;position:relative;overflow:hidden`;
       document.body.append(host);
@@ -130,6 +170,16 @@ it.each([1440, 980])(
           host.getBoundingClientRect().bottom + 1,
         );
         expect(workspace.scrollWidth).toBeLessThanOrEqual(workspace.clientWidth + 1);
+        if (template === 'FLAT_MANAGEMENT') {
+          expect(session.selectedNavigatorRecords.organization).toBeUndefined();
+          expect(wrapper.find('.page-navigator-default-range').exists()).toBe(true);
+          await expect
+            .poll(() => wrapper.findAll('.management-explorer-column--collapsed').length)
+            .toBe(width === 980 ? 1 : 0);
+          expect(
+            wrapper.get('.record-detail-panel-region').element.getBoundingClientRect().right,
+          ).toBeLessThanOrEqual(host.getBoundingClientRect().right + 1);
+        }
         const scrollOwners = [...host.querySelectorAll<HTMLElement>('*')].filter(
           (element) =>
             /auto|scroll/.test(getComputedStyle(element).overflowY) &&
@@ -144,6 +194,7 @@ it.each([1440, 980])(
         wrapper.unmount();
         host.remove();
         vi.unstubAllGlobals();
+        configureModulePageEnhancements([]);
       }
     }
   },

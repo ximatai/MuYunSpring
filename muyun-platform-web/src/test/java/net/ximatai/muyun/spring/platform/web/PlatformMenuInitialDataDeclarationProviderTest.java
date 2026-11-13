@@ -14,7 +14,10 @@ import net.ximatai.muyun.spring.ability.initialdata.InitialDataAbility;
 import net.ximatai.muyun.spring.iam.web.DepartmentWebController;
 import net.ximatai.muyun.spring.iam.web.EmployeeWebController;
 import net.ximatai.muyun.spring.iam.web.OrganizationWebController;
+import net.ximatai.muyun.spring.iam.user.LoginLockoutPolicy;
+import net.ximatai.muyun.spring.iam.user.PasswordSecurityPolicyResolver;
 import net.ximatai.muyun.spring.iam.web.PasswordPolicyRuleWebController;
+import net.ximatai.muyun.spring.iam.web.PasswordSecurityPolicyWebController;
 import net.ximatai.muyun.spring.iam.web.PositionWebController;
 import net.ximatai.muyun.spring.iam.web.TenantWebController;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
@@ -328,8 +331,15 @@ class PlatformMenuInitialDataDeclarationProviderTest {
     }
 
     @Test
-    void shouldRegisterLogManagementAndPasswordManagementAsPlatformSecondaryMenus() {
-        try (GenericApplicationContext context = context(PasswordPolicyRuleWebController.class)) {
+    void shouldRegisterLogManagementAndUnifiedPasswordSecurityAsPlatformSecondaryMenus() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(PasswordSecurityPolicyWebController.class,
+                    () -> new PasswordSecurityPolicyWebController(
+                            mock(PasswordSecurityPolicyResolver.class),
+                            mock(net.ximatai.muyun.spring.iam.user.PasswordSecurityWorkspaceService.class),
+                            mock(net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService.class),
+                            mock(ActionEndpointContextResolver.class)));
+            context.refresh();
             registerStaticModules(context);
             initializePlatformMenus(context);
 
@@ -338,8 +348,8 @@ class PlatformMenuInitialDataDeclarationProviderTest {
                 assertThat(menu.getTitle()).isEqualTo("日志管理");
                 assertThat(menu.getParentId()).isEqualTo(PlatformMenuGroups.PLATFORM);
             });
-            assertThat(moduleMenu("iam.password_policy_rule")).satisfies(menu -> {
-                assertThat(menu.getTitle()).isEqualTo("密码管理");
+            assertThat(moduleMenu("iam.password_security_policy")).satisfies(menu -> {
+                assertThat(menu.getTitle()).isEqualTo("密码安全");
                 assertThat(menu.getParentId()).isEqualTo(PlatformMenuGroups.SETTINGS);
                 assertThat(menu.getRoute()).isNull();
                 assertThat(menu.getPageMode()).isEqualTo(MenuPageMode.LIST);
@@ -622,6 +632,16 @@ class PlatformMenuInitialDataDeclarationProviderTest {
         new InitialDataExecutor(List.of(), List.of(() -> List.of(declaration))).initializeAll();
 
         assertThat(existing.getModuleAlias()).isEqualTo("platform.module");
+    }
+
+    @Test
+    void shouldKeepPasswordComplexityRulesWithoutStandaloneMenu() {
+        try (GenericApplicationContext context = context(PasswordPolicyRuleWebController.class)) {
+            registerStaticModules(context);
+            initializePlatformMenus(context);
+
+            assertThat(moduleMenu("iam.password_policy_rule")).isNull();
+        }
     }
 
     private void initializePlatformMenus(GenericApplicationContext context) {

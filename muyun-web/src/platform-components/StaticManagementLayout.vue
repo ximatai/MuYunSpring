@@ -24,7 +24,11 @@ const props = withDefaults(
     explorerSearchKeyword?: string;
     explorerSearchPlaceholder?: string;
     explorerSearchable?: boolean;
+    /** Render the existing query slot inside the card when no record selector is needed. */
+    explorerVisible?: boolean;
     navigatorCount?: number;
+    /** Optional column behavior, in the same order as the navigator slots. */
+    navigatorOptions?: { title: string; collapsible?: boolean; hasSelection?: boolean }[];
   }>(),
   {
     mutedMessage: undefined,
@@ -34,7 +38,9 @@ const props = withDefaults(
     explorerSearchKeyword: '',
     explorerSearchPlaceholder: undefined,
     explorerSearchable: true,
+    explorerVisible: true,
     navigatorCount: 0,
+    navigatorOptions: undefined,
   },
 );
 
@@ -52,13 +58,17 @@ const emit = defineEmits<{
 <template>
   <ManagementWorkspace
     class="static-management-page"
-    :explorer-count="navigatorCount + 1"
+    :explorer-count="navigatorCount + (explorerVisible ? 1 : 0)"
     :editing="mode !== 'view' || busy"
   >
-    <ManagementExplorerColumn v-for="index in navigatorCount" :key="index">
+    <ManagementExplorerColumn
+      v-for="index in navigatorCount"
+      :key="index"
+      v-bind="navigatorOptions?.[index - 1]"
+    >
       <slot name="navigator" :index="index - 1" />
     </ManagementExplorerColumn>
-    <ManagementExplorerColumn>
+    <ManagementExplorerColumn v-if="explorerVisible">
       <RecordExplorerPanel
         class="static-management-sidebar"
         :title="explorerTitle"
@@ -95,6 +105,8 @@ const emit = defineEmits<{
       </template>
 
       <div v-if="mutedMessage" class="message muted">{{ mutedMessage }}</div>
+
+      <slot v-if="!explorerVisible" name="explorer" />
 
       <slot />
 

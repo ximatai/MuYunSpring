@@ -20,8 +20,8 @@ import net.ximatai.muyun.spring.common.option.OptionSourceType;
 @Table(name = "iam_password_policy_rule", comment = "Password policy regex rule")
 @SortPartitionBy(fields = "scopeKey")
 @InitialDataFields(
-        managed = {"scopeType", "scopeId", "scopeKey", "pattern", "message", "description"},
-        operator = {"title", "enabled", "sortOrder"}
+        managed = {"scopeType", "scopeId", "scopeKey"},
+        operator = {"title", "pattern", "message", "description", "enabled", "sortOrder"}
 )
 @Required(fields = "title")
 @NormalizeText(fields = "title")

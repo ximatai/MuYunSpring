@@ -1,4 +1,4 @@
-import type { ModulePageEnhancement } from '@muyun/dynamic-page-runtime';
+import { createTenantScopeNavigator, type ModulePageEnhancement } from '@muyun/dynamic-page-runtime';
 import UserOnlineStatusCell from './user/UserOnlineStatusCell.vue';
 import UserPasswordDrawer from './user/UserPasswordDrawer.vue';
 import UserSessionListExpansion from './user/UserSessionListExpansion.vue';
@@ -11,14 +11,7 @@ import UserSessionListExpansion from './user/UserSessionListExpansion.vue';
 export const userModulePageEnhancement: ModulePageEnhancement = {
   id: 'iam-user-standard-page-enhancement',
   target: { moduleAlias: 'iam.user' },
-  navigator: {
-    emptyListScope: ({ currentUser, selectedNavigatorRecords }) => {
-      if (currentUser?.system !== true || Object.values(selectedNavigatorRecords).some(Boolean)) {
-        return undefined;
-      }
-      return [{ fieldName: 'tenantId', operator: 'NULL', values: [] }];
-    },
-  },
+  navigator: createTenantScopeNavigator(),
   list: {
     rowExpansion: {
       key: 'iam-user-sessions',

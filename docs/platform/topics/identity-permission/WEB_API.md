@@ -18,7 +18,7 @@
 
 `/iam.auth/login` 和 `/iam.auth/logout` 以 `@AnonymousEndpoint` 声明匿名访问，`/iam.auth/login-context` 以匿名平台动作声明；`/iam.auth/context`、`/iam.auth/changeOwnPassword` 等其余入口要求登录。连续登录失败达到阈值后账号锁定；密码登录失败仍返回 HTTP 401 / `LOGIN_BAD_CREDENTIALS`，`changeOwnPassword` 的当前密码校验同样受锁定约束；未设置本地密码的账号不能使用密码登录。
 
-密码登录的可选 `details.loginFailure` 只提供公开指引：`serverTime` 为服务端 ISO 时间；`lockedUntil` 为当前锁定截止时间，`lockTriggered` 标明本次是否触发锁定；未锁定且仅剩两次以内时，`remainingAttempts` 提供正整数次数。普通失败不包含该对象；字段缺省或为空不表示账号存在或凭据正确。锁定期间不验证密码，不返回正确性、内部原因或账号 ID。客户端以 `lockedUntil - serverTime` 计算本地倒计时，到期恢复输入而不自动登录，下一次请求由服务端重新判定。
+密码登录的可选 `details.loginFailure` 只提供公开指引：`serverTime` 为服务端 ISO 时间；`lockedUntil` 为当前锁定截止时间，`lockTriggered` 标明本次是否触发锁定；未锁定且仅剩两次以内时，`remainingAttempts` 提供正整数次数。普通失败不包含该对象；字段缺省或为空不表示账号存在或凭据正确。不存在、停用、未设置本地密码的登录名也按目标租户有效策略累计失败并返回相同格式的指引，不创建用户记录。内部状态以租户与规范化登录名的摘要分区，在数据库中共享并串行更新；锁定内重试不延长截止时间，已锁定的登录名后续创建账号仍遵守原截止时间。非账号状态在最后失败或锁定到期后保留 24 小时，由平台后台作业分批清理。锁定期间不验证密码，不返回正确性、内部原因或账号 ID。客户端以 `lockedUntil - serverTime` 计算本地倒计时，到期恢复输入而不自动登录，下一次请求由服务端重新判定。
 
 ## 工具访问密钥
 
@@ -62,6 +62,8 @@
 | 岗位     | `/iam.position`          | CRUD、启停、排序，可挂岗位分类 |
 | 用户     | `/iam.user`              | CRUD、启停、密码管理           |
 | 角色     | `/iam.role`              | CRUD、启停、排序               |
+| 密码安全策略 | `/iam.password_security_policy` | 平台默认与租户覆盖；复杂度/锁定继承或自定义 |
+| 密码复杂度规则 | `/iam.password_policy_rule` | 平台/租户正则复杂度规则维护 |
 
 当前身份权限专题没有 Controller 继承 `QueryViewWeb`。`QueryViewWeb` 的 `query`、`view` 映射用于其他专题的查询/详情 HTTP 协议，不在本专题 URL 清单内。
 
@@ -245,6 +247,27 @@
 | `POST` | `/iam.user/selector/query`                   | 用户选择器查询；支持按角色、账号关键字和启用状态过滤，返回轻量用户项。 |
 
 `/iam.user/selector/query` 属于用户管理语义，不能作为日志操作人或职员绑定账号的通用候选后门；不同用途分别使用其来源动作下受控的候选接口。
+
+## 密码安全
+
+根路径：`/iam.password_security_policy`
+
+平台默认策略 `tenantId=null`，每个租户最多一条覆盖策略；密码复杂度与登录失败锁定两组独立，租户按组选择继承平台或完整自定义。超级管理员可维护平台默认与任意指定租户，租户管理员仅限本租户；服务端强制归属，禁止跨租户通过 ID 读写。标准 CRUD 继续复用模块动作权限、数据范围、生命周期、版本与审计。
+
+平台默认策略由数据库初始化创建（失败 5 次锁定 900 秒），后续启动不覆盖管理员修改，不再读取配置文件锁定参数。超级管理员在密码安全页面的租户导航中选择「平台默认」查看和维护平台配置，选择具体租户维护覆盖配置；平台默认策略不允许删除。
+
+| 方法   | URL                                                  | 功能                                                                                                     |
+| ------ | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `POST` | `/iam.password_security_policy/query`                | 查询策略（受租户作用域约束）。                                                                           |
+| `GET`  | `/iam.password_security_policy/view/{id}`            | 查看策略。                                                                                               |
+| `POST` | `/iam.password_security_policy/insert`               | 新建策略；平台默认使用固定身份，每作用域至多一条。                                                       |
+| `POST` | `/iam.password_security_policy/update/{id}`          | 更新策略；需携带 version，归属创建后不可迁移。                                                           |
+| `POST` | `/iam.password_security_policy/delete/{id}`          | 删除租户覆盖策略（等价恢复继承）；平台默认策略禁止删除。                                                   |
+| `GET`  | `/iam.password_security_policy/effective?tenantId=`  | 返回指定目标租户的不可变有效策略快照（复杂度规则及来源、锁定参数及来源）；租户管理员只能读取本租户，禁止泄露其他租户规则。 |
+| `POST` | `/iam.password_security_policy/workspace-save` | 原子保存策略与同作用域的规则草稿；逐项检查策略及规则的创建、修改、删除、启停和排序权限，并校验原规则集合及版本。 |
+
+
+复杂度正则规则在「设置→密码安全」页面维护；规则抽屉只修改当前页面草稿，主页面保存时通过 `workspace-save` 在一个事务内调用标准 Service 能力，取消则丢弃草稿。聚合命令由 `PasswordSecurityWorkspaceService` 承担事务与快照校验，Web 层负责动作权限适配与审计字段保护。保存支持标准 `X-Muyun-Save-Request` 请求标识，摘要覆盖策略与完整规则草稿，并使用标准记录保存回执核实响应丢失后的提交结果。有效规则快照保留真实规则 `id`、`tenantId`，供本地试算正确替换当前草稿。独立标准 CRUD 仍保留，遵循相同动作权限、版本冲突和租户隔离；独立菜单入口已回收。规则 `tenantId` 是归属唯一事实来源，`scopeType`/`scopeId`/`scopeKey` 由服务端归一。租户继承时可先准备本地规则，切换自定义前服务端要求至少一条已启用规则；原有自定义空规则集保持最低 6 位兜底。密码试算仅在浏览器本地提供参考，不保存或上传测试密码，最终以服务端校验为准。
 
 ## 职员账号绑定候选
 
