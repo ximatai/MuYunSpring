@@ -1,16 +1,23 @@
 name: Release platform artifacts
 
 on:
+  workflow_dispatch:
+    inputs:
+      recover-run-id:
+        description: "Original failed release run (resume existing Maven deployment; never re-upload)"
+        required: true
+        type: string
   push:
     tags:
       - "v*.*.*"
 
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-${{ inputs.recover-run-id || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   verify-maven:
+    if: github.event_name == 'push'
     name: Verify backend and Maven consumer
     runs-on: ubuntu-latest
     permissions:
@@ -62,6 +69,7 @@ jobs:
         run: ./gradlew verifyPublishedConsumer
 
   verify-npm:
+    if: github.event_name == 'push'
     name: Verify npm package consumer
     runs-on: ubuntu-latest
     permissions:
@@ -164,14 +172,84 @@ jobs:
       - name: Publish verified npm package
         run: npm publish "./ximatai-muyun-web-app-${GITHUB_REF_NAME#v}.tgz" --access public --registry=https://registry.npmjs.org/
 
+  recover-maven:
+    name: Confirm existing Maven deployment
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      release-tag: ${{ steps.source.outputs.release-tag }}
+      npm-artifact-id: ${{ steps.source.outputs.npm-artifact-id }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Validate original release and artifacts
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.recover-run-id }}
+        run: node scripts/recover-release.mjs plan "$SOURCE_RUN_ID"
+      - name: Test recovery orchestration
+        run: node --test scripts/recover-release.test.mjs
+      - name: Download original Maven deployment receipt
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ steps.source.outputs.maven-artifact-id }}
+          run-id: ${{ inputs.recover-run-id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/maven-publication
+      - name: Wait for original deployment (read only)
+        env:
+          SONATYPE_TOKEN: ${{ secrets.SONATYPE_TOKEN }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+        run: node scripts/wait-maven-central.mjs "$RUNNER_TEMP/maven-publication/sonayUploader/uploaderId"
+
+  recover-npm:
+    name: Publish original verified npm package
+    needs: recover-maven
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    outputs:
+      release-tag: ${{ needs.recover-maven.outputs.release-tag }}
+    env:
+      RELEASE_TAG: ${{ needs.recover-maven.outputs.release-tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Download original verified npm package
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.recover-maven.outputs.npm-artifact-id }}
+          run-id: ${{ inputs.recover-run-id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/npm-package
+      - name: Reconcile and publish verified npm package
+        run: node scripts/recover-release.mjs publish-npm "$RUNNER_TEMP/npm-package/ximatai-muyun-web-app-${RELEASE_TAG#v}.tgz"
+
   github-release:
     name: Publish GitHub Release
-    needs: [publish-maven, publish-npm]
+    needs: [publish-maven, publish-npm, recover-npm]
+    if: ${{ always() && ((needs.publish-maven.result == 'success' && needs.publish-npm.result == 'success') || needs.recover-npm.result == 'success') }}
+    env:
+      RELEASE_TAG: ${{ needs.recover-npm.outputs.release-tag || github.ref_name }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -185,19 +263,22 @@ jobs:
         run: |
           set -euo pipefail
           notes_file="$RUNNER_TEMP/muyun-release-notes.md"
-          node scripts/github-release-notes.mjs "$GITHUB_REF_NAME" < docs/CHANGELOG.md > "$notes_file"
-          title="MuYunSpring ${GITHUB_REF_NAME#v}"
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+          node scripts/github-release-notes.mjs "$RELEASE_TAG" < docs/CHANGELOG.md > "$notes_file"
+          title="MuYunSpring ${RELEASE_TAG#v}"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
               --title "$title" --notes-file "$notes_file" --draft=false --prerelease=false
           else
-            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
               --verify-tag --title "$title" --notes-file "$notes_file"
           fi
 
   advance-development-version:
     name: Advance development version
-    needs: [publish-maven, publish-npm]
+    needs: [publish-maven, publish-npm, recover-npm]
+    if: ${{ always() && ((needs.publish-maven.result == 'success' && needs.publish-npm.result == 'success') || needs.recover-npm.result == 'success') }}
+    env:
+      RELEASE_TAG: ${{ needs.recover-npm.outputs.release-tag || github.ref_name }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -215,7 +296,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          release_version="${GITHUB_REF_NAME#v}"
+          release_version="${RELEASE_TAG#v}"
           node scripts/version.mjs advance "$release_version"
           node scripts/version.mjs check
 

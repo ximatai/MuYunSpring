@@ -133,6 +133,13 @@ node scripts/wait-maven-central.mjs <deployment-id-file> --publish
 发布回执丢失或暂时失败时，继续查询原部署状态，不盲目重试发布请求；若仍无法确认，超时后由人工核实并恢复。
 恢复命令不上传、不创建或删除 deployment；已处于 `PUBLISHING` 或 `PUBLISHED` 时不会再次提交发布。
 
+Maven 发布任务失败且 npm 尚未执行时，可在 `Release platform artifacts` 工作流选择 `Run workflow`，
+提供原失败发布的 run ID。恢复入口核对同仓库的原 tag、提交、验证结果及该次尝试保留的构件，
+只读取原 Maven deployment，等待 `PUBLISHED` 后继续发布原先验证的 npm tarball；不重新打包或上传 Maven。
+若 npm 同版本已存在，仅在内容哈希与原 tarball 一致时接受该回执，否则中止。
+后续沿用同一 tag 同步 GitHub Release 并推进开发版本。构件已过期、原验证未通过或 npm 曾执行失败时，
+该入口拒绝自动恢复，需先核实原发布状态；持续处于 `PUBLISHING` 的部署只会继续等待或超时，不触发新上传。
+
 `muyun.mavenCentralRelease` 是正式发布意图，只允许在 Maven Central staging 和上传步骤启用。签名 staging 会强制
 校验 release tag 和完整 PGP 签名材料，并将构件写入各公共模块的 `build/repo`；远程上传还会额外校验 Sonatype
 凭据。需要离线验证签名产物并生成预览 ZIP、不执行上传时，使用：
