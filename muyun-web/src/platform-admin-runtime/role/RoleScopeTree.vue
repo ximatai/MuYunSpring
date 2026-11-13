@@ -40,15 +40,7 @@ const expandedKeys = ref<string[]>([]);
 const treeReloadKey = ref(0);
 const entries = ref(new Map<string, ScopeTreeNode>());
 const selectedTreeKey = computed(() => props.context.selectionKey);
-const tenantNavigationVisible = computed(
-  () => descriptor.value?.navigations.some((navigation) => navigation.level === 'TENANT') === true,
-);
 const searchable = computed(() => descriptor.value?.navigations.length !== 0);
-const panelTitle = computed(() =>
-  tenantNavigationVisible.value
-    ? language.t('platform.screen.ModulePageHostRuntime.tenant', '租户')
-    : language.t('platform.user-picker.axis.organization', '机构'),
-);
 const branchData = useTreeData({
   nodes: () => nodes.value,
   loader: () => loadChildren,
@@ -237,7 +229,7 @@ function remember(loaded: ScopeTreeNode[]) {
 
 function handleSelect(node: UiTreeNode) {
   const selection = entries.value.get(node.key)?.selection;
-  if (selection) selectSelection(selection);
+  if (selection && selection.key !== props.context.selectionKey) selectSelection(selection);
 }
 
 function selectSelection(selection: {
@@ -252,18 +244,12 @@ function selectSelection(selection: {
     secondaryLabel: selection.secondaryLabel,
   });
 }
-
-function clearSelection() {
-  const fallback = descriptor.value?.directSelections[0];
-  if (fallback)
-    selectSelection({ key: fallback.selectionKey, label: fallback.label, labelText: fallback.labelText });
-}
 </script>
 
 <template>
   <RecordExplorerPanel
     class="role-scope-tree"
-    :title="panelTitle"
+    :title="language.t('platform.navigator.management-scope', '管理范围')"
     :refresh-title="
       language.t('platform.screen.RoleScopeTree.refresh-role-ownership-scopes', '刷新角色归属范围')
     "
@@ -296,7 +282,6 @@ function clearSelection() {
         )
       "
       @select="handleSelect"
-      @deselect="clearSelection"
       @unload-children="branchData.release($event.key)"
     />
   </RecordExplorerPanel>
