@@ -53,13 +53,12 @@ Maven Central 索引延迟放大为发布流水线风险。
 MUYUN_RELEASE_VERSION=<released-version> ./gradlew verifyMavenCentralConsumer
 ```
 
-## Maven Central 发布
+## 正式发布
 
 `gradle.properties`、`muyun-web/package.json` 和 `muyun-web/package-lock.json` 共同表示下一开发版本，必须完全一致并
 保持 `X.Y.Z-SNAPSHOT`。其中 `Y` 是上海时区当前年份的后两位，`Z` 是该年的发布流水号并从 1 开始。发布使用与其去掉
 `-SNAPSHOT` 后一致的 `v<version>` tag 触发 `.github/workflows/release.yml`；workflow 从 tag 推导正式构件版本，
-再依次执行发布 gate、工作区清理、后端与消费者验证，以及远端发布任务。清理必须发生在验证之前：npm 消费者
-验证会生成正式发布使用的 staging 包，之后不得再次清理该目录。
+依次完成发布校验、Maven Central 发布和 npm 发布。npm 发布 job 使用消费者验证通过的同一份 tarball。
 
 需要配置以下 GitHub Actions secrets：
 
@@ -67,8 +66,12 @@ MUYUN_RELEASE_VERSION=<released-version> ./gradlew verifyMavenCentralConsumer
 - `SIGNING_KEY_ID`
 - `SIGNING_SECRET_KEY` 或 `SIGNING_SECRET_KEY_BASE64`
 - `SIGNING_PASSWORD`
-- `NPM_TOKEN`：`@ximatai/muyun-web-app` 的 npm 官方仓库发布 token。使用具备包读写权限、覆盖
-  `@ximatai` scope 且启用 `bypass 2FA` 的 granular token；否则 npm 会在实际 publish 阶段拒绝发布。
+
+npm 使用 [Trusted Publishing](https://docs.npmjs.com/trusted-publishers/)。在 `@ximatai/muyun-web-app` 的 npm 包设置
+中添加 GitHub Actions 发布者，填写组织 `ximatai`、仓库 `MuYunSpring` 和工作流文件名 `release.yml`，
+环境名称留空，允许 `npm publish`。在首次使用 OIDC 发布前配置，确保两天内完成首次成功发布。
+发布 job 在 GitHub 托管 runner 上用 Node.js 24 附带的 npm 获取短期 OIDC 凭据。
+首发成功后可移除仓库中旧的 `NPM_TOKEN` secret。
 
 本地预检：
 
@@ -86,16 +89,17 @@ node scripts/version.mjs verify-release v<version>
 3. Maven Central 与 npm 都发布成功后，Release workflow 自动将三处版本推进到 `0.26.3-SNAPSHOT`，提交并非强制地
    推送到 `main`。如果发布时已经跨年，则推进到新年份的 `0.<新年份>.1-SNAPSHOT`。
 
-tag 必须与当前 `muyunVersion` 去掉 `-SNAPSHOT` 后完全一致。发布任务自身依赖 tag/version 与凭证 gate；Release workflow
-按以下顺序执行：
+tag 必须与当前 `muyunVersion` 去掉 `-SNAPSHOT` 后完全一致。Release workflow 按以下顺序执行：
 
-1. 校验三处开发版本完全一致、年份正确、tag 匹配、对应版本说明非空，并校验发布凭据。
-2. 清理工作区。
-3. 执行 `verifyAll`、本地 Maven 消费者验证、npm 消费者验证和 npm publish dry-run。
-4. 执行 `./gradlew publishReleaseToSonatype -Pmuyun.mavenCentralRelease=true`，以单个 bundle 上传并等待部署状态到达 `PUBLISHED`。
-5. 从 npm 消费者验证生成的 staging 包发布同一 tag 对应的 npm 包。
-6. 两个 registry 都成功后，在独立的最小写权限 job 中推进下一开发版本并推送 `main`。
-7. 双仓库发布成功后，独立的 `Publish GitHub Release` job 从该 tag 的变更记录创建或同步 GitHub Release，
+1. 后端和 npm 并行验证。后端 job 校验版本、tag 和发布说明，并始终以正式版本坐标运行本地 Maven 消费者验证。
+   同一提交的 `main` push CI 整体通过，且该次尝试的后端 `verifyAll` 步骤成功时，可复用全量测试结果。
+   CI 尚未完成、后端步骤被跳过或 GitHub API 无法确认时，tag job 自行执行 `verifyAll`。
+   npm job 校验版本和 tag，执行 npm 消费者验证及 npm publish dry-run，留存通过验证的 tarball。
+2. 两个验证 job 通过后，Maven job 校验发布凭据，通过 `./gradlew publishReleaseToSonatype -Pmuyun.mavenCentralRelease=true`
+   上传单个 bundle，并等待部署状态到达 `PUBLISHED`。
+3. npm job 下载已验证的 tarball，通过 OIDC 发布同一 tag 对应的 npm 包。
+4. 两个 registry 都成功后，在独立的最小写权限 job 中推进下一开发版本并推送 `main`。
+5. 双仓库发布成功后，独立的 `Publish GitHub Release` job 从该 tag 的变更记录创建或同步 GitHub Release，
    与开发版本推进互不阻塞。该 job 仅使用 `contents: write`，不接触 Maven/npm 发布凭据。
 
 Git tag 不会自动成为 GitHub Release。Release 标题为 `MuYunSpring X.Y.Z`，正文只取
@@ -166,21 +170,25 @@ Actions 直接推送的分支保护，应将该 job 改为 GitHub App 或自动 
 
 ## 单通道发布补偿
 
-若 Release 已成功发布 Maven Central、但 npm 因临时凭据或外部故障漏发，不要重跑完整 tag workflow：Maven Central
-构件不可用同一版本重复上传。仅从该 release tag 建立干净 worktree，重新生成并校验 npm 包后补发缺失通道：
+若 Maven Central 已发布而 npm 失败，先查 npm registry。确认同版本 npm 包尚未发布并解决故障后，在原 Actions
+运行中仅重试 `Publish to npm` job。它使用原运行留存的已验证 tarball。Maven Central 同版本构件不可重复上传。
+
+对于 npm 和 Maven 尚在同一 job 的旧 tag，或已验证 tarball 过期的运行，从原 tag 建立干净 worktree，
+重新生成并校验 tarball，再用已启用 2FA 且有发布权限的 npm 账号交互式补发：
 
 ```bash
+release_version=0.26.31 # 替换为待补发的正式版本
 npm ci --prefix muyun-web
-MUYUN_RELEASE_VERSION=<released-version> npm run pack:consumer --prefix muyun-web
-cd build/consumer-npm/staging/web-app
-npm publish --dry-run --access public --registry=https://registry.npmjs.org/
-npm publish --access public --registry=https://registry.npmjs.org/
+MUYUN_RELEASE_VERSION="$release_version" npm run verify:consumer --prefix muyun-web
+cd build/consumer-npm
+npm publish "./ximatai-muyun-web-app-${release_version}.tgz" --dry-run --access public --registry=https://registry.npmjs.org/
+npm publish "./ximatai-muyun-web-app-${release_version}.tgz" --access public --registry=https://registry.npmjs.org/
 ```
 
 补偿只允许发布 registry 中尚不存在的同版本包，并应在发布后回读该版本与 `latest` tag。该路径是异常恢复，不替代
 GitHub Actions 的常规发布；恢复完成后应修正对应的 CI 或凭据配置，避免下一次 tag 重复进入补偿流程。补偿使两个
-registry 都完整后，手动运行 `Development Version Rollover` workflow 并填写 `released_version=X.Y.Z`，以同一套
-CAS 校验推进开发版本；不要直接编辑三份版本文件。
+registry 都完整后，从原 tag 补建 GitHub Release，并手动运行 `Development Version Rollover` workflow，填写
+`released_version=X.Y.Z`，以同一套 CAS 校验推进开发版本。
 
 ## pre-FieldSpec schema 升级
 

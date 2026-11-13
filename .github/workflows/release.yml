@@ -10,10 +10,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish release artifacts
+  verify-maven:
+    name: Verify backend and Maven consumer
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
     steps:
       - uses: actions/checkout@v7
@@ -34,38 +35,53 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version-file: muyun-web/.nvmrc
-          cache: npm
-          cache-dependency-path: muyun-web/package-lock.json
-          registry-url: https://registry.npmjs.org
 
-      - name: Verify release tag and credentials
-        env:
-          SONATYPE_TOKEN: ${{ secrets.SONATYPE_TOKEN }}
-          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
-          SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
-          SIGNING_SECRET_KEY: ${{ secrets.SIGNING_SECRET_KEY }}
-          SIGNING_SECRET_KEY_BASE64: ${{ secrets.SIGNING_SECRET_KEY_BASE64 }}
-          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+      - name: Verify release tag and notes
         run: |
           node scripts/version.mjs verify-release "$GITHUB_REF_NAME"
           node scripts/github-release-notes.mjs "$GITHUB_REF_NAME" < docs/CHANGELOG.md > /dev/null
-          echo "MUYUN_RELEASE_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-          ./gradlew verifyReleaseTagVersion verifyReleaseCredentials
+          ./gradlew verifyReleaseTagVersion
 
       - name: Test release tooling
         run: node --test scripts/*.test.mjs
 
-      # Start verification from a clean tree. The consumer verification below
-      # prepares the npm staging package that both dry-run and publish consume.
-      # Do not clean again between those steps and npm publish.
       - name: Clean release workspace
         run: ./gradlew clean
 
+      - name: Check for completed main backend CI
+        id: backend-ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/reuse-backend-ci.mjs "$(git rev-parse HEAD)"
+
       - name: Verify backend
+        if: steps.backend-ci.outputs.reused != 'true'
         run: ./gradlew verifyAll
 
       - name: Verify published artifact consumer
         run: ./gradlew verifyPublishedConsumer
+
+  verify-npm:
+    name: Verify npm package consumer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      npm-artifact-id: ${{ steps.npm-package.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: muyun-web/.nvmrc
+          cache: npm
+          cache-dependency-path: muyun-web/package-lock.json
+
+      - name: Verify release version
+        run: |
+          node scripts/version.mjs verify-release "$GITHUB_REF_NAME"
+          echo "MUYUN_RELEASE_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
       - name: Verify npm package consumer
         run: |
@@ -73,10 +89,39 @@ jobs:
           npm run verify:consumer --prefix muyun-web
 
       - name: Verify npm publish payload
-        working-directory: build/consumer-npm/staging/web-app
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --dry-run --access public
+        working-directory: build/consumer-npm
+        run: npm publish "./ximatai-muyun-web-app-${MUYUN_RELEASE_VERSION}.tgz" --dry-run --access public --registry=https://registry.npmjs.org/
+
+      - name: Upload verified npm package
+        id: npm-package
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-package-${{ github.ref_name }}-attempt-${{ github.run_attempt }}
+          path: build/consumer-npm/ximatai-muyun-web-app-${{ env.MUYUN_RELEASE_VERSION }}.tgz
+          if-no-files-found: error
+
+  publish-maven:
+    name: Publish to Maven Central
+    needs: [verify-maven, verify-npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: muyun-web/.nvmrc
 
       - name: Publish to Maven Central
         env:
@@ -92,21 +137,36 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: maven-publication-${{ github.ref_name }}
+          name: maven-publication-${{ github.ref_name }}-attempt-${{ github.run_attempt }}
           path: |
             build/maven-central/report.json
             build/sonayUploader/uploaderId
           if-no-files-found: ignore
 
-      - name: Publish to npm
-        working-directory: build/consumer-npm/staging/web-app
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+  publish-npm:
+    name: Publish to npm
+    needs: [verify-npm, publish-maven]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Set up Node.js for npm Trusted Publishing
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Download verified npm package
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.verify-npm.outputs.npm-artifact-id }}
+
+      - name: Publish verified npm package
+        run: npm publish "./ximatai-muyun-web-app-${GITHUB_REF_NAME#v}.tgz" --access public --registry=https://registry.npmjs.org/
 
   github-release:
     name: Publish GitHub Release
-    needs: publish
+    needs: [publish-maven, publish-npm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -137,7 +197,7 @@ jobs:
 
   advance-development-version:
     name: Advance development version
-    needs: publish
+    needs: [publish-maven, publish-npm]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -57,7 +57,7 @@ jobs:
             case "$file" in
               .github/workflows/ci.yml | .github/workflows/release.yml | .github/workflows/version-rollover.yml | \
               scripts/version.mjs | scripts/version-lib.mjs | scripts/version.test.mjs | \
-              scripts/maven-publication* | scripts/wait-maven-central.mjs | scripts/github-release* | \
+              scripts/maven-publication* | scripts/wait-maven-central.mjs | scripts/github-release* | scripts/reuse-backend-ci* | \
               build.gradle | build.gradle.kts | settings.gradle | settings.gradle.kts | gradle.properties | \
               gradle/* | gradlew | gradlew.bat | \
               muyun-common/* | muyun-ability/* | muyun-dynamic/* | \
@@ -113,6 +113,7 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         run: node --test scripts/*.test.mjs
 
+      # scripts/reuse-backend-ci.mjs checks this step for a successful verifyAll run.
       - name: Run tests
         if: needs.changes.outputs.backend == 'true'
         run: ./gradlew verifyAll --configuration-cache --no-daemon --stacktrace
@@ -146,15 +147,14 @@ jobs:
   frontend:
     name: Frontend Build & Test
     needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        if: needs.changes.outputs.frontend == 'true'
         uses: actions/checkout@v7
 
       - name: Set up Node.js
-        if: needs.changes.outputs.frontend == 'true'
         uses: actions/setup-node@v7
         with:
           node-version-file: muyun-web/.nvmrc
@@ -162,47 +162,60 @@ jobs:
           cache-dependency-path: muyun-web/package-lock.json
 
       - name: Install dependencies
-        if: needs.changes.outputs.frontend == 'true'
         # Keep clean, lockfile-based installs while avoiding audit/funding network requests.
         # The setup-node npm cache is reused on subsequent runs whenever possible.
         run: npm ci --prefix muyun-web --prefer-offline --no-audit --no-fund
 
       - name: Verify aligned project version
-        if: needs.changes.outputs.frontend == 'true'
         run: npm run version:check --prefix muyun-web && npm run version:test --prefix muyun-web
 
       - name: Run lint
-        if: needs.changes.outputs.frontend == 'true'
         run: npm run lint --prefix muyun-web
 
       - name: Check format
-        if: needs.changes.outputs.frontend == 'true'
         run: npm run format:check --prefix muyun-web
 
-      - name: Install Chromium for Vitest
-        if: needs.changes.outputs.frontend == 'true'
-        working-directory: muyun-web
-        run: npx playwright install --with-deps chromium
-
-      - name: Run tests
-        if: needs.changes.outputs.frontend == 'true'
-        run: npm run test --prefix muyun-web
+      - name: Run unit and component tests
+        run: npm run test:local --prefix muyun-web
 
       - name: Build
-        if: needs.changes.outputs.frontend == 'true'
         run: npm run build --prefix muyun-web
 
       - name: Verify npm consumer
-        if: needs.changes.outputs.frontend == 'true'
         run: npm run verify:consumer --prefix muyun-web
 
-      - name: Skip frontend tests
-        if: needs.changes.outputs.frontend != 'true'
-        run: echo "No frontend changes detected."
+  frontend-browser:
+    name: Frontend Chromium Tests
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: muyun-web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: muyun-web/.nvmrc
+          cache: npm
+          cache-dependency-path: muyun-web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Install Chromium for Vitest
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser tests
+        run: npm run test:browser
 
   required:
     name: Build & Test (Java 21)
-    needs: [changes, backend, frontend]
+    needs: [changes, backend, frontend, frontend-browser]
     if: always()
     runs-on: ubuntu-latest
 
@@ -222,9 +235,15 @@ jobs:
             exit 1
           fi
 
-          if [[ "${{ needs.frontend.result }}" != "success" ]]; then
-            echo "Frontend CI failed."
-            exit 1
+          if [[ "${{ needs.changes.outputs.frontend }}" == "true" ]]; then
+            if [[ "${{ needs.frontend.result }}" != "success" ]]; then
+              echo "Frontend build or Node/jsdom tests failed."
+              exit 1
+            fi
+            if [[ "${{ needs.frontend-browser.result }}" != "success" ]]; then
+              echo "Frontend Chromium tests failed."
+              exit 1
+            fi
           fi
 
           echo "CI passed."
