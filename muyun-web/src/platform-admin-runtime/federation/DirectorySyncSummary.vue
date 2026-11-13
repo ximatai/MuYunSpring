@@ -33,6 +33,30 @@ const rows = computed(() =>
     >
       {{ language.t('platform.federation.open-job', '查看作业运行') }}
     </UiButton>
+    <p v-if="context.record.status === 'FAILED'">
+      {{
+        language.t(
+          'platform.federation.failed-run-hint',
+          '运行失败，请到关联作业运行查看原因，具备重试权限时可重试。',
+        )
+      }}
+    </p>
+    <template v-else-if="context.record.status === 'PARTIAL'">
+      <p>
+        {{
+          language.t(
+            'platform.federation.partial-run-hint',
+            '本轮部分完成。请先处理失败页、冲突或来源状态问题，再到租户接入策略重新发起预览或同步。',
+          )
+        }}
+      </p>
+      <UiButton
+        v-if="context.record.policyId"
+        @click="recordBrowser?.openRecord('iam.tenant_identity_policy', String(context.record.policyId))"
+      >
+        {{ language.t('platform.federation.open-policy', '查看租户接入策略') }}
+      </UiButton>
+    </template>
     <p>
       {{
         language.t(
@@ -60,7 +84,7 @@ const rows = computed(() =>
         {{
           language.t(
             'platform.federation.failures-hint',
-            '失败定位按“阶段:对象标识:页游标”展示，最多保留 100 条。请到关联作业运行处理或重试。',
+            '失败定位按“阶段:对象标识:页游标”展示，最多保留 100 条。',
           )
         }}
       </p>

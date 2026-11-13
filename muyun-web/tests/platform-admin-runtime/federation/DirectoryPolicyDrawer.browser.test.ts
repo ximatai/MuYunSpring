@@ -4,6 +4,7 @@ import { expect, it } from 'vitest';
 import { page } from 'vitest/browser';
 import {
   ModuleContextProvider,
+  useLanguageContext,
   type ModuleContext,
   type HttpClient,
   type HttpRequestOptions,
@@ -30,6 +31,7 @@ function mountPolicy(http: HttpClient) {
   } as unknown as ModuleContext<Record<string, unknown>>;
   const Harness = defineComponent({
     setup() {
+      const language = useLanguageContext();
       const runtime = useModulePageDetailExtensionRuntime({
         module: context,
         scope: () => undefined,
@@ -50,7 +52,10 @@ function mountPolicy(http: HttpClient) {
                 RecordDetailDrawer,
                 {
                   open: runtime.drawerOpen.value,
-                  title: '查看范围变更影响',
+                  title: language.t(
+                    runtime.drawer.value!.definition.titleKey!,
+                    runtime.drawer.value!.definition.title,
+                  ),
                   renderMode: 'inline',
                   width: 'standard',
                 },
@@ -84,6 +89,7 @@ it.each([1100, 640])('keeps the impact report and standard confirmation usable a
     await flushPromises();
     const confirm = page.getByRole('button', { name: '确认范围变更并同步', exact: true });
     await expect.element(confirm).toBeVisible();
+    await expect.element(page.getByText('查看范围变更影响', { exact: true })).toBeVisible();
     await expect.element(page.getByText('将回收的来源授权', { exact: true })).toBeVisible();
     const panel = wrapper.get('.record-detail-layout').element.getBoundingClientRect();
     const operation = wrapper.get('.record-detail-layout-operation').element.getBoundingClientRect();

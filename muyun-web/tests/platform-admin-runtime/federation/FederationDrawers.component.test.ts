@@ -5,8 +5,13 @@ import type { ModulePageDrawerContext } from '@muyun/dynamic-page-runtime';
 import DirectoryPolicyDrawer from '@/platform-admin-runtime/federation/DirectoryPolicyDrawer.vue';
 import JoinApplicationReviewDrawer from '@/platform-admin-runtime/federation/JoinApplicationReviewDrawer.vue';
 import DirectorySyncSummary from '@/platform-admin-runtime/federation/DirectorySyncSummary.vue';
-import { joinApplicationPageEnhancement } from '@/platform-admin-runtime/federationPageEnhancements';
 import { presentPlatformError } from '@muyun/platform-components';
+import { createLanguageContext } from '@muyun/web-core';
+import {
+  joinApplicationPageEnhancement,
+  tenantIdentityPolicyPageEnhancement,
+  directorySyncRunPageEnhancement,
+} from '@/platform-admin-runtime/federationPageEnhancements';
 
 vi.mock('@muyun/platform-components', async (original) => ({
   ...(await original<typeof import('@muyun/platform-components')>()),
@@ -190,4 +195,59 @@ it('renders safe statistics and keeps job IDs separate from directory run IDs', 
     context: { ...host.value, refreshKey: 1, record: { statistics: 'invalid' } } as never,
   });
   expect(wrapper.text()).toContain('统计暂不可用');
+});
+
+it.each(['FAILED', 'PARTIAL', 'RUNNING'])(
+  'guides recovery using the existing %s job contract',
+  async (status) => {
+    const host = context();
+    const openRecord = vi.fn();
+    const wrapper = shallowMount(DirectorySyncSummary, {
+      global: { stubs: { ModuleReferenceRecordDetailBrowser: browserStub(openRecord) } },
+      props: {
+        context: {
+          ...host.value,
+          refreshKey: 0,
+          record: {
+            id: 'topic-run',
+            jobRunId: 'job-run',
+            policyId: 'policy-1',
+            status,
+            statistics: { failedPages: 1 },
+            failedPages: ['people:dept:0'],
+          },
+        } as never,
+      },
+    });
+    try {
+      expect(wrapper.text().includes('具备重试权限时可重试')).toBe(status === 'FAILED');
+      expect(wrapper.text().includes('重新发起预览或同步')).toBe(status === 'PARTIAL');
+      const buttons = wrapper.findAllComponents({ name: 'UiButton' });
+      expect(buttons).toHaveLength(status === 'PARTIAL' ? 2 : 1);
+      await buttons[0]!.vm.$emit('click');
+      expect(openRecord).toHaveBeenLastCalledWith('platform.job_run', 'job-run');
+      if (status === 'PARTIAL') {
+        await buttons[1]!.vm.$emit('click');
+        expect(openRecord).toHaveBeenLastCalledWith('iam.tenant_identity_policy', 'policy-1');
+        await wrapper.setProps({
+          context: { ...host.value, refreshKey: 1, record: { status: 'PARTIAL' } } as never,
+        });
+        expect(wrapper.findAllComponents({ name: 'UiButton' })).toHaveLength(0);
+        expect(wrapper.text()).toContain('重新发起预览或同步');
+      }
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);
+
+it('resolves federation page titles from the shipped Chinese and English resources', () => {
+  const impact = tenantIdentityPolicyPageEnhancement.detail!.actions![2]!;
+  const summary = directorySyncRunPageEnhancement.detail!.sections![0]!;
+  const chinese = createLanguageContext({ languageTag: 'zh-CN' });
+  const english = createLanguageContext({ languageTag: 'en' });
+  expect(chinese.t(impact.titleKey!)).toBe('查看范围变更影响');
+  expect(chinese.t(summary.titleKey!)).toBe('同步统计');
+  expect(english.t(impact.titleKey!)).toBe('View scope change impact');
+  expect(english.t(summary.titleKey!)).toBe('Synchronization statistics');
 });
