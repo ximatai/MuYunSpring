@@ -19,6 +19,11 @@ public interface FileTransferAccessService {
         throw new UnsupportedOperationException("file delete access is not supported");
     }
 
+    /**
+     * Issues a directly consumable content URL for supported preview formats,
+     * suitable for an image source or media player. It is not a JSON view descriptor.
+     * Callers use the returned URL unchanged; descriptor access requires a separate contract.
+     */
     FileTransferAccess issuePreviewAccess(String fileId);
 
     FileTransferAccess issueDownloadAccess(String fileId);

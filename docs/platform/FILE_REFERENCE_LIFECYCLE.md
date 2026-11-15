@@ -11,8 +11,16 @@ MuYunSpring 的 Starter 以 `muyun.file-transfer.muyun-fileserver.enabled=true` 
 预览票据返回 `/api/v1/public/files/{fileId}/view/content/{accessToken}`，使用 `purpose=viewer`，
 供图片控件与直接文件预览读取内容。JSON 查看描述接口 `/{fileId}/view` 要求 `purpose=view`，不能与内容票据混用。
 
+消费者将返回的 URL 视为短时、不透明的完整地址，直接用于支持格式的图片展示或媒体播放，不解析、校验或拼接 FileServer 内部路径；URL 过期后重新申请，不作为业务字段持久化。具体路径与票据用途由官方适配器负责。后续若需要 JSON 查看描述，应提供独立契约，不改变现有内容 URL 的含义。
+
 存储位置切换与历史对象迁移由 FileServer 治理，遵循其[存储切换与回退说明](https://github.com/ximatai/MuYunFileserver/blob/v0.27.4/docs/design/storage-cutover.md)。
 平台继续持有稳定文件 ID，不推导对象 key、不持有底层存储凭据、不随存储位置切换重写业务引用。
+
+### 跨组件验证边界
+
+当前适配器测试覆盖票据与 URL 构造、响应解析和出站安全，尚未覆盖真实 FileServer 的端到端预览。真实联调应固定 FileServer 版本，在隔离租户和合成文件上使用平台实际签发的票据，直接请求返回 URL，验证图片 MIME 与内容、音视频 Range 的 `206`、`Content-Range` 与字节范围，以及错误用途、跨租户和过期票据拒绝。平台业务读取权限另由 Policy 与 Web 契约测试验证，不能用存储租户拒绝代替业务授权验证。
+
+官方适配器的协议测试可以断言具体路径；业务与通用前端的消费测试只应验证完整 URL 被原样使用。模拟响应或 URL 字符串断言不能替代上述真实联调，也不能作为现场升级验收结论。
 
 ## 存储中立引用与小文件资产
 
