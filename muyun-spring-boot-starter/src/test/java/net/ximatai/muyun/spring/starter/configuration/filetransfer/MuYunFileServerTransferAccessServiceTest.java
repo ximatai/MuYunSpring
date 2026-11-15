@@ -47,7 +47,8 @@ class MuYunFileServerTransferAccessServiceTest {
             assertThat(promote.url()).contains("/01ARZ3NDEKTSV4RRFFQ69G5FAV/promote?access_token=");
             assertThat(delete.operation()).isEqualTo(FileTransferOperation.DELETE);
             assertThat(delete.url()).contains("/01ARZ3NDEKTSV4RRFFQ69G5FAV?access_token=");
-            assertThat(preview.url()).contains("/01ARZ3NDEKTSV4RRFFQ69G5FAV/view?access_token=");
+            assertThat(preview.url()).isEqualTo("http://files.example/api/v1/public/files/"
+                    + "01ARZ3NDEKTSV4RRFFQ69G5FAV/view/content/" + preview.accessToken());
             assertThat(download.url()).contains("/01ARZ3NDEKTSV4RRFFQ69G5FAV/download?access_token=");
             assertThat(payload(upload).path("purpose").asText()).isEqualTo("upload");
             assertThat(payload(metadata).path("purpose").asText()).isEqualTo("metadata");

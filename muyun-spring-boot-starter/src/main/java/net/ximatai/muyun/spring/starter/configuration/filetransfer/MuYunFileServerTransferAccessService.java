@@ -153,7 +153,7 @@ public final class MuYunFileServerTransferAccessService
             case METADATA -> baseUrl + "/api/v1/public/files/" + fileId + "?access_token=" + encodedToken;
             case PROMOTE -> baseUrl + "/api/v1/public/files/" + fileId + "/promote?access_token=" + encodedToken;
             case DELETE -> baseUrl + "/api/v1/public/files/" + fileId + "?access_token=" + encodedToken;
-            case PREVIEW -> baseUrl + "/api/v1/public/files/" + fileId + "/view?access_token=" + encodedToken;
+            case PREVIEW -> baseUrl + "/api/v1/public/files/" + fileId + "/view/content/" + encodedToken;
             case DOWNLOAD -> baseUrl + "/api/v1/public/files/" + fileId + "/download?access_token=" + encodedToken;
         };
     }

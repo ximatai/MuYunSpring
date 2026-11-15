@@ -4,6 +4,16 @@
 
 MuYunSpring 的 Starter 以 `muyun.file-transfer.muyun-fileserver.enabled=true` 启用官方公开签名访问适配器；该能力要求配置 `base-url`、`issuer` 和 `secret`，系统范围访问还必须显式配置 `system-scope-id`。适配器结合可信当前用户身份与租户上下文签发短时 token，并固定传递 `purpose`、`tenant_id` 和 `sub` 等协同声明，业务请求不能自行指定租户或主体。地址与签名密钥由部署侧共同授权，业务配置与请求不能替换目标；官方适配器的文件标识只接受 1—64 位字母、数字、下划线或连字符，不接受路径、查询或片段；后端元数据、转正、删除及内容下载均拒绝 HTTP 重定向，失败异常不保留可能携带票据或响应正文的底层 cause。FileServer 的 public API、token 校验和存储部署细节以其仓库为准，本仓库不重复维护另一份传输接口文档。
 
+## 文件服务接入边界
+
+接入契约参照 [MuYunFileServer v0.27.4](https://github.com/ximatai/MuYunFileserver/releases/tag/v0.27.4)；文件服务独立部署和升级。
+
+预览票据返回 `/api/v1/public/files/{fileId}/view/content/{accessToken}`，使用 `purpose=viewer`，
+供图片控件与直接文件预览读取内容。JSON 查看描述接口 `/{fileId}/view` 要求 `purpose=view`，不能与内容票据混用。
+
+存储位置切换与历史对象迁移由 FileServer 治理，遵循其[存储切换与回退说明](https://github.com/ximatai/MuYunFileserver/blob/v0.27.4/docs/design/storage-cutover.md)。
+平台继续持有稳定文件 ID，不推导对象 key、不持有底层存储凭据、不随存储位置切换重写业务引用。
+
 ## 存储中立引用与小文件资产
 
 `@FileReference` 是业务模型持有的稳定文件资产 ID 契约，而不是某个 provider 的裸 ID。默认
