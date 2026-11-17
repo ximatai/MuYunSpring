@@ -15,8 +15,72 @@ import type { BusinessRoutePageDescriptor } from '@/web-contracts';
 import { workspaceViewUnsavedStateSources } from '@/platform-workbench/workspaceViewUnsavedState';
 import { provideWorkbenchNavigation } from '@/platform-workbench/workbenchNavigation';
 import { useModulePageNavigation } from '@/dynamic-page-runtime/modulePageNavigation';
+import { configureWorkspaceViewContributions } from '@/platform-workbench/workspaceViews';
 
 const feedback = vi.hoisted(() => ({ confirm: vi.fn(), error: vi.fn() }));
+
+it.each([
+  ['workspace', undefined, 'workspace', false],
+  ['flow', undefined, 'flow', false],
+  ['workspace', 'flow', 'flow', false],
+  ['flow', 'workspace', 'workspace', false],
+  ['workspace', 'flow', 'workspace', true],
+  ['flow', 'workspace', 'flow', true],
+] as const)(
+  'resolves declared %s and route %s to %s with owned descriptor=%s',
+  async (declared, routeLayout, expected, owned) => {
+    // eslint-disable-next-line vue/one-component-per-file -- local route-host layout probe.
+    const View = defineComponent({
+      setup() {
+        const layout = usePageLayout();
+        return () => h('output', layout.value);
+      },
+    });
+    configureWorkspaceViewContributions('static-route-layout', [
+      {
+        type: 'test.static-route-layout',
+        route: '/_platform/workspace/test.static-route-layout',
+        moduleAlias: 'test.layout',
+        component: View,
+        layout: declared,
+        presentations: ['tab'],
+        titleOf: () => '布局',
+        parse: () => ({}),
+      },
+    ]);
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/_platform/workspace/:workspaceView', component: View, meta: { layout: routeLayout } },
+      ],
+    });
+    await router.push(
+      '/_platform/workspace/test.static-route-layout?workspaceView=test.static-route-layout&workspacePresentation=tab',
+    );
+    const route = router.currentRoute.value;
+    const pageDescriptor: BusinessRoutePageDescriptor | undefined = owned
+      ? {
+          pageType: 'business-route',
+          openMode: 'workbench-route',
+          hostType: 'business-route-host',
+          target: { route: route.path, query: route.query },
+          tabPolicy: { identity: 'by-params' },
+        }
+      : undefined;
+    const wrapper = mount(StaticRoutePageHost, {
+      props: { component: View, route, pageDescriptor },
+    });
+    try {
+      expect(wrapper.get('output').text()).toBe(expected);
+      expect(
+        wrapper.get('.static-route-page-content').classes().includes('static-route-page-content--workspace'),
+      ).toBe(expected === 'workspace');
+    } finally {
+      wrapper.unmount();
+      configureWorkspaceViewContributions('static-route-layout', []);
+    }
+  },
+);
 vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/vue-ui-antdv')>()),
   confirmAction: feedback.confirm,

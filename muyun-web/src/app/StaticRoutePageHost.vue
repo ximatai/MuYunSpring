@@ -25,12 +25,12 @@ const props = defineProps<{
 }>();
 
 const moduleAlias = computed(() => String(props.route.meta.moduleAlias ?? ''));
-// Workbench tabs restore their page layout from the descriptor. The router only
-// knows the generic workspace route, so route metadata alone would downgrade a
-// descriptor-owned workbench to flow layout.
-const layout = computed<PageLayoutMode>(
-  () => props.pageDescriptor?.layout ?? (props.route.meta.layout === 'workspace' ? 'workspace' : 'flow'),
-);
+// Keep an undeclared route layout absent until the workspace view is resolved.
+// Otherwise a synthesized `flow` descriptor would mask that view's declaration.
+const routeLayout = computed<PageLayoutMode | undefined>(() => {
+  const value = props.route.meta.layout;
+  return value === 'workspace' || value === 'flow' ? value : undefined;
+});
 const workspaceDescriptor = computed<BusinessRoutePageDescriptor>(() => {
   // A workbench tab may intentionally separate identity parameters from
   // URL-restorable view state. Rebuilding a descriptor from the route would
@@ -43,7 +43,7 @@ const workspaceDescriptor = computed<BusinessRoutePageDescriptor>(() => {
     openMode: 'workbench-route',
     hostType: 'business-route-host',
     title: typeof props.route.meta.title === 'string' ? props.route.meta.title : undefined,
-    layout: layout.value,
+    layout: props.pageDescriptor?.layout ?? routeLayout.value,
     target: {
       route: props.route.path,
       moduleAlias: moduleAlias.value || undefined,
@@ -64,6 +64,9 @@ const workspaceDescriptor = computed<BusinessRoutePageDescriptor>(() => {
   return { ...descriptor, title: declared.title, titleText: declared.titleText };
 });
 const workspaceView = computed(() => resolveWorkspaceView(workspaceDescriptor.value));
+const layout = computed<PageLayoutMode>(
+  () => workspaceDescriptor.value.layout ?? workspaceView.value?.view.layout ?? routeLayout.value ?? 'flow',
+);
 // Route changes are handled by the workbench cache key. This inner key is only
 // for an explicit page refresh, so ordinary static pages retain reactive route
 // updates and their local state contract.
