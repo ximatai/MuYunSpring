@@ -160,7 +160,7 @@ Maven 发布任务失败且 npm 尚未执行时，可在 `Release platform artif
 不是普通开发消费仓库；本地依赖供应应使用 Maven Local 或 `build/consumer-repo`。Release workflow 只在凭据预检和
 对应 registry 的最终发布步骤注入秘密，常规测试与消费者验证不得接触发布私钥或 token。
 
-开发分支上的前端版本同样保留 `-SNAPSHOT`，本地 npm 消费者包因此也是快照版本。Release workflow 将 tag 对应的
+日常开发中的前端版本同样保留 `-SNAPSHOT`，本地 npm 消费者包因此也是快照版本。Release workflow 将 tag 对应的
 `MUYUN_RELEASE_VERSION` 注入 staging 构建，只有待发布 npm 包去掉 `-SNAPSHOT`；`pack:consumer` 会同时校验三处开发
 版本和正式版本映射。这样开发态与生产态都能在前后端之间精确对齐。
 
@@ -184,8 +184,9 @@ Actions 直接推送的分支保护，应将该 job 改为 GitHub App 或自动 
 若 Maven Central 已发布而 npm 失败，先查 npm registry。确认同版本 npm 包尚未发布并解决故障后，在原 Actions
 运行中仅重试 `Publish to npm` job。它使用原运行留存的已验证 tarball。Maven Central 同版本构件不可重复上传。
 
-对于 npm 和 Maven 尚在同一 job 的旧 tag，或已验证 tarball 过期的运行，从原 tag 建立干净 worktree，
-重新生成并校验 tarball，再用已启用 2FA 且有发布权限的 npm 账号交互式补发：
+对于 npm 和 Maven 尚在同一 job 的旧 tag，或已验证 tarball 过期的运行，必须使用原 tag 对应的干净源码重新生成并校验 tarball。
+如需新建分支、worktree 或独立 checkout 工作区，先按根 [Agent Guide](../AGENTS.md#git-workspace) 取得用户同意；不得直接覆盖主工作区中的改动。
+随后用已启用 2FA 且有发布权限的 npm 账号交互式补发：
 
 ```bash
 release_version=0.26.31 # 替换为待补发的正式版本

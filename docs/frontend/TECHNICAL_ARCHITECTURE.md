@@ -2,11 +2,11 @@
 
 本文记录 MuYunSpring 前端的阶段性架构方向。它强调设计哲学、团队协作方式和可演进边界，不把尚未进入建设阶段的平台业务细节提前定死。
 
-前端稳定设计共识见 [MuYun 前端设计原则](DESIGN_PRINCIPLES.md)。后续推进步骤和路线目标见 [MuYun 前端路线草案](DEVELOPMENT_APPROACH.md)。
+前端稳定设计共识见 [MuYun 前端设计原则](DESIGN_PRINCIPLES.md)。已确认的剩余缺口和触发条件见[技术债](../TECHNICAL_DEBT.md)。
 视觉语义、颜色、字体、边界、阴影和间距基线见 [MuYun Web 视觉基线](design/VISUAL_FOUNDATIONS.md)。
 静态管理页组件拆分见 [静态管理页组件边界](STATIC_MANAGEMENT_PAGE_COMPONENTS.md)。
 只读投影的来源契约、公共运行器与同模块多入口见[只读业务投影与同源多入口](READONLY_BUSINESS_VIEWS.md)。
-菜单、路由和页签治理见 [菜单、路由与页签专项治理](governance/MENU_ROUTING_AND_TAB_GOVERNANCE.md)。错误抛出和前端展示治理见 [错误抛出与前端展示专项治理](governance/ERROR_HANDLING_GOVERNANCE.md)。动作结果、数据变更和本地 reaction 治理见 [动作结果与数据变更治理](governance/ACTION_RESULT_REACTIONS_GOVERNANCE.md)。
+菜单、路由和页签治理见 [菜单、路由与页签契约](governance/MENU_ROUTING_AND_TAB_GOVERNANCE.md)。错误抛出和前端展示治理见 [错误抛出与前端展示专项治理](governance/ERROR_HANDLING_GOVERNANCE.md)。动作结果、数据变更和本地 reaction 治理见 [动作结果与数据变更治理](governance/ACTION_RESULT_REACTIONS_GOVERNANCE.md)。
 
 ## 技术路线
 
