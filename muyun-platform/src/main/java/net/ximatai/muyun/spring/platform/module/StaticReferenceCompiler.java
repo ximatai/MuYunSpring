@@ -6,6 +6,12 @@ import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 
 import java.util.List;
 
+/**
+ * Internal compiler of static model reference declarations for module registration.
+ * Business applications declare model references and use standard static module declarations.
+ *
+ * @hidden
+ */
 public final class StaticReferenceCompiler {
     private StaticReferenceCompiler() {
     }

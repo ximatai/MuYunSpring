@@ -181,8 +181,109 @@ test("local unsigned report needs no credentials or signatures and ignores retai
   assert.equal(report.signed, false);
 });
 
+for (const signed of [true, false]) {
+  test(`${signed ? "signed" : "unsigned"} categories account for exact attachment bytes and preserve files contracts`, (t) => {
+    const { options } = publication(t, signed);
+    const report = inspectPublication(options);
+    const categoryExtensions = {
+      mainJar: ".jar",
+      sources: "-sources.jar",
+      javadoc: "-javadoc.jar",
+      pom: ".pom",
+      gradleMetadata: ".module",
+    };
+    const keys = [...Object.keys(categoryExtensions), "signatures", "checksums"];
+    for (const module of report.modules) {
+      const bom = module.artifact === "muyun-spring-bom";
+      const primaryCount = bom ? 2 : 5;
+      const expected = Object.fromEntries(
+        Object.entries(categoryExtensions).map(([category, extension]) => [
+          category,
+          bom && ["mainJar", "sources", "javadoc"].includes(category)
+            ? { fileCount: 0, bytes: 0 }
+            : {
+                fileCount: 1,
+                bytes: Buffer.byteLength(`fixture:${module.artifact}${extension}`),
+              },
+        ]),
+      );
+      expected.signatures = {
+        fileCount: signed ? primaryCount : 0,
+        bytes: signed
+          ? primaryCount * Buffer.byteLength("detached-signature-fixture")
+          : 0,
+      };
+      expected.checksums = {
+        fileCount: primaryCount * 4,
+        bytes: primaryCount * (32 + 40 + 64 + 128),
+      };
+      assert.deepEqual(module.categories, expected);
+      assert.equal(typeof module.files, "number");
+      assert.equal(
+        Object.values(module.categories).reduce(
+          (sum, item) => sum + item.fileCount, 0,
+        ),
+        module.files,
+      );
+      assert.equal(
+        Object.values(module.categories).reduce(
+          (sum, item) => sum + item.bytes, 0,
+        ),
+        module.bytes,
+      );
+    }
+    assert.deepEqual(Object.keys(report.categories), keys);
+    for (const category of keys) {
+      for (const metric of ["fileCount", "bytes"])
+        assert.equal(
+          report.categories[category][metric],
+          report.modules.reduce(
+            (sum, module) => sum + module.categories[category][metric], 0,
+          ),
+        );
+    }
+    assert.equal(
+      Object.values(report.categories).reduce(
+        (sum, item) => sum + item.fileCount, 0,
+      ),
+      report.fileCount,
+    );
+    assert.equal(
+      Object.values(report.categories).reduce(
+        (sum, item) => sum + item.bytes, 0,
+      ),
+      report.bytes,
+    );
+    const expectedFiles = options.artifacts.flatMap((artifact) => {
+      const directory = `net/example/${artifact}/${options.version}`;
+      return readdirSync(join(options.repository, directory))
+        .sort()
+        .map((file) => `${directory}/${file}`);
+    });
+    assert.deepEqual(report.files, expectedFiles);
+    const output = join(options.repository, "report.json");
+    const cli = execFileSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL("./maven-publication-report.mjs", import.meta.url)),
+        options.repository,
+        options.group,
+        options.version,
+        options.artifacts.join(","),
+        signed ? "signed" : "unsigned",
+        output,
+      ],
+      { encoding: "utf8" },
+    );
+    assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), report);
+    assert.match(cli, /Bytes total the files to upload, not extracted JAR contents/);
+    for (const category of keys) assert.ok(cli.includes(category));
+  });
+}
+
 test("local inventory resolves timestamped snapshots and ignores older snapshot builds", (t) => {
   const { options } = publication(t, false);
+  const before = inspectPublication(options);
   for (const artifact of options.artifacts) {
     const directory = join(
       options.repository,
@@ -214,7 +315,23 @@ test("local inventory resolves timestamped snapshots and ignores older snapshot 
     ...options,
     version: `${options.version}-SNAPSHOT`,
   };
-  assert.equal(inspectPublication(snapshotOptions).fileCount, 35);
+  const report = inspectPublication(snapshotOptions);
+  assert.equal(report.fileCount, 35);
+  assert.deepEqual(report.categories, before.categories);
+  assert.deepEqual(report.modules, before.modules);
+  assert.deepEqual(
+    report.files,
+    before.files.map((file) => {
+      const segments = file.split("/");
+      const name = segments.pop();
+      const directory = segments.join("/")
+        .replace(options.version, snapshotOptions.version);
+      const timestampedName = name.replace(
+        options.version, `${options.version}-20261022.120000-2`,
+      );
+      return `${directory}/${timestampedName}`;
+    }),
+  );
   assert.throws(
     () => inspectPublication({ ...snapshotOptions, signed: true }),
     /cannot contain snapshots/,

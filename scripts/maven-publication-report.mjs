@@ -10,6 +10,19 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const hashes = ["md5", "sha1", "sha256", "sha512"];
+const primaryCategories = {
+  ".jar": "mainJar",
+  "-sources.jar": "sources",
+  "-javadoc.jar": "javadoc",
+  ".pom": "pom",
+  ".module": "gradleMetadata",
+};
+const emptyCategories = () =>
+  Object.fromEntries(
+    [...Object.values(primaryCategories), "signatures", "checksums"].map(
+      (category) => [category, { fileCount: 0, bytes: 0 }],
+    ),
+  );
 
 /** Inventory only the requested version; consumer repositories may retain other versions. */
 export function inspectPublication({
@@ -24,6 +37,7 @@ export function inspectPublication({
   if (!artifacts.length || new Set(artifacts).size !== artifacts.length)
     throw new Error("Publication artifacts must be non-empty and unique");
   const files = [];
+  const categories = emptyCategories();
   const modules = artifacts.map((artifact) => {
     if (!/^[a-zA-Z0-9_-]+$/.test(artifact))
       throw new Error("Invalid artifact ID");
@@ -56,13 +70,14 @@ export function inspectPublication({
         ? [".pom", ".module"]
         : [".pom", ".module", ".jar", "-sources.jar", "-javadoc.jar"];
     const primaries = extensions.map((extension) => `${stem}${extension}`);
-    const expected = new Set(
-      primaries.flatMap((name) => [
-        name,
-        ...hashes.map((hash) => `${name}.${hash}`),
-        ...(signed ? [`${name}.asc`] : []),
+    const fileCategories = new Map(
+      primaries.flatMap((name, index) => [
+        [name, primaryCategories[extensions[index]]],
+        ...hashes.map((hash) => [`${name}.${hash}`, "checksums"]),
+        ...(signed ? [[`${name}.asc`, "signatures"]] : []),
       ]),
     );
+    const expected = new Set(fileCategories.keys());
     const actual = readdirSync(directory)
       .filter(
         (name) =>
@@ -76,6 +91,7 @@ export function inspectPublication({
         );
     }
     let bytes = 0;
+    const moduleCategories = emptyCategories();
     for (const name of actual) {
       if (!expected.has(name))
         throw new Error(
@@ -88,6 +104,11 @@ export function inspectPublication({
           `Invalid publication file: ${relativeDirectory}/${name}`,
         );
       bytes += stat.size;
+      const category = fileCategories.get(name);
+      for (const totals of [moduleCategories, categories]) {
+        totals[category].fileCount += 1;
+        totals[category].bytes += stat.size;
+      }
       files.push(`${relativeDirectory}/${name}`);
     }
     for (const name of primaries) {
@@ -103,7 +124,7 @@ export function inspectPublication({
           );
       }
     }
-    return { artifact, files: actual.length, bytes };
+    return { artifact, files: actual.length, bytes, categories: moduleCategories };
   });
   if (signed) {
     // A Central bundle must not silently contain stale versions, metadata or extra artifacts.
@@ -125,6 +146,7 @@ export function inspectPublication({
     deployments: 1,
     fileCount: files.length,
     bytes: modules.reduce((sum, module) => sum + module.bytes, 0),
+    categories,
     modules,
     files,
   };
@@ -149,9 +171,15 @@ if (
   });
   mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`);
-  console.table(report.modules);
+  console.table(report.modules.map(({ categories, ...module }) => module));
+  console.log("Publication categories (upload file bytes):");
+  console.table(report.categories);
+  for (const module of report.modules) {
+    console.log(module.artifact);
+    console.table(module.categories);
+  }
   console.log(
-    `${report.version}: ${report.fileCount} files, ${(report.bytes / 1024 / 1024).toFixed(2)} MiB (uncompressed), one deployment`,
+    `${report.version}: ${report.fileCount} files, ${report.bytes} bytes (${(report.bytes / 1024 / 1024).toFixed(2)} MiB), one deployment. Bytes total the files to upload, not extracted JAR contents.`,
   );
   if (!report.signed)
     console.log(

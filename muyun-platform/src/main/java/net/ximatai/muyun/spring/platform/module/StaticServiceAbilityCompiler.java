@@ -29,7 +29,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Compiles static service composition and model declarations into the shared platform capability vocabulary. */
+/**
+ * Internal compiler of static Service abilities and actions into shared platform definitions.
+ * Business applications compose Ability interfaces and use standard static module declarations.
+ *
+ * @hidden
+ */
 public final class StaticServiceAbilityCompiler {
     private StaticServiceAbilityCompiler() {
     }

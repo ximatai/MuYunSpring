@@ -25,8 +25,12 @@ Maven Central 按组织统计发布次数、文件数和体积。根发布任务
 ./gradlew reportMavenPublication
 ```
 
-该任务复用本地 Maven 发布，检查当前版本各模块的产物与校验和，输出模块级文件数、未压缩体积以及
-`build/maven-publication-report.json`。无签名盘点不代表正式发布用量，
+该任务复用本地 Maven 发布，检查当前版本各模块的产物与校验和，输出模块级文件数、字节数以及
+`build/maven-publication-report.json`。顶层与各模块的 `categories` 固定包含 `mainJar`、`sources`、`javadoc`、
+`pom`、`gradleMetadata`、`signatures` 和 `checksums`，每类记录 `fileCount` 与 `bytes`，空类保留零值。
+签名与校验和独立计数，不重复计入对应构件类别。`bytes` 是待上传文件的实际字节合计（含签名与校验和），
+不是 JAR 解压后的大小，也不是 bundle ZIP 的大小。顶层 `files` 保留文件路径数组，模块 `files` 保留文件数量。
+无签名盘点不代表正式发布用量，
 正式报告由签名后的 bundle 生成，写入 `build/maven-central/report.json`，并由 Release CI 留存。
 报告不硬编码组织配额，不代替在线 Usage Center，也不阻断必要的紧急发布。
 
