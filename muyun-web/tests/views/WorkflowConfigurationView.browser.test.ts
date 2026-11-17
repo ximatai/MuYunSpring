@@ -4,11 +4,70 @@ import { defineComponent, h } from 'vue';
 import { expect, it, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import { UiThemeProvider, UiSidePanelHost } from '@muyun/vue-ui-antdv';
-import { ModuleContextProvider, type ModuleContext, type HttpRequestOptions } from '@muyun/web-core';
+import {
+  ModuleContextProvider,
+  provideModuleContextConfig,
+  type ModuleContext,
+  type HttpRequestOptions,
+} from '@muyun/web-core';
+import PlatformAdminOutlet from '@/consumer/PlatformAdminOutlet.vue';
+import { createWorkspaceViewDescriptor } from '@/platform-workbench/workspaceViews';
+import { workflowConfigurationWorkspaceView } from '@/views/workflowConfigurationWorkspaceView';
+import '@/platform-admin-runtime/workspaceViews';
 import { providePageLayout } from '@/platform-components/pageLayoutContext';
 import WorkflowConfigurationView from '@/views/WorkflowConfigurationView.vue';
 import '@/styles.css';
 import '@muyun/vue-ui-antdv/styles.css';
+
+it('shows all four default approval nodes through the public workspace host with an empty catalog', async () => {
+  await page.viewport(1280, 804);
+  const request = vi.fn(async (call: HttpRequestOptions) => {
+    if (call.path.endsWith('/view/empty'))
+      return { id: 'empty', title: '默认审批', version: 1, approvalEnabled: true };
+    if (call.path.endsWith('/versions/query'))
+      return { records: [{ id: 'draft', version: 1, versionNo: 1, publishStatus: 'draft' }] };
+    if (call.path.endsWith('/configuration-catalog'))
+      return { tasks: [], queries: [], generations: [], associations: [] };
+    if (call.path.endsWith('/design')) return { nodes: [], links: [] };
+    return { moduleAlias: 'demo.empty', capabilities: [], actions: [] };
+  });
+  const descriptor = createWorkspaceViewDescriptor(workflowConfigurationWorkspaceView, {
+    moduleAlias: 'demo.empty',
+    definitionId: 'empty',
+  });
+  delete descriptor.layout;
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        provideModuleContextConfig({ http: { request } as unknown as ModuleContext<unknown>['http'] });
+        return () =>
+          h(UiThemeProvider, {}, () => h(UiSidePanelHost, {}, () => h(PlatformAdminOutlet, { descriptor })));
+      },
+    }),
+    { attachTo: document.body },
+  );
+  wrapper.element.setAttribute('style', 'display:block;height:700px');
+  try {
+    await expect.poll(() => wrapper.findAll('[data-workflow-node]').length).toBe(4);
+    const viewport = wrapper.get('.diagram-viewport').element.getBoundingClientRect();
+    expect(viewport.height).toBeGreaterThan(590);
+    await page.getByRole('button', { name: '全图', exact: true }).click();
+    for (const node of ['start', 'approval', 'approved', 'end']) {
+      const element = wrapper.get(`[data-workflow-node="${node}"]`).element;
+      const bounds = element.getBoundingClientRect();
+      expect(bounds.width).toBeGreaterThan(0);
+      expect(bounds.height).toBeGreaterThan(0);
+      expect(bounds.top).toBeGreaterThanOrEqual(viewport.top);
+      expect(bounds.bottom).toBeLessThanOrEqual(viewport.bottom);
+    }
+    expect(wrapper.get('[role="status"]').text()).toBe('未保存');
+    expect(request.mock.calls.some(([call]) => call.method === 'POST' && call.path.endsWith('/design'))).toBe(
+      false,
+    );
+  } finally {
+    wrapper.unmount();
+  }
+});
 
 it('uses the whole workspace for one definition and keeps design actions inside its header', async () => {
   await page.viewport(1009, 804);
@@ -38,15 +97,15 @@ it('uses the whole workspace for one definition and keeps design actions inside 
   } as unknown as ModuleContext<unknown>;
   const Harness = defineComponent({
     setup() {
-      providePageLayout('workspace');
+      provideModuleContextConfig({ http: context.http });
+      const descriptor = createWorkspaceViewDescriptor(workflowConfigurationWorkspaceView, {
+        moduleAlias: 'demo.purchase',
+        definitionId: 'a',
+      });
+      // Match a restored URL: the common view host must resolve the declared layout.
+      delete descriptor.layout;
       return () =>
-        h(UiThemeProvider, {}, () =>
-          h(UiSidePanelHost, {}, () =>
-            h(ModuleContextProvider, { context }, () =>
-              h(WorkflowConfigurationView, { moduleAlias: 'demo.purchase', definitionId: 'a' }),
-            ),
-          ),
-        );
+        h(UiThemeProvider, {}, () => h(UiSidePanelHost, {}, () => h(PlatformAdminOutlet, { descriptor })));
     },
   });
   const wrapper = mount(Harness, {
@@ -56,6 +115,11 @@ it('uses the whole workspace for one definition and keeps design actions inside 
   wrapper.element.setAttribute('style', 'display:block;height:700px');
   try {
     await flushPromises();
+    await expect.poll(() => wrapper.find('.diagram-viewport').exists()).toBe(true);
+    await expect.poll(() => wrapper.find('[data-workflow-node="start"]').exists()).toBe(true);
+    expect(wrapper.find('.record-detail-layout--scrollable > .record-detail-layout-content').exists()).toBe(
+      true,
+    );
     expect(wrapper.find('.record-explorer-panel').exists()).toBe(false);
     expect(wrapper.findComponent({ name: 'RecordAdaptiveDetailPanel' }).props('width')).toBe('compact');
     const detail = wrapper.get('.record-detail-panel-region').element.getBoundingClientRect();
@@ -72,6 +136,13 @@ it('uses the whole workspace for one definition and keeps design actions inside 
         .toBeGreaterThan(590);
       const viewport = wrapper.get('.diagram-viewport').element.getBoundingClientRect();
       const rootBounds = wrapper.element.getBoundingClientRect();
+      for (const node of ['start', 'approval', 'end']) {
+        const bounds = wrapper.get(`[data-workflow-node="${node}"]`).element.getBoundingClientRect();
+        expect(bounds.width).toBeGreaterThan(0);
+        expect(bounds.height).toBeGreaterThan(0);
+        expect(bounds.bottom).toBeGreaterThan(viewport.top);
+        expect(bounds.top).toBeLessThan(viewport.bottom);
+      }
       expect(viewport.height / rootBounds.height).toBeGreaterThan(0.84);
       expect(wrapper.element.scrollWidth).toBeLessThanOrEqual(rootBounds.width);
       const controls = ['.diagram-edit-tools', '.diagram-navigation', '.diagram-tools'];

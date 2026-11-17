@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { BusinessRoutePageDescriptor } from '@muyun/web-contracts';
-import { useLanguageContext, presentationLabel } from '@muyun/web-core';
+import { useLanguageContext, presentationLabel, providePageLayout, usePageLayout } from '@muyun/web-core';
 import { computed, onUnmounted } from 'vue';
 import { UiEmpty } from '@muyun/vue-ui-antdv';
 import { provideModulePageUnsavedStateHost } from '@muyun/dynamic-page-runtime';
@@ -13,6 +13,10 @@ import { registerWorkspaceViewUnsavedState } from './workspaceViewUnsavedState';
 const props = defineProps<{ descriptor: BusinessRoutePageDescriptor }>();
 const language = useLanguageContext();
 const resolvedView = computed(() => resolveWorkspaceView(props.descriptor));
+const inheritedLayout = usePageLayout();
+// URL-restored views may not carry descriptor.layout. Resolve their declaration
+// here too, so every host (including SDK consumers) supplies the same context.
+providePageLayout(() => props.descriptor.layout ?? resolvedView.value?.view.layout ?? inheritedLayout.value);
 // `replacePage` preserves this physical tab key even if URL-restorable view
 // state changes. Keep the original owner rather than recomputing a key from
 // a descriptor that may now describe a different navigation state.
