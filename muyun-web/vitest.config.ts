@@ -9,8 +9,11 @@ import {
   treeScrollGesture,
   treeWheel,
 } from './tests/vue-ui-antdv/browserCommands.ts';
+import { restoreSchoolSubjectMenu } from './tests/app/schoolWorkbenchBrowserCommands.ts';
 import { createViteConfig } from './vite.config.ts';
 import { workflowCanvasDrag } from './tests/platform-components/workflowCanvasBrowserCommands.ts';
+
+const schoolLayoutEnabled = process.env.MUYUN_SCHOOL_LAYOUT_SERVICE === '1';
 
 export default mergeConfig(
   createViteConfig('test'),
@@ -28,6 +31,13 @@ export default mergeConfig(
           : {},
     },
     define: {
+      __SCHOOL_LAYOUT_ENABLED__: schoolLayoutEnabled,
+      ...(schoolLayoutEnabled
+        ? {
+            'import.meta.env.VITE_MUYUN_USE_MOCK': JSON.stringify('false'),
+            'import.meta.env.VITE_MUYUN_API_BASE_URL': JSON.stringify('/api'),
+          }
+        : {}),
       __PLATFORM_BUSINESS_TOKEN__: JSON.stringify(process.env.MUYUN_PLATFORM_BUSINESS_TOKEN ?? ''),
       __PLATFORM_SERVICE_ENABLED__: Boolean(
         process.env.MUYUN_PLATFORM_SERVICE_URL && process.env.MUYUN_PLATFORM_SERVICE_TOKEN,
@@ -74,6 +84,7 @@ export default mergeConfig(
               instances: [{ browser: 'chromium' }],
               commands: {
                 workflowCanvasDrag,
+                restoreSchoolSubjectMenu,
                 treeGesture,
                 treeMove,
                 treeRelease,
