@@ -56,6 +56,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.mockito.Mockito;
 
 import javax.sql.DataSource;
@@ -68,6 +69,7 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -132,6 +134,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         reset(moduleService, refreshCoordinator, recordService, childCreationPermissions, dictionaryItems);
         when(recordService.schemaGovernanceFacts()).thenReturn(schemaFacts);
         schemaEnsureService.failAfterEnsure = false;
+        schemaEnsureService.afterEnsure = null;
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         moduleAlias = "crm.change_" + suffix;
         PlatformModule module = new PlatformModule();
@@ -1690,6 +1693,71 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
                 .extracting(MetadataField::getFieldName).contains("planNote", "planSummary");
     }
 
+    @Test
+    void modelPublicationRollsBackMainAndChildDdlAndMetadataAndCanBeRetried() {
+        applyNewStringField("existing", "existing");
+        var child = orchestration.createChildMetadata(moduleAlias, relationId,
+                new ModuleChildMetadataCreateCommand("child_" + metadata.getAlias(), "子实体", null, null));
+        var main = metadataService.select(metadata.getId());
+        var childMetadata = metadataService.select(child.metadata().getId());
+        var mainField = proposal("mainNote", "main_note", "string", false).fieldDrafts().getFirst();
+        var childField = proposal("childNote", "child_note", "string", false).fieldDrafts().getFirst();
+        var plan = new MetadataModelChangeSetPreviewCommand(List.of(
+                new MetadataModelRelationChangeSetDraft(relationId, main.getVersion(), Map.of(), List.of(mainField)),
+                new MetadataModelRelationChangeSetDraft(child.relation().getId(), childMetadata.getVersion(),
+                        Map.of(), List.of(childField))), List.of(), List.of());
+        var preview = modelPreview.preview(moduleAlias, plan);
+        assertThat(preview.errors()).isEmpty();
+        var command = new MetadataModelChangeSetApplyCommand(plan, preview.proposalFingerprint());
+        Mockito.clearInvocations(refreshCoordinator);
+
+        var transactionalJdbc = new JdbcTemplate(dataSource);
+        var independentJdbc = new JdbcTemplate(new DriverManagerDataSource(
+                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword()));
+        schemaEnsureService.afterEnsure = ensured -> {
+            if (childMetadata.getId().equals(ensured.getId())) {
+                assertModelFieldState(transactionalJdbc, main, mainField, true);
+                assertModelFieldState(transactionalJdbc, childMetadata, childField, true);
+                throw new IllegalStateException("forced child schema failure");
+            }
+        };
+        try {
+            assertThatThrownBy(() -> modelApply.apply(moduleAlias, command))
+                    .isInstanceOf(IllegalStateException.class).hasMessage("forced child schema failure");
+        } finally {
+            schemaEnsureService.afterEnsure = null;
+        }
+
+        assertModelFieldState(independentJdbc, main, mainField, false);
+        assertModelFieldState(independentJdbc, childMetadata, childField, false);
+        assertThat(columnExists(main.getTableName(), "existing")).isTrue();
+        assertThat(columnExists(childMetadata.getTableName(), "id")).isTrue();
+        // The coordinator is a mock, so this verifies the activation scheduling boundary.
+        Mockito.verifyNoInteractions(refreshCoordinator);
+
+        modelApply.apply(moduleAlias, command);
+        assertModelFieldState(independentJdbc, main, mainField, true);
+        assertModelFieldState(independentJdbc, childMetadata, childField, true);
+        verify(refreshCoordinator).scheduleModules(List.of(moduleAlias));
+    }
+
+    private void assertModelFieldState(JdbcTemplate jdbc, Metadata baseline,
+                                       MetadataFieldChangeSetDraft draft, boolean published) {
+        assertThat(jdbc.queryForObject("""
+                select exists (select 1 from information_schema.columns
+                where table_schema = ? and table_name = ? and column_name = ?)
+                """, Boolean.class, baseline.getSchemaName(), baseline.getTableName(), draft.field().getColumnName()))
+                .as("physical column for %s", baseline.getAlias()).isEqualTo(published);
+        assertThat(jdbc.queryForList("""
+                select column_name from platform_metadata_field where metadata_id = ? and field_name = ?
+                """, String.class, baseline.getId(), draft.field().getFieldName()))
+                .as("field metadata for %s", baseline.getAlias())
+                .isEqualTo(published ? List.of(draft.field().getColumnName()) : List.of());
+        assertThat(jdbc.queryForObject("select version from platform_metadata where id = ?", Integer.class, baseline.getId()))
+                .as("metadata version for %s", baseline.getAlias())
+                .isEqualTo(baseline.getVersion() + (published ? 1 : 0));
+    }
+
     private MetadataModelChangeSetPreviewCommand modelProposal(String fieldName, String columnName) {
         var relation = proposal(fieldName, columnName, "string", false);
         return new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(
@@ -1986,10 +2054,12 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
 
     static class TestSchemaEnsureService extends PlatformMetadataSchemaEnsureService {
         volatile boolean failAfterEnsure;
+        Consumer<Metadata> afterEnsure;
         TestSchemaEnsureService(PlatformMetadataEntityDefinitionCompiler compiler, DynamicSchemaService schema) { super(compiler, schema); }
         @Override public boolean ensureNow(Metadata metadata) {
             boolean ensured = super.ensureNow(metadata);
             if (failAfterEnsure) throw new IllegalStateException("forced schema failure");
+            if (afterEnsure != null) afterEnsure.accept(metadata);
             return ensured;
         }
     }
