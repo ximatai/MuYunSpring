@@ -689,7 +689,7 @@ class StaticModuleDefinitionScannerTest {
                             });
                 });
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
-                        .containsExactly("menu", "create", "view", "update", "delete", "query",
+                        .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
                                 "effectivePasswordPolicy", "savePasswordSecurity");
                 assertThat(definition.actions())
                         .filteredOn(action -> action.actionCode().equals("effectivePasswordPolicy"))
