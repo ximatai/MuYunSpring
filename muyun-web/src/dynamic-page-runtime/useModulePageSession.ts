@@ -188,11 +188,23 @@ type ModulePageSessionTenantPolicy = Pick<
   'tenantScopeExplorerCount' | 'tenantScopeFixedByIdentity' | 'setRequired'
 >;
 
+export interface ModuleRecordOnlyOptions {
+  recordId: string;
+  renderMode?: 'inline' | 'portal';
+  scope?: 'tab' | 'viewport';
+  surface?: 'workspace';
+  promotion?: import('@muyun/platform-components').DrawerPromotion;
+  /** An opaque module-owned scope, resolved and authorized by the server. */
+  pageSelection?: { kind: string; key: string };
+  /** May restrict standard mutations for an already loaded record. */
+  readOnly?(record: Readonly<QueryListRecord>): boolean;
+}
+
 export interface ModulePageSessionProps {
   descriptor: StandardModulePageDescriptor;
   requireConfiguredPage?: boolean;
   /** Renders one target record through the standard detail lifecycle without a menu/list session. */
-  recordOnly?: { recordId: string; renderMode?: 'inline' | 'portal'; scope?: 'tab' | 'viewport' };
+  recordOnly?: ModuleRecordOnlyOptions;
   /** Frozen selection for one disposable business session. */
   tenantScope?: QueryListRecord;
   http?: HttpClient;
@@ -258,8 +270,10 @@ export function useModulePageSession(
   const mainTreeSorting = ref(false);
   const selectedTreeRecord = ref<QueryListRecord>();
   const pageContextHeader = ref<string>();
+  const recordOnlyPageSelection = props.recordOnly?.pageSelection;
+  const pageSelection = computed(() => recordOnlyPageSelection ?? navigatorExtensionSelection.value);
   const pageSelectionHeader = computed(() => {
-    const selection = navigatorExtensionSelection.value;
+    const selection = pageSelection.value;
     return selection ? JSON.stringify(selection) : undefined;
   });
   function isHostScopedRequest(path: string): boolean {
@@ -273,24 +287,26 @@ export function useModulePageSession(
       path === `/platform.module/${props.descriptor.target.moduleAlias}/context`
     );
   }
-  const rawContext = props.recordOnly
-    ? baseContext
-    : createModuleContext<QueryListRecord>({
-        language,
-        moduleAlias: props.descriptor.target.moduleAlias,
-        http: withHttpHeaders(
-          props.http ?? baseContext.http,
-          () => ({
-            'X-MuYun-Menu-Id': props.descriptor.menuId,
-            'X-MuYun-Page-Context': pageContextHeader.value,
-            'X-MuYun-Page-Selection': pageSelectionHeader.value,
-          }),
-          (request) =>
-            !Object.keys(request.headers ?? {}).some(
-              (key) => key.toLowerCase() === 'x-muyun-record-context',
-            ) && isHostScopedRequest(request.path),
-        ),
-      });
+  const rawContext =
+    props.recordOnly && !recordOnlyPageSelection
+      ? baseContext
+      : createModuleContext<QueryListRecord>({
+          language,
+          moduleAlias: props.descriptor.target.moduleAlias,
+          runtimeAccess: props.recordOnly ? 'VIEW' : undefined,
+          http: withHttpHeaders(
+            props.http ?? baseContext.http,
+            () => ({
+              'X-MuYun-Menu-Id': props.descriptor.menuId,
+              'X-MuYun-Page-Context': pageContextHeader.value,
+              'X-MuYun-Page-Selection': pageSelectionHeader.value,
+            }),
+            (request) =>
+              !Object.keys(request.headers ?? {}).some(
+                (key) => key.toLowerCase() === 'x-muyun-record-context',
+              ) && isHostScopedRequest(request.path),
+          ),
+        });
   const referenceRecordDetailBrowser = createReferenceRecordDetailBrowser(rawContext.http, language);
   onUnmounted(referenceRecordDetailBrowser.dispose);
 
@@ -355,13 +371,13 @@ export function useModulePageSession(
     },
     can(actionCode, recordId) {
       const resolvedActionCode = treeResourceActionCode(actionCode);
-      if (disabledStandardActions.value.includes(resolvedActionCode)) {
+      if (standardActionDisabled(resolvedActionCode)) {
         return false;
       }
       return rawContext.can(resolvedActionCode, recordId);
     },
     action: (actionCode, recordId) =>
-      disabledStandardActions.value.includes(treeResourceActionCode(actionCode))
+      standardActionDisabled(treeResourceActionCode(actionCode))
         ? undefined
         : rawContext.action(treeResourceActionCode(actionCode), recordId),
     runtimeAction: (actionCode) => rawContext.runtimeAction(treeResourceActionCode(actionCode)),
@@ -378,6 +394,18 @@ export function useModulePageSession(
     },
   };
 
+  function standardActionDisabled(actionCode: string) {
+    return (
+      disabledStandardActions.value.includes(actionCode) ||
+      Boolean(
+        props.recordOnly?.readOnly &&
+        ['update', 'delete', 'enable', 'disable'].includes(actionCode) &&
+        selectedRecord.value &&
+        props.recordOnly.readOnly(selectedRecord.value),
+      )
+    );
+  }
+
   /** Apply entry restrictions consistently to direct and resource record actions. */
   function pageRecordActions(availability: ModuleRecordActionAvailability): ModuleRecordActionAvailability {
     const resource = treeResource.value?.resource;
@@ -386,9 +414,7 @@ export function useModulePageSession(
       ...availability,
       actions: availability.actions
         .filter(
-          (action) =>
-            action.actionCode.startsWith(prefix) &&
-            !disabledStandardActions.value.includes(action.actionCode),
+          (action) => action.actionCode.startsWith(prefix) && !standardActionDisabled(action.actionCode),
         )
         .map((action) => ({ ...action, actionCode: action.actionCode.slice(prefix.length) })),
     };
@@ -4147,7 +4173,7 @@ export function useModulePageSession(
       props.descriptor.menuId,
       props.recordOnly?.recordId,
       pageContextHeader.value,
-      navigatorExtensionSelection.value,
+      pageSelection.value,
       treeResource.value?.resource,
     ]),
   );
@@ -4162,9 +4188,7 @@ export function useModulePageSession(
       ...(tenantScopeId.value ? { tenantId: tenantScopeId.value } : {}),
       ...(props.descriptor.menuId ? { menuId: props.descriptor.menuId } : {}),
       ...(pageContextHeader.value ? { pageContext: JSON.parse(pageContextHeader.value) } : {}),
-      ...(navigatorExtensionSelection.value
-        ? { pageSelection: { ...navigatorExtensionSelection.value } }
-        : {}),
+      ...(pageSelection.value ? { pageSelection: { ...pageSelection.value } } : {}),
     };
   }
   function recordSaveRecovery() {
@@ -4295,7 +4319,7 @@ export function useModulePageSession(
       const viewRefreshed = targetIsCurrent
         ? await readSavedRecord(receipt.recordId, targetIsCurrent)
         : false;
-      refreshList();
+      if (!props.recordOnly || !viewRefreshed) refreshList();
       return recordSavePresentation(receipt.recordId, viewRefreshed);
     } finally {
       saving.value = false;
@@ -4437,7 +4461,7 @@ export function useModulePageSession(
         inputValidationStatus.invalidateRecord(savedId);
         void context.recordActions(savedId).catch(() => undefined);
       }
-      refreshList();
+      if (!props.recordOnly || !viewRefreshed) refreshList();
       await presentModuleActionSuccess(
         result,
         language.t('platform.screen.DynamicModuleWorkspaceDetailView.saved-successfully', '保存成功'),
@@ -5443,6 +5467,35 @@ export function useModulePageSession(
     return mayLeaveDetailSession();
   }
 
+  function captureRecordDraft() {
+    return props.recordOnly && editorMode.value === 'edit' ? editingRecord.value : undefined;
+  }
+
+  async function restoreRecordDraft(draft: QueryListRecord) {
+    const record = selectedRecord.value;
+    const id = props.recordOnly?.recordId;
+    const canRestore = () =>
+      Boolean(
+        id &&
+        record &&
+        selectedRecord.value === record &&
+        String(record.id) === id &&
+        String(draft.id) === id &&
+        detailOpen.value &&
+        !detailLoadFailed.value &&
+        !detailLoading.value &&
+        !interactionBusy.value &&
+        !detailDirty.value &&
+        !disposed,
+      );
+    if (!id || !canRestore() || !(await recordActionAvailable(id, 'update')) || !canRestore()) return false;
+    // Keep the source version so a concurrent update is rejected by the standard save path.
+    detail.beginEdit({ cancelDestination: 'restore-view' });
+    editingRecord.value = draft;
+    markAssistantUserInteraction();
+    return true;
+  }
+
   /** The reference browser owns the record-only session and releases this Host on close. */
   function closeRecordOnlyDetail() {
     if (interactionBusy.value || recordOnlyClosePending.value) return;
@@ -5552,6 +5605,8 @@ export function useModulePageSession(
   return {
     language,
     props,
+    captureRecordDraft,
+    restoreRecordDraft,
     runtimePageResolved,
     runtimePage,
     pageBootstrapError,

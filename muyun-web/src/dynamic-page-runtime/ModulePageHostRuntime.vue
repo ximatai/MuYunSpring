@@ -1432,6 +1432,10 @@ export default defineComponent({
         :subtitle="businessVisible && editorMode !== 'view' ? recordFormScopeContext : undefined"
         :render-mode="props.recordOnly?.renderMode ?? 'inline'"
         :scope="props.recordOnly?.scope ?? 'tab'"
+        :surface="props.recordOnly?.surface"
+        :promotion="
+          selectedRecord?.id && !detailLoading && !detailLoadFailed ? props.recordOnly?.promotion : undefined
+        "
         :width="detailDrawerWidth"
         :mode="editorMode"
         :loading="detailLoading"

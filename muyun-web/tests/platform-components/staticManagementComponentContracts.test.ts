@@ -327,7 +327,7 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(detailDrawerSource, /scope\?: UiSidePanelScope/);
   assert.match(detailDrawerSource, /:scope="scope"/);
   assert.match(drawerSource, /scope\?: UiSidePanelScope/);
-  assert.match(drawerSource, /:scope="scope"/);
+  assert.match(drawerSource, /workspace \? RecordDetailPanel : RecordDetailDrawer/);
   assert.match(detailLayoutSource, /overflow: auto/);
 
   const recordPickerSource = readSource('src/platform-components/RecordPicker.vue');
@@ -388,12 +388,6 @@ it('page navigator renders levels through the standard module runner', () => {
   assert.match(hostSource, /function navigatorExplorerQueryValues/);
   assert.match(hostSource, /v-for="level in visibleNavigatorLevels"/);
   assert.match(hostSource, /:external-query-values="navigatorExplorerQueryValues\(level\.descriptor\.key\)"/);
-});
-
-it('static edit draft normalizers preserve standard record fields', () => {
-  const roleSource = readSource('src/views/RoleManagementView.vue');
-
-  assert.match(roleSource, /function normalizedRoleDraft[\s\S]*normalizeRecordDraft<Role>\(draft,/);
 });
 
 it('record explorer panel focuses and closes search from keyboard', () => {
@@ -506,16 +500,10 @@ it('record pickers share reference interaction and standard select adapters', ()
 });
 
 it('role scope navigation uses the platform tree with deferred children', () => {
-  const roleSource = readSource('src/views/RoleManagementView.vue');
+  const roleScopeTree = readSource('src/platform-admin-runtime/role/RoleScopeTree.vue');
   const treeSource = readSource('src/vue-ui-antdv/components/UiTree.vue');
 
-  assert.match(roleSource, /<UiTree/);
-  assert.match(roleSource, /load-strategy="controlled"/);
-  assert.match(roleSource, /:branch-states="scopeBranchStates"/);
-  assert.match(roleSource, /useTreeData/);
-  assert.match(roleSource, /tenantRootTreeNode/);
-  assert.match(roleSource, /organizationTreeNode/);
-  assert.match(roleSource, /createScopedTreeModuleContext/);
+  assert.match(roleScopeTree, /<UiTree[\s\S]*load-strategy="controlled"/);
   assert.match(treeSource, /useTreeLoader/);
   assert.match(treeSource, /loadStrategy\?: UiTreeLoadStrategy/);
   assert.match(treeSource, /event\?\.expanded/);
@@ -557,7 +545,6 @@ it('three-column management pages use the platform detail panel', () => {
 });
 
 it('role management enters the standard runner while keeping IAM scope and actions injected', () => {
-  const roleViewSource = readSource('src/views/RoleManagementView.vue');
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
   const roleScopeTreeSource = readSource('src/platform-admin-runtime/role/RoleScopeTree.vue');
   const roleScopeClientSource = readSource('src/platform-admin-runtime/role/roleScopeSelectionClient.ts');
@@ -600,70 +587,8 @@ it('role management enters the standard runner while keeping IAM scope and actio
     roleEnumTitleCellSource,
     /standard: language\.t\('platform\.screen\.RoleManagementView\.standard-role', '标准角色'\)/,
   );
-  assert.match(roleViewSource, /tenantRootTreeNode/);
-  assert.match(roleViewSource, /selectPlatformScope/);
-  assert.match(roleViewSource, /title: '平台角色'/);
-  assert.match(roleViewSource, /selectTenantRootScope/);
-  assert.match(roleViewSource, /selectOrganizationScope/);
-  assert.match(roleViewSource, /fieldName: 'ownerScopeType'/);
-  assert.match(roleViewSource, /fieldName: 'ownerScopeId'/);
-  assert.match(roleViewSource, /values: \[scope\.kind\]/);
-  assert.match(roleViewSource, /values: \[scope\.id\]/);
-  assert.match(roleViewSource, /createScopedTreeModuleContext/);
-  assert.match(roleViewSource, /treePath: '\/iam\.organization\/tree'/);
-  assert.match(roleViewSource, /scopeFieldName: 'tenantId'/);
-  assert.match(roleViewSource, /onMounted\(\(\) => \{/);
-  assert.match(roleViewSource, /void loadRoleFormDefinition\(\)/);
-  assert.match(roleViewSource, /roleDetailWorkspaceView/);
-  assert.match(roleViewSource, /scopeKind: scope\.kind/);
-  assert.match(roleViewSource, /handOffRoleDetailWorkspaceSession/);
-  assert.match(roleViewSource, /<RecordDetailPanel v-else/);
-  assert.match(roleViewSource, /resolveRecordFormFields\(runtimeContext\.uiDescriptor\)/);
-  assert.match(roleViewSource, /roleFormFieldDefinitions = ref\(resolveRecordFormFields\(undefined\)\)/);
-  assert.match(roleViewSource, /:fields="roleFormFieldDefinitions"/);
-  assert.match(roleViewSource, /:fallback="roleFormFieldFallback"/);
-  assert.match(roleViewSource, /tenantId: scopeTenantId\(scope\)/);
-  assert.match(roleViewSource, /function scopeTenantId\(scope: RoleScope \| undefined\)/);
-  assert.match(roleViewSource, /scope\?\.kind === 'platform'/);
-  assert.match(roleViewSource, /scope\?\.tenant\?\.id \?\? scope\?\.id/);
-  assert.match(roleViewSource, /assignmentType: \{[\s\S]*controlType: 'select'/);
-  assert.match(roleViewSource, /roleKind: \{[\s\S]*controlType: 'select'/);
-  assert.match(roleViewSource, /sharePolicy: \{[\s\S]*options: sharePolicyOptions/);
-  assert.match(roleViewSource, /roleDraft\.value\.roleKind === 'group'/);
-  assert.match(roleViewSource, /fieldName === 'ownerScopeType' \|\| fieldName === 'ownerScopeId'/);
-  assert.match(roleViewSource, /roleDetailMode\.value === 'edit' && \['assignmentType', 'roleKind'\]/);
-  assert.match(roleViewSource, /selectedRole\.value\?\.systemManaged/);
-  assert.match(roleViewSource, /target as Role\)\.systemManaged !== true/);
-  assert.match(roleViewSource, /const roleListColumns = computed<RecordQueryListColumn\[\]>/);
-  assert.match(roleViewSource, /:columns="roleListColumns"/);
-  assert.match(roleViewSource, /function assignmentTypeTitle/);
-  assert.match(roleViewSource, /function roleKindTitle/);
-  assert.match(roleViewSource, /function sharePolicyTitle/);
-  assert.match(roleViewSource, /commitRoleDetailRecord\(fullRecord, mode\)/);
-  assert.match(roleViewSource, /nextMode === 'edit' && record\.systemManaged !== true \? 'edit' : 'view'/);
-  assert.match(roleViewSource, /standard-crud-actions/);
-  assert.match(roleViewSource, /standard-crud-row-actions/);
-  assert.match(roleViewSource, /:extra-row-actions-of="roleExtraRowActionsOf"/);
-  assert.match(
-    roleViewSource,
-    /key: 'bind'[\s\S]*title: language\.t\('platform\.screen\.RoleManagementView\.assign', '绑定'\)[\s\S]*after: 'edit'[\s\S]*pinned: true/,
-  );
   assert.match(panelSource, /primaryActions: ResolvedRecordActionItem\[\]/);
   assert.match(panelSource, /index === 0 \|\| action\.pinned === true/);
-  assert.match(roleViewSource, /:row-action-state-of="roleRowActionStateOf"/);
-  assert.match(roleViewSource, /const canToggleRole = computed\(/);
-  assert.match(roleViewSource, /:disabled="savingRole \|\| !canToggleRole"/);
-  assert.match(roleViewSource, /@change="toggleRoleEnabled\(selectedRole\)"/);
-  assert.match(
-    roleViewSource,
-    /return record\?\.assignmentType === 'employment' \? 'employmentRoleGrants' : 'accountRoleGrants';/,
-  );
-  assert.match(roleViewSource, /<RoleAccountGrantDrawer/);
-  assert.match(roleViewSource, /<RoleEmploymentGrantDrawer/);
-  assert.match(
-    roleViewSource,
-    /if \(action\.key === 'bind' && selectedRole\.value\)[\s\S]*selectedRole\.value\.assignmentType === 'employment'/,
-  );
   const roleEmploymentGrantDrawerSource = readSource('src/views/RoleEmploymentGrantDrawer.vue');
   const roleAuthorizationDrawerSurfaceForOperationSource = readSource(
     'src/platform-admin-runtime/role/RoleAuthorizationDrawerSurface.vue',
@@ -721,16 +646,6 @@ it('role management enters the standard runner while keeping IAM scope and actio
     roleAuthorizationSource,
     /\.action-panel :deep\(\.ant-table-body\) \{[\s\S]*overscroll-behavior: contain;/,
   );
-  assert.notMatch(roleViewSource, /account-grants/);
-  assert.notMatch(roleViewSource, /employment-grants/);
-  assert.notMatch(roleViewSource, /permissionMatrix/);
-  assert.match(
-    roleViewSource,
-    /key: 'authorize'[\s\S]*actionCode: 'rolePermissions'[\s\S]*title: language\.t\('platform\.page-action\.MANAGE_PERMISSIONS\.title', '授权'\)/,
-  );
-  assert.match(roleViewSource, /authorizationDrawerOpen\.value = true/);
-  assert.match(roleViewSource, /<RoleAuthorizationView[\s\S]*:role-id="authorizationRole\.id"[\s\S]*drawer/);
-  assert.notMatch(roleViewSource, /createWorkspaceViewDescriptor\([\s\S]*roleAuthorizationWorkspaceView/);
   const roleAuthorizationDrawerSurfaceSource = readSource(
     'src/platform-admin-runtime/role/RoleAuthorizationDrawerSurface.vue',
   );
@@ -769,16 +684,6 @@ it('role management enters the standard runner while keeping IAM scope and actio
   );
   assert.match(roleAuthorizationViewSource, /dismissal: 'guarded'/);
   assert.match(roleAuthorizationViewSource, /beforeClose: confirmWorkspaceDismissal/);
-  assert.match(roleViewSource, /const roleDetailDirty = computed/);
-  assert.match(roleViewSource, /const roleDraftBaseline = ref\(recordDraftFingerprint\(roleDraft\.value\)\)/);
-  assert.match(roleViewSource, /roleDetailMode\.value !== 'view'/);
-  assert.match(
-    roleViewSource,
-    /async function startCreateRole\(\)[\s\S]*roleDraft\.value = createRoleDraft[\s\S]*resetRoleDraftBaseline\(\)/,
-  );
-  assert.match(roleViewSource, /useWorkspaceViewUnsavedState\(\s*\(\) => language\.t\([^)]*'角色详情'/);
-  assert.match(roleViewSource, /async function selectOrganizationScope[\s\S]*selectedTenant\.value = tenant/);
-  assert.match(roleViewSource, /before-close="confirmRoleDetailDismissal"/);
   assert.match(roleAuthorizationViewSource, /UiCheckbox/);
   assert.match(roleAuthorizationViewSource, /#header="\{ column \}"/);
   assert.match(roleAuthorizationViewSource, /updateAllActions/);
@@ -1206,7 +1111,7 @@ it('pages own their drawer containers and fixed drawer action regions', () => {
   );
   const workspaceViewsSource = readSource('src/platform-workbench/workspaceViews.ts');
   const viewPromotionSource = readSource('src/platform-admin-runtime/useWorkspaceViewPromotion.ts');
-  const roleSource = readSource('src/views/RoleManagementView.vue');
+  const roleSource = readSource('src/views/RoleDetailWorkspaceView.vue');
   const roleAccountGrantSource = readSource('src/views/RoleAccountGrantDrawer.vue');
   const roleEmploymentGrantSource = readSource('src/views/RoleEmploymentGrantDrawer.vue');
 
@@ -1256,8 +1161,7 @@ it('pages own their drawer containers and fixed drawer action regions', () => {
     readSource('src/platform-admin-runtime/PlatformAdminOutlet.vue'),
     /workspaceViewPresentation === 'drawer'/,
   );
-  assert.match(roleSource, /roleDetailOperationActions/);
-  assert.notMatch(roleSource, /roleDetailHeaderActions/);
+  assert.match(roleSource, /<ModulePageHost[\s\S]*:record-only=/);
   assert.match(roleAccountGrantSource, /<template v-if="!embedded" #operation>/);
   assert.match(roleEmploymentGrantSource, /<template v-if="!embedded" #operation>/);
 });
@@ -1267,7 +1171,6 @@ it('public management and drawer contracts use business roles instead of layout 
   const recordDetailDrawerSource = readSource('src/platform-components/RecordDetailDrawer.vue');
   const recordModeDrawerSource = readSource('src/platform-components/RecordModeDrawer.vue');
   const standardDrawerSources = [
-    readSource('src/views/RoleManagementView.vue'),
     readSource('src/views/RoleAccountGrantDrawer.vue'),
     readSource('src/views/RoleEmploymentGrantDrawer.vue'),
   ];

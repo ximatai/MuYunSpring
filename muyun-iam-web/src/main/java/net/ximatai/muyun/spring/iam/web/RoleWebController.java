@@ -18,6 +18,7 @@ import net.ximatai.muyun.spring.web.WebPageResponse;
 import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
+import net.ximatai.muyun.spring.platform.web.UiFormula;
 import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
@@ -175,6 +176,7 @@ public class RoleWebController extends WebSupport<RoleService> implements
 
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
+        var creatingRole = UiFormula.booleanExpression("!(PRESENT({id}))");
         return ModuleUiDefinition.builder(RoleService.MODULE_ALIAS)
                 .page(PageTemplates.listDetailCard(page -> page
                 .list(list -> list.header(header -> header.title("角色管理")
@@ -191,8 +193,8 @@ public class RoleWebController extends WebSupport<RoleService> implements
                 .detail(detail -> detail.editor(form -> form
                         .title("角色档案")
                         .field("title", field -> field.label("角色名称").required())
-                        .field("assignmentType", field -> field.label("授权层级").required().select())
-                        .field("roleKind", field -> field.label("角色类型").required().select())
+                        .field("assignmentType", field -> field.label("授权层级").required().select().enabledWhen(creatingRole))
+                        .field("roleKind", field -> field.label("角色类型").required().select().enabledWhen(creatingRole))
                         .field("memberRoleIds", field -> field.label("成员角色"))
                         .field("ownerScopeType", field -> field.label("归属范围").required().readOnly().select())
                         .field("ownerScopeId", field -> field.label("归属对象").readOnly())

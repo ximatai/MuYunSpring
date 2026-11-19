@@ -3,12 +3,13 @@ import { computed, ref } from 'vue';
 import type { StandardModulePageDescriptor } from '@muyun/web-contracts';
 import type { QueryListRecord } from '@muyun/platform-components';
 import ModulePageHostSession from './ModulePageHostSession.vue';
+import type { ModuleRecordOnlyOptions } from './useModulePageSession';
 
 defineOptions({ name: 'ModulePageHost' });
 const props = defineProps<{
   descriptor: StandardModulePageDescriptor;
   requireConfiguredPage?: boolean;
-  recordOnly?: { recordId: string; renderMode?: 'inline' | 'portal'; scope?: 'tab' | 'viewport' };
+  recordOnly?: ModuleRecordOnlyOptions;
   /** Rebuilds the published business definition without recreating tenant controls. */
   reloadKey?: number;
 }>();
@@ -16,6 +17,7 @@ const emit = defineEmits<{
   'interaction-state-change': [state: { editing: boolean; busy: boolean; dirty?: boolean }];
   'record-only-change': [mutation: { type: 'saved' | 'deleted' | 'unavailable'; record?: QueryListRecord }];
   'record-only-close': [];
+  'record-only-ready': [record: QueryListRecord];
 }>();
 const session = ref<InstanceType<typeof ModulePageHostSession>>();
 // Params are business input for one entry. Only an entry/record target change
@@ -28,6 +30,7 @@ const controlSessionKey = computed(() =>
     recordOnly: props.recordOnly
       ? {
           recordId: props.recordOnly.recordId,
+          pageSelection: props.recordOnly.pageSelection,
         }
       : undefined,
   }),
@@ -38,7 +41,12 @@ function refreshList() {
 function confirmLeave() {
   return session.value?.confirmLeave() ?? true;
 }
-defineExpose({ refreshList, confirmLeave });
+defineExpose({
+  refreshList,
+  confirmLeave,
+  captureRecordDraft: () => session.value?.captureRecordDraft(),
+  restoreRecordDraft: (draft: QueryListRecord) => session.value?.restoreRecordDraft(draft) ?? false,
+});
 </script>
 
 <template>
@@ -52,5 +60,6 @@ defineExpose({ refreshList, confirmLeave });
     @interaction-state-change="emit('interaction-state-change', $event)"
     @record-only-change="emit('record-only-change', $event)"
     @record-only-close="emit('record-only-close')"
+    @record-only-ready="emit('record-only-ready', $event)"
   />
 </template>

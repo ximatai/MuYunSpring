@@ -503,6 +503,10 @@ class StaticModuleDefinitionScannerTest {
                                     .containsExactly("title", "assignmentType", "roleKind", "memberRoleIds",
                                             "ownerScopeType", "ownerScopeId", "sharePolicy", "description",
                                             "enabled");
+                            assertThat(view.fields())
+                                    .filteredOn(field -> List.of("assignmentType", "roleKind").contains(field.fieldRef().fieldName()))
+                                    .hasSize(2).allSatisfy(field ->
+                                            assertThat(field.readOnly().formula().expression()).isEqualTo("PRESENT({id})"));
                             assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("ownerScopeType"))
                                     .singleElement()
                                     .satisfies(field -> {

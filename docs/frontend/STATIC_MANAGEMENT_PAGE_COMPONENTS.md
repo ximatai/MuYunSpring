@@ -242,13 +242,11 @@ RecordDetailPanel
 | 用户、系统用户视角 | 同一 `iam.user` 标准列表详情 | 租户导航由 DSL 声明；系统用户未选租户时按 `tenantId IS NULL` 查询。在线状态列、会话展开及密码动作通过 `userModulePageEnhancement` 交付，不存在独立系统用户管理页迁移项。 |
 | 职员管理 | `iam.employee` 标准列表详情 | 机构导航及任职聚合由 DSL 声明；账号设置通过 `employeeModulePageEnhancement` 的受控抽屉交付。 |
 | 角色管理主入口 | `iam.role` 标准列表详情 | `roleModulePageEnhancement` 补归属范围导航、枚举展示、角色组成员字段，以及绑定和授权动作面板。 |
-| 角色详情恢复视图 | 已注册的 `iam.role.detail` → `RoleDetailWorkspaceView` → `RoleManagementView` | 仍有独立详情/编辑/保存/删除会话，是 TD-046 唯一剩余收敛项；主入口已迁移不代表这条恢复链路已收口。 |
+| 角色详情恢复视图 | `iam.role.detail` 通过标准模块宿主打开单条角色记录 | 旧 URL 继续携带角色 ID 和归属范围。IAM 解析不透明的归属选择，标准记录会话承接详情、编辑和保存，抽屉提升到页签时交接草稿。 |
 | 角色授权、账号/任职绑定 | `iam.role.authorization` 工作区及角色增强动作抽屉 | 授权包含模块动作矩阵、数据授权范围和跨模块草稿；绑定包含候选选择及授权生效上下文，均保留专用业务面板，不能用角色普通 CRUD 替代。授权抽屉支持提升为页签及会话恢复，路由 `/iam/role/authorization` 不替换角色菜单主入口。 |
 | 审批流程 | 专用流程管理工作区 | 维护流程定义、版本和发布会话，继续复用公共列表、导航锁、详情及操作区，不属于本轮普通管理页迁移核销范围。 |
 
 前端事实入口为 [通用模块路由](../../muyun-web/src/app/router.ts)、[专用路由](../../muyun-web/src/platform-admin-runtime/platformAdminRoutes.ts)、[页面增强注册](../../muyun-web/src/platform-admin-runtime/workspaceViews.ts) 和 [工作区注册](../../muyun-web/src/platform-admin-runtime/workspaceViewContributions.ts)。页面 DSL 位于 `muyun-platform-web` 的应用、模块、字典类目/字典项、菜单管理/菜单方案、字段 UI 控件 Controller，以及 `muyun-iam-web` 的租户、组织、部门、岗位、用户、职员和角色 Controller；领域服务和模块身份不因此迁入前端或宿主层。
-
-TD-046 只跟踪角色详情恢复视图的重复标准会话；不要求将已有专用业务工作区强行配置化。后续新增多层嵌套、批量或组合范围导航时，按真实场景判断公共契约缺口，不把这些能力预列为本次迁移债务。
 
 ## 新页面判断
 

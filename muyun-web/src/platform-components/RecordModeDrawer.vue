@@ -9,6 +9,7 @@ import {
   type UiSidePanelScope,
 } from '@muyun/vue-ui-antdv';
 import RecordDetailDrawer from './RecordDetailDrawer.vue';
+import RecordDetailPanel from './RecordDetailPanel.vue';
 import RecordExternalChangeNotice from './RecordExternalChangeNotice.vue';
 import type { DrawerPromotion } from './drawerPromotion';
 
@@ -20,6 +21,7 @@ const props = withDefaults(
   defineProps<{
     open: boolean;
     title: string;
+    surface?: 'drawer' | 'workspace';
     container?: HTMLElement | null;
     /** Explicit presentation is needed by embedded record-only surfaces. */
     renderMode?: 'inline' | 'portal';
@@ -52,6 +54,7 @@ const props = withDefaults(
     externalChangeDismissTitle?: string;
   }>(),
   {
+    surface: 'drawer',
     container: undefined,
     renderMode: undefined,
     subtitle: undefined,
@@ -127,23 +130,31 @@ const emit = defineEmits<{
 const viewModeActive = computed(() => props.mode === props.viewMode);
 const formModeActive = computed(() => props.formModes.includes(props.mode));
 const legacyCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActive.value);
+const workspace = computed(() => props.surface === 'workspace');
 </script>
 
 <template>
-  <RecordDetailDrawer
-    :open="open"
+  <component
+    :is="workspace ? RecordDetailPanel : RecordDetailDrawer"
     :title="title"
-    :render-mode="renderMode ?? (container ? 'inline' : 'portal')"
     :subtitle="subtitle"
-    :width="width"
-    :scope="scope"
-    :dismissal="dismissal"
-    :close-on-outside="legacyCloseOnOutside"
-    :before-close="beforeClose"
-    :close-title="resolvedCloseTitle"
-    :promotion="promotion"
-    @close="emit('close')"
-    @after-close="emit('afterClose')"
+    v-bind="
+      workspace
+        ? {}
+        : {
+            open,
+            renderMode: renderMode ?? (container ? 'inline' : 'portal'),
+            width,
+            scope,
+            dismissal,
+            closeOnOutside: legacyCloseOnOutside,
+            beforeClose,
+            closeTitle: resolvedCloseTitle,
+            promotion,
+            onClose: () => emit('close'),
+            onAfterClose: () => emit('afterClose'),
+          }
+    "
   >
     <template v-if="$slots['title-prefix']" #title-prefix>
       <slot name="title-prefix" />
@@ -194,7 +205,7 @@ const legacyCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
       </slot>
       <slot name="form" />
     </template>
-  </RecordDetailDrawer>
+  </component>
 </template>
 
 <style scoped>

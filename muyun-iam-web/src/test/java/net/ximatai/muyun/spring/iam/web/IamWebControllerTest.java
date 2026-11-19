@@ -116,6 +116,7 @@ import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
@@ -892,6 +893,49 @@ class IamWebControllerTest {
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value("role-1"));
+    }
+
+    @Test
+    void shouldEnforceTenantRoleSelectionOnStandardRecordReadAndUpdate() throws Exception {
+        currentUser = CurrentUser.tenantUser("admin-1", "Admin", "demo");
+        TenantService scopedTenantService = mock(TenantService.class);
+        Tenant tenant = new Tenant();
+        tenant.setId("demo");
+        tenant.setEnabled(true);
+        when(scopedTenantService.requireActiveTenant("demo")).thenReturn(tenant);
+        Tenant other = new Tenant();
+        other.setId("other");
+        other.setEnabled(true);
+        when(scopedTenantService.requireActiveTenant("other")).thenReturn(other);
+        when(roleService.select("role-1")).thenReturn(tenantScopedRole("role-1", "demo"));
+        Role organizationRole = tenantScopedRole("org-role", "demo");
+        organizationRole.setOwnerScopeType(RoleOwnerScopeType.ORGANIZATION);
+        organizationRole.setOwnerScopeId("demo_org");
+        organizationRole.setOwnerScopeKey("organization:demo_org");
+        when(roleService.select("org-role")).thenReturn(organizationRole);
+        var securedMvc = securedRoleMvc(scopedTenantService, mock(OrganizationService.class));
+
+        securedMvc.perform(get("/iam.role/view/{id}", "role-1")
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("tenant:demo")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value("role-1"));
+        securedMvc.perform(get("/iam.role/view/{id}", "org-role")
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("tenant:demo")))
+                .andExpect(status().isBadRequest());
+        securedMvc.perform(get("/iam.role/view/{id}", "role-1")
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("tenant:other")))
+                .andExpect(status().isForbidden());
+        securedMvc.perform(post("/iam.role/update/{id}", "role-1")
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("tenant:demo"))
+                        .contentType("application/json")
+                        .content("{\"title\":\"Updated tenant role\",\"version\":0}"))
+                .andExpect(status().isOk());
+        securedMvc.perform(post("/iam.role/update/{id}", "org-role")
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("tenant:demo"))
+                        .contentType("application/json")
+                        .content("{\"title\":\"Wrong scope\",\"version\":0}"))
+                .andExpect(status().isBadRequest());
+        verify(roleService).update(argThat(role -> "role-1".equals(role.getId())
+                && "Updated tenant role".equals(role.getTitle())));
     }
 
     @Test

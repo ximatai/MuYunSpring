@@ -35,7 +35,7 @@ import ModulePageHostRuntime from './ModulePageHostRuntime.vue';
 import { assistantBusinessScopeKey } from './assistantBusinessScope';
 import ModulePageBusinessSession from './ModulePageBusinessSession';
 import { useTenantScopeController } from './useTenantScopeController';
-import type { ModulePageSessionView } from './useModulePageSession';
+import type { ModulePageSessionView, ModuleRecordOnlyOptions } from './useModulePageSession';
 import {
   createModulePageAssistantSurface,
   modulePageAssistantContextRevision,
@@ -49,7 +49,7 @@ defineOptions({ name: 'ModulePageHostSession' });
 const props = defineProps<{
   descriptor: StandardModulePageDescriptor;
   requireConfiguredPage?: boolean;
-  recordOnly?: { recordId: string; renderMode?: 'inline' | 'portal'; scope?: 'tab' | 'viewport' };
+  recordOnly?: ModuleRecordOnlyOptions;
   /** Rebuilds only the frozen business session; the tenant controller stays mounted. */
   reloadKey?: number;
 }>();
@@ -57,6 +57,7 @@ const emit = defineEmits<{
   'interaction-state-change': [state: { editing: boolean; busy: boolean; dirty?: boolean }];
   'record-only-change': [mutation: { type: 'saved' | 'deleted' | 'unavailable'; record?: QueryListRecord }];
   'record-only-close': [];
+  'record-only-ready': [record: QueryListRecord];
 }>();
 const controlContext = useModuleContext<QueryListRecord>({
   moduleAlias: props.descriptor.target.moduleAlias,
@@ -126,6 +127,9 @@ function acceptSession(session: ModulePageSessionView) {
   view.value = session;
   failure.value = undefined;
   pending.value = false;
+  if (props.recordOnly && session.selectedRecord && !session.detailLoadFailed) {
+    emit('record-only-ready', session.selectedRecord);
+  }
 }
 function rejectSession(session: ModulePageSessionView, message: string) {
   // Keep the stable renderer mounted after an initial business bootstrap error.
@@ -320,7 +324,13 @@ onUnmounted(() => {
 function confirmLeave() {
   return pending.value || interaction.value.busy ? false : (view.value?.confirmDetailDrawerClose() ?? true);
 }
-defineExpose({ refreshList, confirmLeave, retry: startBusinessSession });
+defineExpose({
+  refreshList,
+  confirmLeave,
+  retry: startBusinessSession,
+  captureRecordDraft: () => view.value?.captureRecordDraft(),
+  restoreRecordDraft: (draft: QueryListRecord) => view.value?.restoreRecordDraft(draft) ?? false,
+});
 </script>
 
 <template>
