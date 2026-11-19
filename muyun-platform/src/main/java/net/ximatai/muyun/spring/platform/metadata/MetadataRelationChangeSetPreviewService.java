@@ -689,8 +689,12 @@ public class MetadataRelationChangeSetPreviewService {
         try {
             PlatformNameRules.requireFieldName(field.getFieldName(), "fieldName");
             if (DynamicRecordProtocolFields.isReservedBusinessFieldName(field.getFieldName())) {
-                throw new IllegalArgumentException("dynamic record protocol field name is reserved: "
-                        + field.getFieldName());
+                errors.add(MetadataChangeSetValidationIssue.declared(MetadataChangeSetValidationIssue.Severity.ERROR,
+                        "INVALID_FIELD_DRAFT", subject,
+                        TextReference.code("platform.metadata.diagnostic.reserved-record-field-name",
+                                "dynamic record protocol field name is reserved: {fieldName}"),
+                        Map.of("fieldName", field.getFieldName())));
+                return false;
             }
             PlatformNameRules.requireDatabaseName(field.getColumnName(), "columnName");
             PlatformNameRules.requireIdentifier(field.getFieldSpecAlias(), "fieldSpecAlias");

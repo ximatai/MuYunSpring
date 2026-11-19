@@ -6,6 +6,8 @@ import net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.i18n.LanguageCatalog;
+import net.ximatai.muyun.spring.common.i18n.TextResources;
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
@@ -223,6 +225,28 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
             assertThat(issue.messageArgs()).containsEntry("name", "fieldName").containsEntry("value", "bad_name");
             assertThat(issue.message()).isEqualTo("invalid fieldName: bad_name");
         });
+    }
+
+    @Test
+    void modelPreviewExposesTheReservedRecordFieldDiagnosticInBothLanguages() {
+        var preview = modelPreview.preview(moduleAlias, modelProposal("values", "values"));
+        assertThat(preview.valid()).isFalse();
+        var loader = getClass().getClassLoader();
+        var texts = TextResources.load(loader, LanguageCatalog.load(loader, "zh-CN"));
+        assertThat(preview.errors()).filteredOn(issue -> issue.code().equals("INVALID_FIELD_DRAFT"))
+                .singleElement().satisfies(issue -> {
+                    assertThat(issue.severity()).isEqualTo(MetadataChangeSetValidationIssue.Severity.ERROR);
+                    assertThat(issue.subject()).isEqualTo("new");
+                    assertThat(issue.message()).isEqualTo("dynamic record protocol field name is reserved: values");
+                    assertThat(issue.textSource().sourceId()).isEqualTo("platform.metadata.diagnostic.reserved-record-field-name");
+                    assertThat(issue.messageArgs()).containsExactlyEntriesOf(Map.of("fieldName", "values"));
+                    var english = texts.resolve(issue.textSource(), issue.messageArgs(), "en");
+                    var chinese = texts.resolve(issue.textSource(), issue.messageArgs(), "zh-CN");
+                    assertThat(english.missing()).isFalse();
+                    assertThat(chinese.missing()).isFalse();
+                    assertThat(english.text()).isEqualTo("The dynamic record protocol reserves the field name values.");
+                    assertThat(chinese.text()).isEqualTo("字段名 values 由动态记录协议保留。");
+                });
     }
 
     @Test
