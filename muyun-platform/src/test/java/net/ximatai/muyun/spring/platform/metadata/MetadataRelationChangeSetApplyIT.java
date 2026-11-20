@@ -446,7 +446,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
                 .singleElement().satisfies(issue -> {
                     assertThat(issue.severity()).isEqualTo(MetadataChangeSetValidationIssue.Severity.ERROR);
                     assertThat(issue.subject()).isEqualTo("note");
-                    assertThat(issue.message()).isEqualTo("固定默认值最多 512 个字符。");
+                    assertThat(issue.message()).isEqualTo("A fixed default can contain at most 512 characters.");
                     assertThat(issue.textSource().sourceId()).isEqualTo("platform.metadata.diagnostic.fixed-default-too-long");
                     assertThat(issue.messageArgs()).containsExactlyEntriesOf(Map.of("maxLength", 512));
                     var english = texts.resolve(issue.textSource(), issue.messageArgs(), "en");
@@ -494,7 +494,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
                 .singleElement().satisfies(issue -> {
                     assertThat(issue.severity()).isEqualTo(MetadataChangeSetValidationIssue.Severity.ERROR);
                     assertThat(issue.subject()).isEqualTo("code");
-                    assertThat(issue.message()).isEqualTo(chinese);
+                    assertThat(issue.message()).isEqualTo(english);
                     assertThat(issue.textSource().sourceId()).isEqualTo(sourceId);
                     assertThat(issue.messageArgs()).isEmpty();
                     assertThat(texts.resolve(issue.textSource(), issue.messageArgs(), "zh-CN").text()).isEqualTo(chinese);

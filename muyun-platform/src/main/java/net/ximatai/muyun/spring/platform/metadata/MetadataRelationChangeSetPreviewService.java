@@ -483,7 +483,7 @@ public class MetadataRelationChangeSetPreviewService {
                 if (requested != null)
                     throw new DeclarationValidationException(DiagnosticText.code(
                             "platform.metadata.diagnostic.fixed-default-unavailable",
-                            "当前环境未配置字段默认值发布。"));
+                            "Publishing fixed field defaults is unavailable in this environment."));
                 return binding;
             }
             ModuleMetadataField legacy = existingField == null || moduleFieldService == null ? null
@@ -501,31 +501,31 @@ public class MetadataRelationChangeSetPreviewService {
                 if (binding.kind() == MetadataFieldPropertyKind.MODULE_REFERENCE)
                     throw new DeclarationValidationException(DiagnosticText.code(
                             "platform.metadata.diagnostic.fixed-default-reference-initialization",
-                            "引用初值应使用关联初始化，不能在此配置固定默认值。"));
+                            "Use relationship initialization to set an initial value for a reference field."));
                 if (proposedField.getFieldForm() != MetadataFieldForm.PHYSICAL)
                     throw new DeclarationValidationException(DiagnosticText.code(
                             "platform.metadata.diagnostic.fixed-default-physical-field-required",
-                            "只有普通存储字段可配置固定默认值。"));
+                            "Only regular stored fields can have a fixed default."));
                 if (legacy != null && legacy.getDefaultValue() != null)
                     throw new DeclarationValidationException(DiagnosticText.code(
                             "platform.metadata.diagnostic.fixed-default-legacy-override",
-                            "当前初值由旧模块字段配置覆盖，请先迁移该配置。"));
+                            "Migrate the legacy module field configuration that overrides this default before editing it."));
                 MetadataFieldConfig effective = override == null ? base : override;
                 if (!bindingVersionMatches(requested.expectedConfigVersion(), effective))
                     throw new DeclarationValidationException(DiagnosticText.code(
                             "platform.metadata.diagnostic.fixed-default-stale-config",
-                            "默认值配置版本已变化，请重新载入后预检。"));
+                            "The default value configuration has changed. Reload before previewing again."));
                 String value = requested.value();
                 if (value != null && value.isBlank()) value = null;
                 if (value != null && value.length() > MetadataFieldConfig.MAX_DEFAULT_VALUE_LENGTH)
                     throw new DeclarationValidationException(DiagnosticText.code(
                             "platform.metadata.diagnostic.fixed-default-too-long",
-                            "固定默认值最多 {maxLength} 个字符。",
+                            "A fixed default can contain at most {maxLength} characters.",
                             Map.of("maxLength", MetadataFieldConfig.MAX_DEFAULT_VALUE_LENGTH)));
                 if (value == null && base != null && base.getDefaultValue() != null)
                     throw new DeclarationValidationException(DiagnosticText.code(
                             "platform.metadata.diagnostic.fixed-default-inherited-clear",
-                            "此字段继承元数据默认值，当前入口不能清除继承初值。"));
+                            "This field inherits the metadata default. The inherited value cannot be cleared here."));
                 candidate.setDefaultValue(value);
                 normalized = new MetadataFieldFixedDefaultDraft(value, requested.expectedConfigVersion());
             }

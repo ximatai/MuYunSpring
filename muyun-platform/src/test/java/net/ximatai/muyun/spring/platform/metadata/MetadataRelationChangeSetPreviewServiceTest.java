@@ -165,7 +165,9 @@ class MetadataRelationChangeSetPreviewServiceTest {
                 new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE, "field-0", 2, existing,
                         new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.BASIC, null, null, null,
                                 new MetadataFieldFixedDefaultDraft("0.9", 5))))));
-        assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::message).anyMatch(value -> value.contains("旧模块字段"));
+        assertThat(result.errors()).filteredOn(issue -> issue.code().equals("INVALID_FIXED_DEFAULT"))
+                .singleElement().satisfies(issue -> assertThat(issue.textSource().sourceId())
+                        .isEqualTo("platform.metadata.diagnostic.fixed-default-legacy-override"));
     }
     @Test
     void shouldRejectCapabilityOwnedBusinessFieldsBeforePublicationEvenWithoutDeclarations() {
