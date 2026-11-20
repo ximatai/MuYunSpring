@@ -5,6 +5,8 @@ import net.ximatai.muyun.spring.common.content.ContentPolicy;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.common.exception.DeclarationValidationException;
+import net.ximatai.muyun.spring.common.i18n.DiagnosticText;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordProtocolFields;
@@ -478,7 +480,10 @@ public class MetadataRelationChangeSetPreviewService {
                 throw new IllegalArgumentException("Reference identity cannot declare business content: " + proposedField.getFieldName());
             if (fieldConfigService == null) {
                 if (contentEnabled) throw new IllegalArgumentException("Business content preflight is not configured");
-                if (requested != null) throw new IllegalArgumentException("当前环境未配置字段默认值发布。");
+                if (requested != null)
+                    throw new DeclarationValidationException(DiagnosticText.code(
+                            "platform.metadata.diagnostic.fixed-default-unavailable",
+                            "当前环境未配置字段默认值发布。"));
                 return binding;
             }
             ModuleMetadataField legacy = existingField == null || moduleFieldService == null ? null
@@ -494,19 +499,33 @@ public class MetadataRelationChangeSetPreviewService {
             MetadataFieldFixedDefaultDraft normalized = null;
             if (requested != null) {
                 if (binding.kind() == MetadataFieldPropertyKind.MODULE_REFERENCE)
-                    throw new IllegalArgumentException("引用初值应使用关联初始化，不能在此配置固定默认值。");
+                    throw new DeclarationValidationException(DiagnosticText.code(
+                            "platform.metadata.diagnostic.fixed-default-reference-initialization",
+                            "引用初值应使用关联初始化，不能在此配置固定默认值。"));
                 if (proposedField.getFieldForm() != MetadataFieldForm.PHYSICAL)
-                    throw new IllegalArgumentException("只有普通存储字段可配置固定默认值。");
+                    throw new DeclarationValidationException(DiagnosticText.code(
+                            "platform.metadata.diagnostic.fixed-default-physical-field-required",
+                            "只有普通存储字段可配置固定默认值。"));
                 if (legacy != null && legacy.getDefaultValue() != null)
-                    throw new IllegalArgumentException("当前初值由旧模块字段配置覆盖，请先迁移该配置。");
+                    throw new DeclarationValidationException(DiagnosticText.code(
+                            "platform.metadata.diagnostic.fixed-default-legacy-override",
+                            "当前初值由旧模块字段配置覆盖，请先迁移该配置。"));
                 MetadataFieldConfig effective = override == null ? base : override;
                 if (!bindingVersionMatches(requested.expectedConfigVersion(), effective))
-                    throw new IllegalArgumentException("默认值配置版本已变化，请重新载入后预检。");
+                    throw new DeclarationValidationException(DiagnosticText.code(
+                            "platform.metadata.diagnostic.fixed-default-stale-config",
+                            "默认值配置版本已变化，请重新载入后预检。"));
                 String value = requested.value();
                 if (value != null && value.isBlank()) value = null;
-                if (value != null && value.length() > 512) throw new IllegalArgumentException("固定默认值最多 512 个字符。");
+                if (value != null && value.length() > MetadataFieldConfig.MAX_DEFAULT_VALUE_LENGTH)
+                    throw new DeclarationValidationException(DiagnosticText.code(
+                            "platform.metadata.diagnostic.fixed-default-too-long",
+                            "固定默认值最多 {maxLength} 个字符。",
+                            Map.of("maxLength", MetadataFieldConfig.MAX_DEFAULT_VALUE_LENGTH)));
                 if (value == null && base != null && base.getDefaultValue() != null)
-                    throw new IllegalArgumentException("此字段继承元数据默认值，当前入口不能清除继承初值。");
+                    throw new DeclarationValidationException(DiagnosticText.code(
+                            "platform.metadata.diagnostic.fixed-default-inherited-clear",
+                            "此字段继承元数据默认值，当前入口不能清除继承初值。"));
                 candidate.setDefaultValue(value);
                 normalized = new MetadataFieldFixedDefaultDraft(value, requested.expectedConfigVersion());
             }

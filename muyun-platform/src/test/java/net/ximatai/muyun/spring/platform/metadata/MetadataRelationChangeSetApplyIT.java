@@ -431,6 +431,78 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     }
 
     @Test
+    void modelPreviewExposesTheFixedDefaultLengthDiagnosticInBothLanguages() {
+        var candidate = proposal("note", "note", "text", false);
+        String atLimit = "X".repeat(512);
+        var accepted = previewService.preview(moduleAlias, relationId, withFixedDefault(candidate, atLimit, null));
+        assertThat(accepted.valid()).isTrue();
+
+        var oversized = withFixedDefault(candidate, atLimit + "X", null);
+        var preview = modelPreview.preview(moduleAlias, modelProposal(oversized));
+        assertThat(preview.valid()).isFalse();
+        var loader = getClass().getClassLoader();
+        var texts = TextResources.load(loader, LanguageCatalog.load(loader, "zh-CN"));
+        assertThat(preview.errors()).filteredOn(issue -> issue.code().equals("INVALID_FIXED_DEFAULT"))
+                .singleElement().satisfies(issue -> {
+                    assertThat(issue.severity()).isEqualTo(MetadataChangeSetValidationIssue.Severity.ERROR);
+                    assertThat(issue.subject()).isEqualTo("note");
+                    assertThat(issue.message()).isEqualTo("固定默认值最多 512 个字符。");
+                    assertThat(issue.textSource().sourceId()).isEqualTo("platform.metadata.diagnostic.fixed-default-too-long");
+                    assertThat(issue.messageArgs()).containsExactlyEntriesOf(Map.of("maxLength", 512));
+                    var english = texts.resolve(issue.textSource(), issue.messageArgs(), "en");
+                    var chinese = texts.resolve(issue.textSource(), issue.messageArgs(), "zh-CN");
+                    assertThat(english.missing()).isFalse();
+                    assertThat(chinese.missing()).isFalse();
+                    assertThat(english.text()).isEqualTo("A fixed default can contain at most 512 characters.");
+                    assertThat(chinese.text()).isEqualTo("固定默认值最多 512 个字符。");
+                });
+    }
+
+    @Test
+    void modelPreviewDistinguishesStaleDefaultConfigurationFromAnInheritedDefault() {
+        applyNewStringField("code", "code");
+        var saved = field("code");
+        var base = new MetadataFieldConfig();
+        base.setMetadataFieldId(saved.getId());
+        base.setDefaultValue("ABC");
+        fieldConfigs.insert(base);
+
+        var candidate = fieldSpecChangeProposal(saved, "string");
+        var stale = withFixedDefault(candidate, null, null);
+        var current = withFixedDefault(candidate, null, base.getVersion());
+        var stalePreview = modelPreview.preview(moduleAlias, modelProposal(stale));
+        var inheritedPreview = modelPreview.preview(moduleAlias, modelProposal(current));
+        assertThat(stalePreview.valid()).isFalse();
+        assertThat(inheritedPreview.valid()).isFalse();
+
+        var loader = getClass().getClassLoader();
+        var texts = TextResources.load(loader, LanguageCatalog.load(loader, "zh-CN"));
+        assertFixedDefaultDiagnostic(stalePreview.errors(), texts,
+                "platform.metadata.diagnostic.fixed-default-stale-config",
+                "默认值配置版本已变化，请重新载入后预检。",
+                "The default value configuration has changed. Reload before previewing again.");
+        assertFixedDefaultDiagnostic(inheritedPreview.errors(), texts,
+                "platform.metadata.diagnostic.fixed-default-inherited-clear",
+                "此字段继承元数据默认值，当前入口不能清除继承初值。",
+                "This field inherits the metadata default. The inherited value cannot be cleared here.");
+        assertThat(fieldConfigs.findByMetadataFieldId(saved.getId()).getDefaultValue()).isEqualTo("ABC");
+    }
+
+    private void assertFixedDefaultDiagnostic(List<MetadataChangeSetValidationIssue> issues, TextResources texts,
+                                              String sourceId, String chinese, String english) {
+        assertThat(issues).filteredOn(issue -> issue.code().equals("INVALID_FIXED_DEFAULT"))
+                .singleElement().satisfies(issue -> {
+                    assertThat(issue.severity()).isEqualTo(MetadataChangeSetValidationIssue.Severity.ERROR);
+                    assertThat(issue.subject()).isEqualTo("code");
+                    assertThat(issue.message()).isEqualTo(chinese);
+                    assertThat(issue.textSource().sourceId()).isEqualTo(sourceId);
+                    assertThat(issue.messageArgs()).isEmpty();
+                    assertThat(texts.resolve(issue.textSource(), issue.messageArgs(), "zh-CN").text()).isEqualTo(chinese);
+                    assertThat(texts.resolve(issue.textSource(), issue.messageArgs(), "en").text()).isEqualTo(english);
+                });
+    }
+
+    @Test
     void rejectedDefaultsNeverPublishAndValidDictionaryDefaultsFillRealInsertedRecords() {
         var tooLong = withFixedDefault(proposal("code", "code", stringSpecAlias, false), "X".repeat(129), null);
         var rejected = previewService.preview(moduleAlias, relationId, tooLong);

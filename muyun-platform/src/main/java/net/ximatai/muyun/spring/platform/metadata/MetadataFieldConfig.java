@@ -54,7 +54,9 @@ public class MetadataFieldConfig extends StandardEntity {
     @Column(name = "query_operators", type = ColumnType.JSON_SET, comment = "Allowed query operators")
     private Set<String> queryOperators;
 
-    @Column(name = "default_value", type = ColumnType.VARCHAR, length = 512, comment = "Default value")
+    static final int MAX_DEFAULT_VALUE_LENGTH = 512;
+
+    @Column(name = "default_value", type = ColumnType.VARCHAR, length = MAX_DEFAULT_VALUE_LENGTH, comment = "Default value")
     private String defaultValue;
 
     public static String effectiveDefaultValue(MetadataFieldConfig base, MetadataFieldConfig relation) {
