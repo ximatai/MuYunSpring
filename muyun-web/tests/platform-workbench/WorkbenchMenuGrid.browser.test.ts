@@ -63,6 +63,38 @@ it.each([1004, 720])('balances consecutive groups in configured column order at 
   }
 });
 
+it('aligns a compact Mega panel with the hovered lower root when it fits', async () => {
+  await page.viewport(1177, 929);
+  const nodes = Array.from({ length: 6 }, (_, index) => leaf(`root-${index}`));
+  const groups = menus()[0]!
+    .children!.slice(0, 2)
+    .map((group) => ({
+      ...group,
+      children: group.children!.slice(0, 2),
+    }));
+  nodes.push({ record: { id: 'resources', title: '基础资料', schemeId: 'default' }, children: groups });
+  const wrapper = mount(WorkbenchMenu, {
+    attachTo: document.body,
+    props: { menus: nodes, presentation: 'compact', compactOpen: true },
+  });
+  try {
+    const trigger = wrapper.get('.root-menu-item:last-child');
+    await page.elementLocator(trigger.element).hover();
+    const anchor = trigger.element.getBoundingClientRect();
+    await expect
+      .poll(() => Math.abs(wrapper.get('.mega-panel').element.getBoundingClientRect().top - anchor.top))
+      .toBeLessThanOrEqual(1);
+    const panel = wrapper.get('.mega-panel').element.getBoundingClientRect();
+    expect(Math.abs(panel.left - anchor.right)).toBeLessThanOrEqual(1);
+    const entry = page.getByRole('button', { name: 'entry-0-0', exact: true });
+    await entry.hover();
+    await entry.click();
+    expect(wrapper.emitted('selectMenu')?.at(-1)?.[0]).toMatchObject({ id: 'entry-0-0' });
+  } finally {
+    wrapper.unmount();
+  }
+});
+
 it('bounds tall groups to the viewport and keeps deep navigation reachable outside the scrolling grid', async () => {
   await page.viewport(1004, 400);
   const nodes = menus(true);

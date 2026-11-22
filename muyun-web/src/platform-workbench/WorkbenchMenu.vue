@@ -692,9 +692,7 @@ function updateMegaPanelTop(target: EventTarget | null | undefined) {
   const shellTop = shellRect?.top ?? 0;
   const panelHeight = Math.min(window.innerHeight - 16, MEGA_PANEL_MAX_HEIGHT);
   const shellLeft = shellRect?.left ?? 0;
-  megaPanelTop.value = isCompact.value
-    ? (compactPanelTopInShell() ?? floatingPanelTopOf(rect.top, panelHeight, window.innerHeight, shellTop))
-    : floatingPanelTopOf(rect.top, panelHeight, window.innerHeight, shellTop);
+  megaPanelTop.value = floatingPanelTopOf(rect.top, panelHeight, window.innerHeight, shellTop);
   megaPanelLeft.value = Math.round(rect.right - shellLeft);
   activeRootLeft.value = Math.round(rect.left - shellLeft);
   activeRootTop.value = Math.round(rect.top - shellTop);
@@ -710,24 +708,13 @@ function updateMegaPanelSize() {
 
   const shellTop = menuShell.value?.getBoundingClientRect().top ?? 0;
   megaPanelTop.value = floatingPanelTopOf(
-    isCompact.value
-      ? shellTop + (compactPanelTopInShell() ?? activeRootTop.value)
-      : shellTop + activeRootTop.value,
+    shellTop + activeRootTop.value,
     panel.offsetHeight,
     window.innerHeight,
     shellTop,
   );
   megaPanelWidth.value = panel.offsetWidth;
   megaPanelHeight.value = panel.offsetHeight;
-}
-
-function compactPanelTopInShell() {
-  const panel = menuSidebar.value;
-  const shellRect = menuShell.value?.getBoundingClientRect();
-  if (!panel || !shellRect) {
-    return undefined;
-  }
-  return Math.round(panel.getBoundingClientRect().top - shellRect.top);
 }
 
 function updateMegaPanelLayout() {

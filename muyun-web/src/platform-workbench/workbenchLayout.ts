@@ -94,7 +94,8 @@ export function compactMenuPanelOutlinePath(
     Math.abs(flyout.left - panel.right) <= 1 &&
     flyout.right > flyout.left &&
     flyout.bottom > flyout.top &&
-    flyout.top >= panel.top;
+    flyout.top < panel.bottom &&
+    flyout.bottom > panel.top;
   if (joinsPanel) {
     const flyoutRadius = 8;
     const flyoutExtendsBelowPanel = flyout.bottom > panel.bottom;

@@ -85,6 +85,20 @@ describe('compactMenuPanelOutlinePath', () => {
     );
   });
 
+  it('keeps the shared outline when viewport fitting lifts the flyout above the sidebar', () => {
+    expect(
+      compactMenuPanelOutlinePath(
+        { left: 8, top: 54, right: 240, bottom: 360 },
+        { left: 8, top: 8, right: 176 },
+        5,
+        4,
+        { left: 240, top: 32, right: 520, bottom: 300 },
+      ),
+    ).toBe(
+      'M 13 8 H 171 Q 176 8 176 13 V 54 H 240 V 32 H 512 Q 520 32 520 40 V 292 Q 520 300 512 300 H 240 V 356 Q 240 360 236 360 H 12 Q 8 360 8 356 V 58 Q 8 54 12 54 H 8 V 13 Q 8 8 13 8',
+    );
+  });
+
   it('keeps the shared outline when the Mega flyout is taller than the compact menu', () => {
     expect(
       compactMenuPanelOutlinePath(
